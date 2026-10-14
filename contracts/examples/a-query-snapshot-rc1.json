@@ -1,0 +1,36 @@
+{
+  "contract_version": "0.2.0-rc1",
+  "status": "proposal_pending_C_and_B_confirmation",
+  "evidence_type": "authored_concurrency_example_not_database_test",
+  "supersedes": "Time watermark alone is insufficient for a fixed cross-request result set.",
+  "export_signature": "export_observations_csv(actor, filters, received_watermark, *, snapshot_id) -> CSVStream",
+  "first_page": {
+    "items": [],
+    "total": 0,
+    "next_cursor": null,
+    "received_watermark": "2026-10-12T02:00:01Z",
+    "snapshot_id": "55555555-5555-4555-8555-555555555555"
+  },
+  "snapshot_policy": {
+    "ttl_seconds": 900,
+    "maximum_rows": 10000,
+    "membership": "Persist ordered immutable observation/version IDs in one short transaction using one consistent visibility snapshot.",
+    "binding": "actor, current role/policy, normalized filters, sort and paired received_watermark; authenticate every request",
+    "projection": "Immutable observation/version or frozen bounded projection; never silently export a mutable latest result.",
+    "permission_change": "Invalidate the old snapshot; fixed membership does not override revoked access."
+  },
+  "concurrency_vector": [
+    "T1 inserts observation X with received_at before watermark, but remains uncommitted.",
+    "First query commits snapshot S without X.",
+    "T1 commits X.",
+    "S later pages, total and CSV still exclude X.",
+    "A new first query can create a new snapshot containing X."
+  ],
+  "errors": {
+    "snapshot_required": 422,
+    "invalid_snapshot": 422,
+    "snapshot_row_limit": 422,
+    "storage_unavailable": 503
+  },
+  "unimplemented": ["snapshot_storage", "C_HTTP_routes", "concurrent_database_acceptance", "role_policy_confirmation"]
+}

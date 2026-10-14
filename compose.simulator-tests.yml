@@ -1,0 +1,26 @@
+# Disposable live runtime test; no application DB, external services or ports.
+services:
+  broker:
+    image: eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408
+    labels:
+      freshlink.purpose: simulator-runtime-test
+    entrypoint: ["sh", "/fixtures/start.sh"]
+    volumes:
+      - ./scripts/mqtt-runtime:/fixtures:ro
+  probe:
+    image: ${A_RUNTIME_IMAGE:-freshlink-app:p0}
+    working_dir: /workspace/backend
+    entrypoint: ["python", "scripts/check-simulator-runtime.py", "/results"]
+    environment:
+      PYTHONPATH: /workspace/backend
+      PYTHONDONTWRITEBYTECODE: "1"
+      FRESHLINK_SENSOR_MQTT_PASSWORD: fixture-sensor-only
+      FRESHLINK_ACTUATOR_MQTT_PASSWORD: fixture-actuator-only
+    volumes:
+      - ./backend:/workspace/backend:ro
+      - ${A_RUNTIME_RESULTS:?Use check-simulator-runtime.ps1}:/results
+    depends_on:
+      - broker
+networks:
+  default:
+    internal: true

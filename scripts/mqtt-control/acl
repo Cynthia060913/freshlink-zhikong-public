@@ -1,0 +1,12 @@
+# Public disposable test accounts; never deploy these as production identities.
+user test-controller
+topic write freshlink/v1/devices/66666666-6666-4666-8666-666666666666/commands
+topic read freshlink/v1/devices/66666666-6666-4666-8666-666666666666/acks
+topic read freshlink/v1/devices/11111111-1111-4111-8111-111111111111/telemetry
+
+user test-actuator
+topic read freshlink/v1/devices/66666666-6666-4666-8666-666666666666/commands
+topic write freshlink/v1/devices/66666666-6666-4666-8666-666666666666/acks
+
+user test-sensor
+topic write freshlink/v1/devices/11111111-1111-4111-8111-111111111111/telemetry

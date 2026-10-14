@@ -1,0 +1,49 @@
+name: freshlink
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/windows/start-local.ps1 first}
+      POSTGRES_DB: app
+    volumes:
+      - freshlink-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  app:
+    image: freshlink-app:p0
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        VITE_API_URL: ""
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PROJECT_NAME: FreshLink
+      SECRET_KEY: ${SECRET_KEY:?Run scripts/windows/start-local.ps1 first}
+      FIRST_SUPERUSER: admin@example.com
+      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD:?Run scripts/windows/start-local.ps1 first}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/app
+      FRONTEND_HOST: http://localhost:18000
+      SMTP_HOST: ""
+      SENTRY_DSN: ""
+    # The upstream prestart runs database migrations and creates the local admin.
+    command: ["bash", "-c", "bash scripts/prestart.sh && exec fastapi run --host 0.0.0.0 --port 8000 --workers 1"]
+    ports:
+      - "127.0.0.1:18000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/utils/health-check/', timeout=5)"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  freshlink-db:

@@ -1,0 +1,22 @@
+{
+  "evidence_type": "executed_isolated_backend_tests_not_E1",
+  "date": "2026-10-12",
+  "component": "A heartbeat boundary and connectivity transition plans",
+  "environment": "Docker Linux Python 3.14.8; cached freshlink-runtime:test; disposable PostgreSQL18; no application database",
+  "results": {
+    "heartbeat_unit_tests": 16,
+    "full_backend_passed": 198,
+    "full_backend_failed": 0,
+    "full_backend_warnings": 2,
+    "total_statement_coverage_percent_rounded": 95,
+    "heartbeat_statement_coverage_percent_rounded": 99,
+    "ruff": "passed",
+    "mypy_heartbeat": "passed",
+    "ty_heartbeat": "passed",
+    "typos_changed_files": "passed",
+    "json_sample_parse": "passed"
+  },
+  "private_evidence": "work/a01-tests-20261012230715-30616/pytest.xml and htmlcov; ignored, not in submission package",
+  "cleanup": "Unique disposable database container and network removed; application database retained.",
+  "not_checked": ["production_MQTT_heartbeat_receiver", "durable_state_or_replay", "B_event_delivery", "C_database_ingest", "new_remote_CI", "frontend_online_status", "E1"]
+}

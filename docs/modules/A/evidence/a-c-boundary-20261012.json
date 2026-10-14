@@ -1,0 +1,12 @@
+{
+  "evidence_type": "executed_cross_branch_pure_boundary_not_E1",
+  "date": "2026-10-12",
+  "A_source_commit": "63fee5cb87587208877b31f46c7d694fb9c4979d",
+  "C_source_commit": "0ab51e936c672153209e6a6b485dfada1ef03d4e",
+  "diagnostic_script": "backend/scripts/check-a-c-boundary.py",
+  "environment": "Linux Python3.14 Docker; network none; separate read-only A/C source mounts",
+  "tests_passed": 9,
+  "tests_failed": 0,
+  "tested": ["exact_raw_preservation", "trusted_receipt_projection", "network_redelivery", "extension_conflict", "member_and_metric_order", "metric_shape_unknown", "no_rule_and_invalid_time", "bad_unit_preservation", "A_identity_and_schema_rejection"],
+  "not_tested": ["C_DB_ingest", "durable_idempotency", "B_historical_rules", "B_alerts", "notification_receipts", "C_HTTP_query_or_export", "MQTT_to_app", "E1"]
+}

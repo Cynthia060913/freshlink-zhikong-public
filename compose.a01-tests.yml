@@ -1,0 +1,50 @@
+# Disposable PostgreSQL, isolated from the running FreshLink app and its volume.
+services:
+  test-db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: freshlink_test
+      POSTGRES_PASSWORD: a01_disposable_only
+      POSTGRES_DB: freshlink_test
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freshlink_test -d freshlink_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  test-runner:
+    image: ${A01_APP_IMAGE:-freshlink-app:p0}
+    working_dir: /app/backend
+    environment:
+      PROJECT_NAME: FreshLink-test
+      FASTAPI_ENV: development
+      SECRET_KEY: a01-disposable-test-key-only-32-characters
+      FIRST_SUPERUSER: admin@example.com
+      FIRST_SUPERUSER_PASSWORD: a01-disposable-admin-only
+      DATABASE_URL: postgresql://freshlink_test:a01_disposable_only@test-db:5432/freshlink_test
+      SMTP_HOST: ""
+      EMAILS_FROM_EMAIL: ""
+      SENTRY_DSN: ""
+      COVERAGE_FILE: /results/.coverage
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /app/backend
+    volumes:
+      - ./backend:/app/backend:ro
+      - ${A01_RESULT_DIR:?Use check-a01-acceptance.ps1}:/results
+    depends_on:
+      test-db:
+        condition: service_healthy
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        set -e;
+        alembic upgrade head;
+        python app/initial_data.py;
+        coverage run -m pytest -p no:cacheprovider tests/ --junitxml=/results/pytest.xml;
+        coverage report --fail-under=90;
+        coverage html -d /results/htmlcov;
+        python -c 'import json; from pathlib import Path; from app.main import app; Path("/results/openapi.json").write_text(json.dumps(app.openapi()), encoding="utf-8")'
+networks:
+  default:
+    internal: true

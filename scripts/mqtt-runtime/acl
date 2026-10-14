@@ -1,0 +1,14 @@
+user test-controller
+topic write freshlink/v1/devices/66666666-6666-4666-8666-666666666666/commands
+topic read freshlink/v1/devices/66666666-6666-4666-8666-666666666666/acks
+topic read freshlink/v1/devices/11111111-1111-4111-8111-111111111111/telemetry
+topic read freshlink/v1/devices/+/heartbeat
+
+user test-actuator
+topic read freshlink/v1/devices/66666666-6666-4666-8666-666666666666/commands
+topic write freshlink/v1/devices/66666666-6666-4666-8666-666666666666/acks
+topic write freshlink/v1/devices/66666666-6666-4666-8666-666666666666/heartbeat
+
+user test-sensor
+topic write freshlink/v1/devices/11111111-1111-4111-8111-111111111111/telemetry
+topic write freshlink/v1/devices/11111111-1111-4111-8111-111111111111/heartbeat

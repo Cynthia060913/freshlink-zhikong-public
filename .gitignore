@@ -1,0 +1,14 @@
+.vscode/*
+!.vscode/extensions.json
+node_modules/
+backend/app/frontend/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# FreshLink per-computer files
+.env.freshlink
+.env.freshlink.*
+work/
+*.local.log

@@ -1,0 +1,40 @@
+{
+  "contract_version": "0.2.0-rc1",
+  "status": "proposal_pending_owner_confirmation",
+  "evidence_type": "authored_example_not_runtime_heartbeat",
+  "topic": "freshlink/v1/devices/11111111-1111-4111-8111-111111111111/heartbeat",
+  "normal_payload": {
+    "schema_version": "1.0",
+    "device_id": "11111111-1111-4111-8111-111111111111",
+    "message_id": "77777777-7777-4777-8777-777777777777",
+    "sent_at": "2026-10-12T02:00:00Z"
+  },
+  "trusted_receiver_metadata": {
+    "authenticated_device_id": "11111111-1111-4111-8111-111111111111",
+    "received_at": "2026-10-12T02:00:01Z",
+    "retained": false
+  },
+  "proposed_engineering_defaults": {
+    "heartbeat_period_seconds": 30,
+    "offline_after_seconds": 90,
+    "maximum_future_clock_skew_seconds": 30,
+    "note": "Configurable proposal, not a contest rule or measured performance guarantee."
+  },
+  "expected_semantics": [
+    "Verify credential, topic and registered identity; heartbeat may be from an unbound registered device.",
+    "Never-seen is unknown. Persist fresh authenticated heartbeat before treating last_seen as established.",
+    "Same message_id redelivery must not extend last_seen repeatedly; retained or stale replay cannot revive connectivity.",
+    "Use receiver UTC time for last_seen, not device-provided sent_at. Check send-time validity/freshness for this software simulator.",
+    "At server elapsed >= configured offline_after_seconds, persist one offline transition; repeated scans do not create duplicate events.",
+    "Fresh heartbeat after offline produces one new recovery source_event_id linked to the original offline event.",
+    "Connectivity does not establish measurement quality, warehouse binding or normal cold-chain risk."
+  ],
+  "invalid_examples": [
+    {"case": "unknown_or_wrong_identity", "expected": "reject, no last_seen update"},
+    {"case": "retained_message", "expected": "reject replay, no revival"},
+    {"case": "sent_at_too_old_or_future", "expected": "reject freshness failure, no revival"},
+    {"case": "database_unavailable", "expected": "retryable failure, do not claim persisted heartbeat"}
+  ],
+  "implemented_component": "Pure heartbeat validation and immutable offline/recovery transition plans; see heartbeat.py. A plan is not persistence.",
+  "unimplemented": ["production_heartbeat_listener", "persistent_replay_tracking", "durable_online_offline_transitions", "event_outbox", "B_event_delivery"]
+}

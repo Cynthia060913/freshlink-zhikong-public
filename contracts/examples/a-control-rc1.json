@@ -1,0 +1,68 @@
+{
+  "contract_version": "0.2.0-rc1",
+  "status": "proposal_pending_owner_confirmation",
+  "evidence_type": "authored_example_not_runtime_command",
+  "command": {
+    "command_id": "55555555-5555-4555-8555-555555555555",
+    "device_id": "66666666-6666-4666-8666-666666666666",
+    "warehouse_id": "22222222-2222-4222-8222-222222222222",
+    "action": "set_cooling",
+    "parameters": {"enabled": true},
+    "issued_at": "2026-10-12T02:10:00Z",
+    "expires_at": "2026-10-12T02:11:00Z",
+    "status": "queued",
+    "event_id": null,
+    "ack_received_at": null,
+    "failure_reason": null
+  },
+  "cases": [
+    {
+      "id": "execution_ack",
+      "prior_command_status": "sent",
+      "server_received_at": "2026-10-12T02:10:06Z",
+      "ack": {
+        "schema_version": "1.0",
+        "command_id": "55555555-5555-4555-8555-555555555555",
+        "device_id": "66666666-6666-4666-8666-666666666666",
+        "executed_at": "2026-10-12T02:10:05Z",
+        "result": "executed",
+        "state": {"cooling_enabled": true},
+        "reason": null
+      },
+      "expected_semantics": "Only after authenticated matching execution evidence, persist acknowledged; verify later simulated data separately."
+    },
+    {
+      "id": "wrong_device_ack",
+      "prior_command_status": "sent",
+      "server_received_at": "2026-10-12T02:10:06Z",
+      "ack": {
+        "schema_version": "1.0",
+        "command_id": "55555555-5555-4555-8555-555555555555",
+        "device_id": "11111111-1111-4111-8111-111111111111",
+        "executed_at": "2026-10-12T02:10:05Z",
+        "result": "executed",
+        "state": {"cooling_enabled": true},
+        "reason": null
+      },
+      "expected_semantics": "Reject and audit identity mismatch; do not acknowledge or change actuator state."
+    },
+    {
+      "id": "late_ack_after_timeout",
+      "prior_command_status": "timeout",
+      "server_received_at": "2026-10-12T02:11:10Z",
+      "ack": {
+        "schema_version": "1.0",
+        "command_id": "55555555-5555-4555-8555-555555555555",
+        "device_id": "66666666-6666-4666-8666-666666666666",
+        "executed_at": "2026-10-12T02:10:05Z",
+        "result": "executed",
+        "state": {"cooling_enabled": true},
+        "reason": null
+      },
+      "expected_semantics": "Keep timeout; retain late ACK evidence for traceability. Do not silently report success."
+    }
+  ],
+  "replay_and_expiry": "Duplicate command_id must not re-execute; expired commands must not execute. Broker PUBACK alone cannot acknowledge execution.",
+  "B_reference": "A owns command records; B only reads get_command(command_id) for traceability.",
+  "unimplemented": ["command_persistence", "authenticated_command_API", "simulator_execution", "actual_ACK_processing", "control_effect_on_future_data"]
+}

@@ -1,0 +1,6 @@
+# Fixed disposable identities, not real registered devices or production ACLs.
+user smoke-device
+topic write freshlink/v1/devices/11111111-1111-4111-8111-111111111111/telemetry
+
+user smoke-observer
+topic read freshlink/v1/devices/+/telemetry

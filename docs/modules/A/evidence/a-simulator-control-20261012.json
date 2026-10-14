@@ -1,0 +1,18 @@
+{
+  "executed_on": "2026-10-12",
+  "status": "passed",
+  "evidence_type": "isolated_mqtt_file_bridge_real_execution",
+  "command_id": "b6958580-ece5-4786-8859-cb6614ac08f5",
+  "device_id": "66666666-6666-4666-8666-666666666666",
+  "fixture_identity_not_production_registration": true,
+  "before_temperature_c": 10.099040,
+  "after_temperature_c": 10.080177,
+  "before_power_w": 200.0,
+  "after_power_w": 1000.0,
+  "execution_count": 1,
+  "pending_observations": 3,
+  "process_restart_deduplication": true,
+  "simulation_speed": 1,
+  "backend_regression": {"passed": 157, "coverage_percent_rounded": 94, "simulator_line_coverage_percent": 100},
+  "not_checked": ["continuous_listener", "production_authentication", "public_control_API", "server_ACK_state_and_timeout", "heartbeat", "C_storage", "B_alerts", "notifications", "E1"]
+}

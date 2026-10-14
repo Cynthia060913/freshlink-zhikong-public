@@ -1,0 +1,75 @@
+{
+  "contract_version": "0.2.0-rc1",
+  "status": "proposal_pending_owner_confirmation",
+  "evidence_type": "authored_HTTP_examples_not_implemented_routes",
+  "service_signatures": {
+    "query": "query_observations(actor, filters, limit=20, cursor=None) -> ObservationPage",
+    "export": "export_observations_csv(actor, filters, received_watermark) -> CSVStream"
+  },
+  "http_paths": {
+    "query": "/api/v1/telemetry/observations/",
+    "export": "/api/v1/telemetry/observations/export.csv",
+    "detail": "/api/v1/telemetry/observations/{observation_id}"
+  },
+  "cursor_configuration": {
+    "source": "server settings.SECRET_KEY; never request-supplied",
+    "derivation": "HMAC-SHA256(UTF8(SECRET_KEY), UTF8(freshlink/telemetry-cursor/v1))",
+    "key_id": "telemetry-cursor-v1",
+    "ttl_seconds": 900,
+    "permission_policy": "role-v1; bind actor_id and actual role; authenticate each request",
+    "rotation": "Old cursors fail signature verification; restart at the first page."
+  },
+  "examples": [
+    {
+      "id": "empty_query",
+      "method": "GET",
+      "path": "/api/v1/telemetry/observations/",
+      "query": {
+        "warehouse_id": "22222222-2222-4222-8222-222222222222",
+        "sampled_from": "2026-10-12T01:00:00Z",
+        "sampled_to": "2026-10-12T02:00:00Z",
+        "limit": 20
+      },
+      "target_http_status": 200,
+      "target_body": {
+        "items": [],
+        "total": 0,
+        "next_cursor": null,
+        "received_watermark": "2026-10-12T02:00:01Z"
+      }
+    },
+    {
+      "id": "invalid_cursor",
+      "method": "GET",
+      "path": "/api/v1/telemetry/observations/",
+      "query": {"cursor": "unsigned-example"},
+      "target_http_status": 422,
+      "target_body": {
+        "detail": {"reason_code": "invalid_cursor", "message": "Restart from the first page."}
+      }
+    },
+    {
+      "id": "export_limit",
+      "method": "GET",
+      "path": "/api/v1/telemetry/observations/export.csv",
+      "query": {"received_watermark": "2026-10-12T02:00:01Z"},
+      "fixture_matching_rows": 10001,
+      "target_http_status": 422,
+      "target_body": {
+        "detail": {"reason_code": "export_row_limit", "message": "Narrow the filters to at most 10000 rows."}
+      }
+    },
+    {
+      "id": "storage_unavailable",
+      "method": "GET",
+      "path": "/api/v1/telemetry/observations/",
+      "target_http_status": 503,
+      "target_headers": {"Retry-After": "30"},
+      "target_body": {
+        "detail": {"reason_code": "storage_unavailable", "message": "Observation storage is temporarily unavailable."}
+      }
+    }
+  ],
+  "csv_text_policy": "Single-quote prefix for dangerous external text in human-view CSV; finite negative temperatures stay numeric; original values remain in authorized detail. No universal spreadsheet re-save guarantee.",
+  "unimplemented": ["C_HTTP_routes", "database_queries", "authorization_in_C_routes", "production_cursor_signing", "database_export"]
+}
