@@ -173,7 +173,9 @@ class HeartbeatWorker:
                 raise IngressRejected("payload_too_large", message.payload)
             with Session(self.engine) as session:
                 # Bound connection acquisition and lock/query time separately.
-                session.execute(text("SET LOCAL statement_timeout = '5000ms'"))
+                session.connection().execute(
+                    text("SET LOCAL statement_timeout = '5000ms'")
+                )
                 persist_registered_heartbeat(
                     session,
                     authenticated_device_id=identity,
@@ -204,7 +206,9 @@ class HeartbeatWorker:
             if self.stop_requested.is_set():
                 return
             with Session(self.engine) as session:
-                session.execute(text("SET LOCAL statement_timeout = '5000ms'"))
+                session.connection().execute(
+                    text("SET LOCAL statement_timeout = '5000ms'")
+                )
                 scan_registered_device(
                     session,
                     device_id=identity,
