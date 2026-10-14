@@ -1,0 +1,88 @@
+# C 共享接线请求
+
+状态：提案，未实施。请首轮指定集成 Agent 协调；C 不直接改根 API、公共导航、Compose、锁文件或迁移链。
+
+1. A → C：确认已认证合法观测的生产位置、schema_version、UUID 来源、UTC 时间/单位、重发时的幂等内容边界，以及设备与仓库关联失败语义。当前纯函数仅处理 JSON 样例，不接受 MQTT。
+2. B → C：确认规则/批次只读快照签名、版本与有效时间、阈值比较和恢复语义；无规则保持 unknown。
+3. C → B：确认候选事件稳定 ID、observation_ids、evidence、接收/重试/永久失败边界。当前 candidate 只是局部计算，未持久化或发送。
+4. C → 页面：待共同契约确定后申请数据页面路由、导航入口和根 API 注册；查询/分页/CSV 需要统一筛选与鉴权。
+5. 迁移顺序：等 A01 合并及 B 最小迁移合并后，C 再基于当时已合并 head 建正式观测迁移。不得另起迁移链或清库。
+
+6. 共享 CI 权限问题：PR #11 的 Playwright Tests 工作流在 dorny/paths-filter 读取 PR 文件列表时以 Resource not accessible by integration 失败（运行 https://github.com/Cynthia060913/freshlink-zhikong/actions/runs/38060433663）。请工作流维护者核对 pull-requests: read 等所需权限及现有工作流配置；C 不修改 .github/workflows。此失败不等于 C 数据处理单测失败。
+
+## 本轮需三方明确回答（2026-10-11）
+
+- **A，关联 #7/#5**：合法遥测由哪一函数/队列交给 C；设备鉴权和仓库归属失败如何返回；`schema_version` 允许值；`message_id` 的生成与重发保证；`received_at` 由谁记录；metrics 顺序是否有语义。请按 `examples/telemetry-contract-proposal.json` 的首条、重发和冲突三例确认。
+- **B，关联 #8/#5**：按 `sampled_at` 获取规则快照的签名、批次关联与 `rule_version`；温度相等时是否触发及恢复条件；无规则/批次冲突的失败状态；按 `source_event_id` 接收候选后已存在、可重试、永久拒绝和超时的返回。C 不把样例候选称作已入库告警。
+- **集成 Agent，关联 #5**：查询与 CSV 是否共享样例中的完全相同筛选及鉴权；时间右边界、稳定游标、导出上限和列顺序。确认后才申请根路由/导航接线。
+
+## A RC1 对接待定项（2026-10-11）
+
+A 在 PR #4 的 `docs/modules/A/01-contract-proposal.md` 建议 `iot/ingestion.py` 完成 MQTT topic、设备身份和有效仓库绑定后，调用 C `telemetry/service.py::ingest_observation(envelope)`。C 原则接受该方向，但两处服务均未实现；请 A 给出 envelope 的 raw/认证设备/绑定仓库/received_at/重发字段及失败审计责任、reason_code 枚举和输入上限。C 的生产存储由 C 事务生成 observation_id、保留各次 raw/reception 证据；必须等 A01→B 迁移进入当前 main 后接线。
+
+C 当前新增 `query_preview.py::select_preview_observations(results, filters)` 仅是已处理样例的纯筛选，不挂根路由。A 的采样/接收双时间窗、NULLS LAST、游标水位、权限、CSV 上限/列序建议需与 B 仓库 ACL 和三方契约统一后接真实查询。CSV 人工表格与机器导入用途及公式文本保护规则请集成方确认；详情见 `01-contract-proposal.md`。A 的 RC1 新版四条观测在 `examples/telemetry-rc1-proposal.json`，不替代历史 `draft-1` fixture。
+
+## B 新答复后的具体接线缺口（2026-10-11）
+
+B 的 [#5 答复](https://github.com/Cynthia060913/freshlink-zhikong/issues/5#issuecomment-6108448780) 仍为提案，且 B 分支 `447ac38a48a853d83b0afe950b11a945b170ff36` 尚无正式规则服务/迁移。C 的逐项接受与替代详见 `01-contract-proposal.md`。@xixidamei 请以可消费的只读签名及 JSON 回答：
+
+- `get_batch_rule_snapshot(warehouse_id, batch_ids, sampled_at, metric_code)` 的固定返回形状、历史版本、空规则与多批次/重叠/权限错误；版本必须在候选中可稳定引用。
+- 按 UTC 带时区的半开有效区间选版本；修正 append-only 与修改旧版 `is_current/superseded_by` 的矛盾，明确历史候选不随 current 变化。
+- 规则快照的比较符号、单位、候选类型/等级、恢复持续条件，以及温度和湿度指标在 B 的类型映射中如何保留。
+- `receive_risk_candidate` 的精确入参/结果、同键重发与冲突证据、超时按键查询、拒绝与可重试错误。C 管候选持久 outbox/投递重试，B 管事件事务幂等及通知重试；两者需分别验收。
+- 恢复若作为新事件，给新幂等键及原异常事件引用；缺测、缺规则不能自动恢复。B 的 `raw_payload` 应明确用途、字段、大小与脱敏规则。
+
+共享集成方请核对实际根 API 接入文件（当前读到 `backend/app/api/main.py`）和单 Alembic head；B #5 评论里的 `backend/app/main.py` 与“两条新链”不可直接接入。A01 #4 已合并至共同 main `a99c2a091204012891b8fa0c80e10b63087c57c1`；B #10 尚未合并，C 不创建第二条正式迁移链。
+
+## A 新接收封装和导出提议的接线点（2026-10-11）
+
+A 的 [新版补答](https://github.com/Cynthia060913/freshlink-zhikong/blob/caf8e3a6273737623873be60efca9651a5f4fc9e/docs/modules/A/01-contract-proposal.md) 已给出内部 envelope、资源上限、reason_code、游标密钥和人工查看 CSV 用途；C 的接受/待定项见 `01-contract-proposal.md`。PR #14 的实际 A 边界是 `iot/ingress.py::receive_telemetry`，可信适配仍待接线；设备原包可自报 `received_at`，但只作原文证据，不覆盖封装中的可信时间；C 持久保存 exact raw_text 与每次 reception，另对可信元数据处理。当前固定纯函数输入包含服务时间，仅是处理样例。
+
+A 的 MQTT 身份/绑定/超限拒绝审计与待发队列由 A 实现并测试；C 返回持久成功/重复/冲突/永久无效/临时故障，A 只在已确认落库后清队列。C 的原始观测、reception 与候选 outbox 正式表需等 A01→B 单 head 与版本化契约。查询、计数、CSV 和页面须用同一权限/筛选；A 提议首版无逐仓 ACL，B 确认后再固定。生产签名游标与现有纯预览标记不是同一接口。
+
+## A→C 封装纯处理投影（2026-10-12；PR #11）
+
+C 新增 `backend/app/modules/telemetry/envelope_preview.py::prepare_receptions`，结构性读取 A 的 RC1 接收封装，不 import 尚未合并的 PR #14。它把可信仓库与 UTC 接收时间只加入质量处理视图，单独保留 exact `raw_text`、原 `raw_payload` 和可信接收元数据。设备自报 `received_at` 不进入规范时间；原文缺仓库不会被误判为 C 缺字段。身份与绑定不符显式失败；正常、高温、缺失/坏单位、批内重复/冲突与无规则样例有 C 单元测试。
+
+本函数只是可执行的投影原型：`batch_duplicate` 只在一次调用内有效，`threshold_c` 仍是固定测试规则；没有数据库事务、跨重启幂等、真实规则快照、持久候选、MQTT 监听、授权查询或 CSV。正式接线仍由 A 提供可信身份/封装，B 提供规则及仓库政策，C 在已合并 B 唯一迁移 head 上实现观测/reception/outbox 持久化。
+
+## C1 CSV 预览接线边界（2026-10-12）
+
+C 的 `csv_preview.py::render_preview_csv` 对固定内存结果复用 `query_preview.py::select_preview_observations`；2026-10-12 已把样例 CSV 收敛为 A 提案的有界 14 列，不再把完整 raw JSON 放入导出。exact raw 仍由受权详情/接收证据提供。本函数不接受 actor，不能挂公开路由。集成方需在 F06 确认正式列与授权后，接真实数据库筛选和接收水位，并让页面/CSV 共享 actor 权限、过滤条件和固定水位；签名游标与 HTTP 下载、错误码属于正式服务接线。无数据需在页面显示“无数据”，CSV 仅表头；超出 10000 行拒绝。此预览只能证明固定样例字节格式与筛选一致，不能作为权限、重启或大数据集验收。
+
+## A PR #14 第 7 节的新目标与待集成（2026-10-12）
+
+C 已把 F01 合法 JSON 指标上限与未知风险、F06 14 列全角/半角危险文本人工查看预览补到 PR #11，详见 `01-contract-proposal.md` 最新节。正式 `ingest_observation` 仍需在 C 事务中返回 `invalid`/原因并存有界拒绝证据，不能把纯函数 risk unknown 冒充持久失败结果。
+
+A 集成方可在确认 B 权限后，于 `backend/app/api/main.py` 挂 C 相对前缀 `/telemetry/observations` 一次；`/api/v1` 由主应用统一加。目标路由为列表 `/`、静态 `/export.csv`、动态 `/{observation_id}`；C 实现路由时先注册静态导出。查询/详情/计数/导出共用 CurrentUser、规范筛选与权限。请 A/B 在 #5 核定首版仓库权限和接收水位是否必须保证跨请求固定结果集；若必须，需快照标识与并发写入验收，不可仅依赖 UTC 水位。正式迁移仍等 B 唯一 head 合并。
+
+## B 目标与 A 固定快照的共享接线请求（2026-10-12）
+
+B 在 [S0 答复](https://github.com/Cynthia060913/freshlink-zhikong/issues/5#issuecomment-6127332268) 接受首版活跃登录读/管理员写、无逐仓 ACL，确认历史规则与五类候选回执目标；B3 服务/正式迁移尚未实现。C 可以按其 `select_rules_for_observation` 单一 envelope 准备消费，但请 B 给多批/重叠失败 JSON、候选携带 `rule_snapshot_id`，并明确 C 投递超时后 `get_candidate_by_source` 查无时重试同 ID、查有时如何核对内容。正式接线等 B 合并唯一迁移 head。
+
+A [PR #17 第 8 节](https://github.com/Cynthia060913/freshlink-zhikong/blob/63fee5cb87587208877b31f46c7d694fb9c4979d/docs/modules/A/01-contract-proposal.md) 改 F06 为服务端固定结果快照。C 消费方接受该目标，新增 `snapshot_id` 到 page、游标与 CSV；仅 `received_watermark` 不再作为固定集合保证。建议 900 秒 TTL、每 actor 4 / 全局 64 活跃快照上限，满额 429 `snapshot_capacity` + `Retry-After:30`，待 A/B 确认。A 仍只在根 API 挂 C 相对 router；C 自有快照存储、签名游标和资源清理，正式 C 表/迁移待 B 头合并。非空/失败 JSON 在 `examples/query-snapshot-rc1-proposal.json`，当前无真实数据库快照。
+
+## B F03 接收 DTO 与共同候选目标的差异（2026-10-13）
+
+B PR #10 HEAD `58546e9993381b92d158cb437a31d61b95dfb1c1` 的
+`backend/app/modules/alerts/models/event.py::CandidateCreate` 目前只声明
+`source_event_id, kind, batch_id, metric_code, sampled_at, value, unit`。
+共同 main `0bf33f86c1fde9af1cb7e7e5a9a74d411b42f813` 的
+`contracts/INTERFACES.md` F03 目标则含 `observation_ids, warehouse_id,
+batch_ids, occurred_at, severity, evidence, algorithm_version`；C 候选提案再带
+`rule_version, rule_snapshot_id`。C 样例原样不能作为当前 B DTO 的有效请求；
+压缩成最小 B DTO 会缺少共同目标的观测/规则追溯字段，且 B 的规范摘要取 DTO
+`model_dump`，不能假定额外字段进入摘要和 `payload_json`。
+
+已把 [具体问题与两种解决方向](https://github.com/Cynthia060913/freshlink-zhikong/issues/5#issuecomment-6148596048)
+直接写给 A/B，并在 [PR #10](https://github.com/Cynthia060913/freshlink-zhikong/pull/10#issuecomment-6148602066)
+指出读阶段数据库故障尚未显式映射五类回执。建议 B 扩展版本化 DTO，保持
+`source_event_id` 的同内容摘要幂等，并给有效/失败 JSON、持久查询后追溯
+`observation_ids/rule_snapshot_id` 的契约测试；如选择最小 DTO，需先更新
+F03 公共约定和跨服务可追溯关联的验收路径。此处是静态核查，**未运行 B
+服务、数据库或 E1**。在确认前，C 保留丰富候选为目标提案，不投递当前 B
+路由；只把固定回执样例的显式 `invalid/unknown_batch` 与可重试
+`storage_unavailable` 原因按 B 现有源码对齐。
+
+B 的正式迁移仍未合入 main；C 不另起迁移链。A/B 确认 F03 后，C 才实现
+对应持久 outbox/投递和真实跨服务契约测试。

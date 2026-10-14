@@ -1,0 +1,39 @@
+# C1 查询、分页与 CSV 预验收样例
+
+状态：待确认的验收向量，不是查询接口、CSV 服务、数据库结果或权限验收。基于 C 的 `telemetry-contract-proposal.json` 七条固定观测，见 `examples/query-csv-acceptance.json`。其中 `observation_id` 只是样例分配的 UUID；正式 ID 需入库后产生。
+
+## 可复核的预期
+
+| 场景 | 输入 | 提议的结果 |
+| --- | --- | --- |
+| 质量筛选与时间窗 | 同一设备/仓库，`quality_in=["ok"]`，UTC `[2026-10-10T00:00:00Z, 2026-10-10T00:03:00Z)` | 只包含原始观测 0 与 3，对应两个样例 `observation_id`；等于起点的记录包含，终点不包含 |
+| 分页 | 上述筛选，按 `(sampled_at, observation_id)` 升序，每页 1 条 | 两页分别为观测 0 和 3；游标携带上一条的排序字段；编码仍待确认 |
+| CSV | 与分页完全相同的筛选和权限，不受页面 `limit=1` 限制 | 预期两条数据行；列顺序、空值编码和导出上限待确认 |
+| 无有效采样时间 | 只筛 `invalid_time:sampled_at`，不附加采样时间范围 | 非法时间的观测 5 仍可找到，raw 保留；带采样时间范围时不能将其伪装成有效时间 |
+| 原始留存 | 不加筛选 | 七条固定输入均保留，包括重复、冲突、高温、缺值、非法时间和错误单位；无效/缺失不会变成正常 |
+
+本样例为后续 C1 查询和 CSV 实现提供可核对的输入、期望 ID 与数量。`backend/app/modules/telemetry/query_preview.py` 只对已处理的固定内存观测执行提议的设备、仓库、质量与 UTC 半开时间筛选；自动化测试核对预期 ID、非法采样时间的质量检索、右边界和筛选失败；另按 A 的 RC1 提案预览 `received_from/received_to` 半开 UTC 接收时间窗。采样与接收时间窗同时给出时取交集；非法采样时间仍可按接收时间加质量标记找回，非法接收时间不进入接收时间筛选。页面与 CSV 复用同一固定内存筛选提案；`csv_preview.py` 已生成**样例用** CSV 字节，但当前**没有**数据库查询、正式签名游标/跨请求水位、正式 CSV 服务、鉴权、页面及重启保留。正式接口参数及数据库异常时刻排序仍待共同确认。
+
+## 待确认后才实施
+
+- A/集成方：设备及仓库对象的读权限、未经授权时的失败行为、页面与导出的权限是否完全一致。
+- A/B/集成方：时间范围采用采样时刻还是另设接收时刻筛选；非法采样时间在无筛选结果中的排序与游标规则。
+- 集成方：游标编码与失效、`limit` 和导出量上限、CSV 列顺序、原始 JSON 的转义和公式注入防护、空值表示。
+- B：规则版本或风险状态是否属于同一查询筛选，以及历史规则变更是否影响旧记录呈现。
+
+确认后 C 在已合并的 A01→B 当前迁移 head 上实现持久化、真实查询和 CSV，按同条件核对页面与导出记录数；不另建迁移链。
+
+接收时间筛选同样只是内存预览；未实现 A 提议的接收水位、NULLS LAST、签名游标或跨请求并发一致性。正式参数仍待共同契约确认。
+
+`sort_preview_by_sampled_at` 仅对已分配样例 `observation_id` 的内存结果排序：有效 UTC 采样时刻升序、同刻按 ID、无效/缺失采样时刻末尾并在该组按 ID。它不生成游标或跨请求水位，正式数据库排序和并发写入验收仍待接线。
+
+
+`page_preview_by_sampled_at(results, limit, after_observation_id)` 只对已筛选的固定内存结果作 1–100 条的逐页预览。样例 ID 作为临时续页标记：不存在、非法 ID 或越界 limit 显式失败，最后一页后返回空页；测试跨页遍历每条恰好一次，保留非法采样时刻的 raw 和 unknown 风险。这个标记没有筛选摘要、接收水位、签名、权限或持久快照，**不能作为生产 cursor**；数据库增量写入后的跨请求一致性仍待 C1 正式实现与验收。
+
+## 固定样例 CSV 字节预览（2026-10-12）
+
+`render_preview_csv(results, filters)` 先调用同一 `select_preview_observations`，再按样例采样时间/ID 排序，输出 UTF-8 BOM 与 `csv.writer(QUOTE_ALL)` 的 CRLF CSV；空结果只含表头，超过 10000 行明确拒绝而不静默截断。C 已在 [S0 #5](https://github.com/Cynthia060913/freshlink-zhikong/issues/5#issuecomment-6118778985) 接受 A 建议的**有界 14 列**作为 F06 目标，本预览现按此顺序输出：`observation_id,device_id,warehouse_id,sampled_at,received_at,raw_temperature_value,raw_temperature_unit,temperature_c,raw_humidity_value,raw_humidity_unit,humidity_percent,quality,risk_state,rule_version`。原始完整 JSON 不进入 CSV，应由后续受权详情读取；C 纯处理/接收证据仍原样保留 raw 与 exact raw_text。
+
+样例 `rule_version` 尚无真实 B 快照，故为空；缺值与重复 metric key 的歧义列也留空，同时质量/风险维持 `unknown`，不任选值。高温原值与 candidate 保留，合法负温按数值导出。针对人工表格查看，外来文本去前导空白后若以公式字符开头或首字符为控制字符，加单引号前缀；已验证数值不加前缀。自动化测试解析实际 CSV 字节，核对分页/导出同筛选 ID、非法时间/缺测、空结果、上限、中文换行/公式样文本、负温及重复 key。此前预览中含 `raw_json`、使用 `[text]` 标记的列集只是历史草案，已从当前代码移除；不能用历史 CSV 结果冒充正式导出。
+
+该函数仍只有固定内存结果，没有 actor、仓库 ACL、正式签名游标/水位、数据库持久化或 HTTP 导出，**不能直接开放为用户路由**。上述列与防护为 C 接受的 RC1 目标，B 权限范围和三方正式版本仍待确认；人工查看前缀不能保证任意表格软件再保存/机器导入的普遍安全。
