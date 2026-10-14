@@ -1,3 +1,19 @@
+# 鲜链智控（开发中）
+
+面向同品种苹果冷链仓储的品质风险、异常预警与仿真设备调控。校赛软件赛道，
+固定两冷库、三批次、十四逻辑设备；不是已部署或已完整验收的生产系统。
+
+新仓库迁移和三人当前协作入口：[PUBLIC-MIGRATION.md](docs/team/PUBLIC-MIGRATION.md)。
+**切换状态以该页及 [迁移核验 #1](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/1)
+实时记录为准**，先保留旧目录，不导入旧Git历史。
+
+- [完整目标与最低参赛标准](docs/team/v4/09-完整目标与参赛验收矩阵.md)
+- [三人持续任务](docs/team/v4/08-三人持续执行总任务.md) · [材料签收](docs/submission/README.md)
+- [贡献归属与快照来源](CONTRIBUTORS.md) · [新Agent接入](docs/team/MIGRATION-AGENT-BOOTSTRAP.md)
+
+代码基于官方 FastAPI 全栈模板，保留许可证和上游说明。下方为继承的模板介绍，
+其中部署/配置示例不代表已授权外网发布；真实秘密只能本地注入，模板默认密码不可用于公网。
+
 # Full Stack FastAPI Template
 
 [![Test Docker Compose](../../actions/workflows/test-docker-compose.yml/badge.svg)](../../actions/workflows/test-docker-compose.yml)
