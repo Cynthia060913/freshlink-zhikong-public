@@ -29,10 +29,12 @@ service token is F06 scope.
 
 from __future__ import annotations
 
+import json
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Response
+from sqlalchemy.exc import OperationalError
 
 from app.api.deps import CurrentUser, SessionDep
 from app.modules.alerts.models import (
@@ -94,11 +96,20 @@ def read_candidate_by_source(
     session: SessionDep,
     _current_user: CurrentUser,
     source_event_id: str,
+    response: Response,
 ) -> AlertEventPublic:
     try:
         row = get_event_by_source(session, source_event_id)
     except EventNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OperationalError as exc:
+        # Read-phase storage failure: the caller retries the same
+        # source_event_id with bounded backoff — this is NOT not_found
+        # and NOT invalid (F03-RC2).
+        response.headers["Retry-After"] = "30"
+        raise HTTPException(
+            status_code=503, detail="retryable_failure: storage_unavailable"
+        ) from exc
     return _to_public(row)
 
 
@@ -122,6 +133,7 @@ def list_attempts(
     session: SessionDep,
     _current_user: CurrentUser,
     event_id: uuid.UUID,
+    response: Response,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> list[NotificationAttemptPublic]:
@@ -131,10 +143,29 @@ def list_attempts(
         )
     except EventNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OperationalError as exc:
+        response.headers["Retry-After"] = "30"
+        raise HTTPException(
+            status_code=503, detail="retryable_failure: storage_unavailable"
+        ) from exc
     return [_attempt_to_public(r) for r in rows]
 
 
+def _parse_json_column(raw: str | None, default: Any) -> Any:
+    """Parse a JSON text column back to its DTO value; unreadable
+    legacy rows degrade to the default instead of 500-ing reads."""
+
+    if raw is None:
+        return default
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 def _to_public(row: AlertEvent) -> AlertEventPublic:
+    """Full F03-RC2 traceability body included (PR #10 defect 2)."""
+
     return AlertEventPublic(
         id=row.id,
         source_event_id=row.source_event_id,
@@ -146,6 +177,12 @@ def _to_public(row: AlertEvent) -> AlertEventPublic:
         sampled_at=row.sampled_at,
         value=row.value,
         unit=row.unit,
+        severity=row.severity,
+        observation_ids=_parse_json_column(row.observation_ids_json, []),
+        rule_snapshot_id=row.rule_snapshot_id,
+        rule_version=row.rule_version,
+        algorithm_version=row.algorithm_version,
+        evidence=_parse_json_column(row.evidence_json, None),
         content_digest=row.content_digest,
         related_source_event_id=row.related_source_event_id,
         created_at=row.created_at,

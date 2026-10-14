@@ -105,6 +105,44 @@ def _check_supersedes(
             )
 
 
+def _successor_starts_by_predecessor(
+    session: Session, batch_id: uuid.UUID
+) -> dict[uuid.UUID, list[datetime]]:
+    """Map each superseded snapshot id to its successors' start times.
+
+    Supersede links live on the successor row (append-only), so the
+    only way to close a predecessor's window is to collect the starts
+    of the rows that name it.
+    """
+
+    successors: dict[uuid.UUID, list[datetime]] = {}
+    for row in session.exec(
+        select(BatchRuleSnapshot).where(BatchRuleSnapshot.batch_id == batch_id)
+    ).all():
+        for pred_id in load_supersedes(row):
+            successors.setdefault(pred_id, []).append(
+                _as_utc(row.effective_start_at)
+            )
+    return successors
+
+
+def _derived_end(
+    row: BatchRuleSnapshot,
+    successor_starts: dict[uuid.UUID, list[datetime]],
+) -> datetime | None:
+    """Half-open window end as the reader derives it (F02).
+
+    A predecessor's window closes at its stored ``effective_end_at``
+    OR at the earliest start of a successor that supersedes it —
+    whichever comes first. ``None`` means the window is still open.
+    """
+
+    ends: list[datetime] = list(successor_starts.get(row.id, []))
+    if row.effective_end_at is not None:
+        ends.append(_as_utc(row.effective_end_at))
+    return min(ends) if ends else None
+
+
 def _check_overlap(
     session: Session,
     batch_id: uuid.UUID,
@@ -121,10 +159,20 @@ def _check_overlap(
     path classifies it. Otherwise a concurrent identical insert that
     loses the race could be mislabelled ``SnapshotOverlapConflict``
     depending on commit interleaving.
+
+    The comparison uses the SAME successor-derived half-open windows
+    the reader uses (PR #10 defect 4): with an open-ended chain
+    S1→S2→S3, S1's stored interval is still open-ended, but its
+    read-side window already closed at S2's start — so the S3
+    replacement must NOT be rejected as overlapping S1. Only rows
+    whose DERIVED window still covers the new interval conflict.
     """
 
     new_start = payload.effective_start_at
     new_end = payload.effective_end_at
+    # The stored-interval query stays as a cheap superset filter: a
+    # row excluded here (stored end <= new_start) can only have an
+    # even earlier derived end, so it can never overlap.
     candidates = session.exec(
         select(BatchRuleSnapshot).where(
             BatchRuleSnapshot.batch_id == batch_id,
@@ -136,11 +184,18 @@ def _check_overlap(
             ),
         )
     ).all()
+    successor_starts = _successor_starts_by_predecessor(session, batch_id)
     exempt = set(payload.supersedes_snapshot_ids)
     for row in candidates:
         if row.id in exempt:
             continue
         if row.signature == signature:
+            continue
+        derived_end = _derived_end(row, successor_starts)
+        if derived_end is not None and derived_end <= new_start:
+            # Window already closed read-side by a successor — the
+            # reader will never see this row at new_start, so it is
+            # not a conflict the writer must reject.
             continue
         for existing_rule in parse_rules(row):
             if str(existing_rule.get("metric_code")) in new_metrics:
