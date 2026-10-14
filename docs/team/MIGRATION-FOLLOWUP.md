@@ -41,7 +41,8 @@ B readiness收件地址脱敏，最新新库readiness已不含该私密地址。
 2026-10-14实际回读：新库Public、Actions enabled；PR15在真实标准GitHub runner上完成
 后端、Compose、pre-commit、Zizmor和浏览器四分片，说明当前能运行，并非仅创建了任务。
 新库artifact为0，2个cache合计115412803字节；未设置ENABLE_DEPLOYMENT、
-ENABLE_EXTERNAL_COVERAGE、ENABLE_CI_ARTIFACTS。B/C新write邀请尚待本人接受。
+ENABLE_EXTERNAL_COVERAGE、ENABLE_CI_ARTIFACTS。后续回读B已接受write邀请、提交接入和
+无本机漏迁确认并批准PR15；push通道尚待首个真实交付验证。C仍待本人接入确认。
 
 GitHub官方[Actions计费](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
 说明公开库标准托管runner运行免费；大型runner和存储另有规则。缓存免费范围当前为每库
@@ -53,5 +54,6 @@ GitHub官方[Actions计费](https://docs.github.com/en/billing/concepts/product-
 网络恢复后再补同一提交CI。若Git上传中断，保留本地提交和补丁，不整库重建或强推。
 第三方邮件/APP接收条件由B提前确认；无凭据时做Mock/失败测试并明确未实收。
 
-下一步：B/C按#1完成接入和逐项补漏→交叉审PR15→负责人更新迁移入口ACTIVE；
+下一步：B可先推已完成的本角色修复并回读SHA/CI；C按#1完成接入和逐项补漏。
+负责人核对交叉审PR15与检查、收齐全队签收后再更新迁移入口ACTIVE；
 同时维护#5契约确认、A/B/C各自待审与联调准备。迁移完成不替代S0、E1和最终材料签收。
