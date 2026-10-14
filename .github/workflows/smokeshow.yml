@@ -11,7 +11,7 @@ jobs:
   smokeshow:
     # Third-party uploads are not needed for the local/standard CI test gates.
     if: vars.ENABLE_EXTERNAL_COVERAGE == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: read

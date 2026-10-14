@@ -16,7 +16,7 @@ jobs:
     # Do not deploy the template repository, only projects created from it
     # Public migration does not authorize production deployment or cloud fees.
     if: github.repository != 'fastapi/full-stack-fastapi-template' && vars.ENABLE_DEPLOYMENT == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
