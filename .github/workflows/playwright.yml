@@ -84,7 +84,7 @@ jobs:
       run: docker compose run --rm playwright bunx playwright test --fail-on-flaky-tests --trace=retain-on-failure --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
     - run: docker compose down -v --remove-orphans
     - name: Upload blob report to GitHub Actions Artifacts
-      if: ${{ !cancelled() }}
+      if: ${{ !cancelled() && vars.ENABLE_CI_ARTIFACTS == 'true' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: blob-report-${{ matrix.shardIndex }}
@@ -97,7 +97,7 @@ jobs:
       - test-playwright
       - changes
     # Merge reports after playwright-tests, even if some shards have failed
-    if: ${{ !cancelled() && needs.changes.outputs.changed == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.changed == 'true' && vars.ENABLE_CI_ARTIFACTS == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

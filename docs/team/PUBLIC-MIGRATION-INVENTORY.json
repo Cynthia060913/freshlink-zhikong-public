@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-14",
+  "purpose": "Privacy-reviewed source snapshot receipt, not original development history or full-system acceptance",
+  "original_repository_visibility": "private",
+  "old_shared_main": "0bf33f86c1fde9af1cb7e7e5a9a74d411b42f813",
+  "new_code_baseline": "a548ede7f9eed7353b687e63e263c678608488e7",
+  "snapshots": [
+    {"branch":"main","source":"d8f29d73f449de8ecc092d26682d89b90666a053","snapshot":"a548ede7f9eed7353b687e63e263c678608488e7","tree":"42aae52b46a547b710000cda5637cbfaee9f4416","files":394,"byte_identical_source_paths":387},
+    {"branch":"feature/b-notification-bootstrap","source":"58546e9993381b92d158cb437a31d61b95dfb1c1","snapshot":"e421d774b5dbffa3a8b19f1fe71bad439fc97347","tree":"7e0863ffd39fdceae2da7305b4115e180123dbfb","files":433,"byte_identical_source_paths":426},
+    {"branch":"feature/c-data-quality-bootstrap","source":"6f38c1cda4442ebe868720791fff0616731f2397","snapshot":"c7b9a32b87a3937970a13f1d5183110ef3d3c601","tree":"6101c3751b9b92ba3ea6718b11e8de1f980f702b","files":421,"byte_identical_source_paths":413},
+    {"branch":"feature/a-control-storage","source":"dec9660b804945f6e2f3dc2119b0f0eeee1b5933","snapshot":"0c726af1f4446c0e3a97bd57aaf5b3c4b350cac4","tree":"1bb7c215b7bba46bd8911ba4586b3986a38d43ef","files":422,"byte_identical_source_paths":415},
+    {"branch":"feature/a-b-integration-review","source":"eb131c32300cd2c12557e6ae57a3f1645a565e42","snapshot":"453ef8651c6e4a764bc984b976df731511273863","tree":"4cac52894ca0ce22e50bcd6f514351a44b20e23c","files":438,"byte_identical_source_paths":431}
+  ],
+  "shared_safety_source": "740ab5a5c3b8c1f954bfb98e907a968d5502cda3",
+  "documented_transformations": [
+    "New root commits and maintainer noreply metadata; no original commit, tag or PR-ref ancestry imported",
+    "Account alias redaction and priority migration entry notices; CONTRIBUTORS credits role owners without personal email",
+    "Preserved current main contract and exact RC2 integration proposal; no premature contract freeze",
+    "Four inherited editor-skill symlinks omitted because not runtime application source",
+    "Eleven legacy B one-off post scripts omitted to prevent stale IDs/status and unsafe publishing; retained privately",
+    "No business source, dependency locks, migrations, schema samples, v4 plan or submission matrix intentionally omitted"
+  ],
+  "verification": [
+    "Local full Git fsck passed; five initial snapshot commits only",
+    "Per-path source/public Git blob and file-mode inventory recorded privately",
+    "All five remote heads, Git trees and file counts exactly matched local candidates",
+    "Fresh clone succeeded and fsck passed",
+    "Nine image binaries remained byte-identical to inherited template assets",
+    "Identified private addresses, token patterns and local secret values absent from candidate scan"
+  ],
+  "not_migrated": ["private environment/configuration", "database/volumes", "work and recovery records", "old history/bundles", "old comments and Actions archives"],
+  "limits": ["Not a complete security audit", "Old archives remain private rather than destroyed", "Subsequent migration-doc/CI commits have new heads; read actual branch HEAD and current CI", "S0, E1 and final contest delivery remain open"]
+}
