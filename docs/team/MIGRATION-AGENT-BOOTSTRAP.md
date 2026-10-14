@@ -2,6 +2,10 @@
 
 请在本人原有 Agent 会话继续，不重建业务项目。本指令适用于 A/B/C：
 
+本机还有因认证、网络或额度限制未上传的成果时，必须完整执行
+[未上传成果迁入流程](UNPUBLISHED-WORK-TRANSFER.md)，在本人主任务提交逐项清单；
+本地完成、已迁入功能分支、已合main、已联调四种状态分别记录。
+
 1. 先读 `docs/team/PUBLIC-MIGRATION.md`。若 STATE 不是 ACTIVE，当前只做接入核验，
    不擅自宣称三方已切换或向旧库继续发布新代码。保护本机全部未提交改动、旧目录和真实配置。
 2. 新库为 `https://github.com/Cynthia060913/freshlink-zhikong-public`；旧库保持 Private。
