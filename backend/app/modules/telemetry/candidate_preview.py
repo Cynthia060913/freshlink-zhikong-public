@@ -80,6 +80,17 @@ def build_candidate_preview(
     batch_id = _required_uuid(rule.get("batch_id"), "batch_id")
     snapshot_id = _required_uuid(rule.get("rule_snapshot_id"), "rule_snapshot_id")
     sampled_at = _required_utc(normalized.get("sampled_at"), "sampled_at")
+    if raw.get("schema_version") != "1.0" or any(
+        _uuid(raw.get(field)) != expected
+        for field, expected in (
+            ("device_id", device_id),
+            ("warehouse_id", warehouse_id),
+            ("message_id", message_id),
+        )
+    ):
+        raise ValueError("raw identity differs from processed observation")
+    if _utc(raw.get("sampled_at")) != _utc(normalized["sampled_at"]):
+        raise ValueError("raw sampled_at differs from processed observation")
     starts_at = _required_utc(rule.get("effective_from"), "effective_from")
     ends_at = (
         _required_utc(rule["effective_to"], "effective_to")

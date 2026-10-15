@@ -304,6 +304,31 @@ class CandidateContractProposalTests(unittest.TestCase):
                     )
         self.assertEqual(valid["raw"], source)
 
+    def test_rc2_builder_refuses_changed_raw_identity_or_sample_time(self) -> None:
+        source = deepcopy(self.rc2["source_observation"])
+        rule = self.rc2["rule_fixture"]
+        valid = process_batch([source], rule["threshold"])[0]
+        candidate = self.rc2["candidate"]
+        changes = (
+            ("schema_version", "draft-1"),
+            ("device_id", "99999999-9999-4999-8999-999999999999"),
+            ("warehouse_id", "99999999-9999-4999-8999-999999999999"),
+            ("message_id", "99999999-9999-4999-8999-999999999999"),
+            ("sampled_at", "2026-10-14T00:02:00Z"),
+        )
+        for field, changed in changes:
+            with self.subTest(field=field):
+                row = deepcopy(valid)
+                row["raw"][field] = changed
+                with self.assertRaisesRegex(ValueError, "raw .* differs"):
+                    build_candidate_preview(
+                        row,
+                        observation_id=candidate["observation_ids"][0],
+                        source_event_id=candidate["source_event_id"],
+                        rule=rule,
+                    )
+        self.assertEqual(valid["raw"], source)
+
     def test_rc2_failure_vectors_never_claim_low_risk_or_candidate(self) -> None:
         rc2 = self.rc2
         source = rc2["source_observation"]
