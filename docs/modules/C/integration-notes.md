@@ -1,6 +1,15 @@
 # C 共享接线请求
 
-状态：提案，未实施。请首轮指定集成 Agent 协调；C 不直接改根 API、公共导航、Compose、锁文件或迁移链。
+状态：接线提案，未实施。请指定集成 Agent 协调；C 不直接改根 API、公共导航、Compose、锁文件或迁移链。下文 2026-10-11 至 2026-10-13 的旧私有库 URL、PR 编号和 SHA 仅是历史证据；**当前协作、评论及代码交付均使用新公开仓库**。
+
+## 新仓库当前接线核对（2026-10-15）
+
+- 当前共同 main `f7fe62a95eceee75bebba3e135fc67d6c7728643`；C 自有分支 `feature/c-data-quality-bootstrap` / [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) HEAD `e0f14c44c19597c925ca5e3ed387d8f01d1796cd`。迁移入口仍为 `WAIT_VERIFICATION`；S0 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5)、E1 [#6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6) 均未完成。
+- **A → C**：main 已有 `iot/ingress.py::receive_telemetry`，返回 `ReceptionEnvelope(raw_text, authenticated_device_id, warehouse_id, received_at, reception_id)`；它声明只能由可信设备适配器在认证、ACL 和绑定核验后调用。C 的 `envelope_preview.py::prepare_receptions` 只在固定对象上保留 exact 原文、分离可信接收时间并计算质量；不是正式 MQTT 消费或持久接收。设备自报的 `received_at` 不覆盖 A 的可信时间；C 的预览仅接受 UTC 采样时刻且拒绝无声截断更高精度。生产精度、无效数据回执、拒绝证据与重试签名仍待 F01 同版确认。
+- **B → C / C → B**：[PR #14](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/14) HEAD `99c52511f8c8bf9deedbd617ed4c09a780c1fbdf` 给出 F03-RC2 单批候选目标；C 已在 [#5 的字段级答复](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6181720375) 接受目标并列出失败/重放语义。B [PR #10](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10) 远端 HEAD `f9b85638819e60d665ca9c188da8a829ed57fda1` 仍是较小 DTO，未提供可验的同版完整接收、by-source 回读或已合并唯一迁移 head。C 当前 `candidate_preview.py` 只用合成规则和外部分配 ID 输出固定 JSON；无真实规则选择、持久 outbox 或投递。B 发布同版实现后，再核对候选不可变正文摘要、批次归属、`timeout → by-source 404 → 同 ID 重试`、永久拒绝与数据库暂时故障。
+- **C → 查询/页面**：现有 `query_preview.py` / `csv_preview.py` 只对内存样例做筛选、排序与 14 列人工查看预览；无鉴权、PostgreSQL 查询、正式 HTTP、签名快照或页面。F06 的固定服务端快照与页面/CSV 同 actor、同筛选、同成员仍是待签收目标。A 集成时仅在 `backend/app/api/main.py` 挂一次 C 相对路由；C 在 B 迁移并入当前唯一 head 后提供自身表、服务、路由与权限测试。
+
+以上版本只描述本次核对的远端事实，后续开工须重读新 #5/#9、PR #10/#11/#14 和 main；不能用本节 SHA 代替实时检查。
 
 1. A → C：确认已认证合法观测的生产位置、schema_version、UUID 来源、UTC 时间/单位、重发时的幂等内容边界，以及设备与仓库关联失败语义。当前纯函数仅处理 JSON 样例，不接受 MQTT。
 2. B → C：确认规则/批次只读快照签名、版本与有效时间、阈值比较和恢复语义；无规则保持 unknown。
