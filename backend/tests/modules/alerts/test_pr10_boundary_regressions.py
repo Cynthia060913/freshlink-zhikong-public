@@ -25,22 +25,41 @@ Each class pins one defect to a failing-then-green behaviour:
    open-ended S1 (whose read-side window already closed at S2's
    start) blocked the S3 replacement. F02: the write check must use
    the same successor-derived half-open windows the reader uses.
+
+Round-2 review (A 2026-10-15, review 5531187957) added two more:
+
+5. **Real-HTTP 503 without ``Retry-After``** — the by-source and
+   notification-attempts handlers set the header on an injected
+   ``Response`` and then raised ``HTTPException``; FastAPI builds the
+   error response from the exception, so the header never reached
+   the wire. The header must ride on the ``HTTPException`` itself.
+6. **Post-commit refresh failure leaked unclassified exceptions** —
+   ``_insert_event`` swallowed the refresh ``OperationalError`` and
+   the caller then read the expired ORM object (A reproduced a
+   ``PendingRollbackError`` escape). The committed row survives, so
+   the receipt must be ``retryable_failure`` (rollback, no reads of
+   expired fields); a replay of the same id/body then classifies as
+   ``accepted_duplicate`` without duplicating the row.
 """
 
 from __future__ import annotations
 
 import unittest
 import uuid
+from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest import mock
 
-from fastapi import HTTPException, Response
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, func, select
 
+from app.api import deps as api_deps
 from app.modules.alerts.models import (
+    AlertEvent,
     BatchCreate,
     BatchRuleSnapshotCreate,
     CandidateCreate,
@@ -52,7 +71,7 @@ from app.modules.alerts.models import (
     WarehouseCreate,
     compute_content_digest,
 )
-from app.modules.alerts.routes.events import read_candidate_by_source
+from app.modules.alerts.routes import router as alerts_router
 from app.modules.alerts.services.batches import create_batch
 from app.modules.alerts.services.events import (
     get_event_by_source,
@@ -65,7 +84,12 @@ from app.modules.alerts.services.rules import (
     select_rules_for_observation,
 )
 from app.modules.alerts.services.warehouses import create_warehouse
-from tests.modules.alerts.test_alerts_routes import _client, _IsolatedCase
+from tests.modules.alerts.test_alerts_routes import (
+    _ENGINE,
+    _client,
+    _IsolatedCase,
+    _override_current_user,
+)
 
 T0 = datetime(2026, 10, 13, 8, 0, 0, tzinfo=UTC)
 T1 = T0 + timedelta(days=1)
@@ -479,16 +503,257 @@ class ReadPhaseFailureCase(_World):
         self.assertEqual(receipt.status, "retryable_failure")
         self.assertEqual(receipt.reason_code, "storage_unavailable")
 
-    def test_by_source_route_maps_storage_failure_to_503(self) -> None:
-        class _BrokenSession:
-            def exec(self, *_args: Any, **_kw: Any) -> None:
-                raise _broken()
+    def test_candidate_post_commit_refresh_failure_is_retryable(self) -> None:
+        """Defect 6 (service level): the commit landed, the refresh
+        died — receipt stays retryable and the row survives."""
+        with Session(self.eng) as real:
+            proxy = _RefreshFailsProxy(real)
+            receipt = receive_candidate(proxy, self._world_candidate())
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+        with Session(self.eng) as session:
+            row = get_event_by_source(session, self._world_candidate().source_event_id)
+            self.assertIsNotNone(row)
 
-        response = Response()
-        with self.assertRaises(HTTPException) as ctx:
-            read_candidate_by_source(_BrokenSession(), object(), "evt-x", response)
-        self.assertEqual(ctx.exception.status_code, 503)
-        self.assertEqual(response.headers.get("retry-after"), "30")
+    def test_device_event_post_commit_refresh_failure_is_retryable(self) -> None:
+        payload = DeviceEventCreate(
+            source_event_id="dev-refresh-1",
+            kind=DeviceEventKind.OFFLINE,
+            warehouse_id=self.wid,
+            device_id="device-01",
+            sampled_at=T0,
+        )
+        with Session(self.eng) as real:
+            proxy = _RefreshFailsProxy(real)
+            receipt = receive_device_event(proxy, payload)
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+        with Session(self.eng) as session:
+            row = get_event_by_source(session, "dev-refresh-1")
+            self.assertIsNotNone(row)
+
+    def test_refresh_failure_replay_is_duplicate_not_duplicated_row(self) -> None:
+        payload = self._world_candidate()
+        with Session(self.eng) as real:
+            proxy = _RefreshFailsProxy(real)
+            receipt = receive_candidate(proxy, payload)
+        self.assertEqual(receipt.status, "retryable_failure")
+        with Session(self.eng) as session:
+            receipt2 = receive_candidate(session, payload)
+            count = session.exec(select(func.count()).select_from(AlertEvent)).one()
+        self.assertEqual(receipt2.status, "accepted_duplicate")
+        self.assertEqual(count, 1)
+
+
+class _RefreshFailsProxy:
+    """Wrap a real Session whose commit works but whose post-commit
+    refresh fails — A's reproduction of a connection invalidated after
+    the row is already committed. Everything else delegates, so the
+    pre-reads see committed state."""
+
+    def __init__(self, real: Session) -> None:
+        self._real = real
+
+    def get(self, *args: Any, **kw: Any) -> Any:
+        return self._real.get(*args, **kw)
+
+    def exec(self, *args: Any, **kw: Any) -> Any:
+        return self._real.exec(*args, **kw)
+
+    def add(self, *args: Any, **kw: Any) -> None:
+        self._real.add(*args, **kw)
+
+    def commit(self) -> None:
+        self._real.commit()
+
+    def rollback(self) -> None:
+        self._real.rollback()
+
+    def refresh(self, *_args: Any, **_kw: Any) -> None:
+        raise OperationalError("REFRESH", {}, RuntimeError("conn gone"))
+
+    def close(self) -> None:
+        self._real.close()
+
+
+class _ExecFailsProxy:
+    """Wrap a real Session whose reads always raise OperationalError
+    (session.get delegates so the EventNotFound branch is NOT taken
+    — the failure must surface through exec, as in production)."""
+
+    def __init__(self, real: Session) -> None:
+        self._real = real
+
+    def get(self, *args: Any, **kw: Any) -> Any:
+        return self._real.get(*args, **kw)
+
+    def exec(self, *_args: Any, **_kw: Any) -> Any:
+        raise _broken()
+
+    def rollback(self) -> None:
+        self._real.rollback()
+
+    def close(self) -> None:
+        self._real.close()
+
+
+class _BrokenExecSession:
+    """Session stub where every exec raises — for routes whose whole
+    read path is one lookup (by-source), no real engine needed."""
+
+    def exec(self, *_args: Any, **_kw: Any) -> Any:
+        raise _broken()
+
+    def rollback(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def _client_with_db(session_factory: Any) -> TestClient:
+    """TestClient whose get_db builds the session from ``session_factory``
+    — used to route requests through the storage-failure proxies. The
+    session is closed in dependency teardown, mirroring ``_override_db``.
+    Auth stays bypassed exactly like ``_client``."""
+
+    def _override() -> Generator[Any]:
+        session = session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app = FastAPI()
+    app.include_router(alerts_router)
+    app.dependency_overrides[api_deps.get_db] = _override
+    app.dependency_overrides[api_deps.get_current_user] = _override_current_user
+    app.dependency_overrides[api_deps.get_current_active_superuser] = (
+        _override_current_user
+    )
+    return TestClient(app)
+
+
+# ---------------------------------------------------------------------------
+# Defects 5+6 (round-2 review) — real-HTTP Retry-After and post-commit
+# refresh failures
+# ---------------------------------------------------------------------------
+
+
+class Round2HttpFailureCase(_IsolatedCase):
+    """Round-2 review: assert on real TestClient responses — status,
+    wire headers and body — not on locally built Response objects."""
+
+    def _ids(self, client: Any) -> dict[str, str]:
+        wid = client.post("/warehouses/", json={"code": "WH", "name": "W"}).json()["id"]
+        bid = client.post(
+            f"/warehouses/{wid}/batches", json={"code": "B-001", "product": "x"}
+        ).json()["id"]
+        return {"wid": wid, "bid": bid}
+
+    def _body(self, ids: dict[str, str], **over: Any) -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "schema_version": "1.0",
+            "source_event_id": "77777777-7777-4777-8777-777777777777",
+            "warehouse_id": ids["wid"],
+            "batch_id": ids["bid"],
+            "observation_ids": [_OBS_A],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-14T00:01:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "warning",
+            "rule_snapshot_id": "88888888-8888-4888-8888-888888888888",
+            "rule_version": "v1",
+            "algorithm_version": "threshold-rule/0.2.0-rc2",
+            "evidence": {"comparison": ">", "threshold": 8.0, "quality": ["ok"]},
+        }
+        base.update(over)
+        return base
+
+    def test_by_source_storage_failure_503_carries_retry_after(self) -> None:
+        broken = _client_with_db(lambda: _BrokenExecSession())
+        r = broken.get("/candidates/by-source/evt-missing-or-not")
+        self.assertEqual(r.status_code, 503, r.text)
+        self.assertEqual(r.headers.get("retry-after"), "30")
+        self.assertIn("retryable_failure", r.json()["detail"])
+
+    def test_attempts_storage_failure_503_carries_retry_after(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        created = client.post("/candidates", json=self._body(ids))
+        self.assertEqual(created.status_code, 201, created.text)
+        event_id = created.json()["event_id"]
+
+        def _proxy() -> _ExecFailsProxy:
+            return _ExecFailsProxy(Session(_ENGINE))
+
+        broken = _client_with_db(_proxy)
+        r = broken.get(f"/alert-events/{event_id}/notification-attempts")
+        self.assertEqual(r.status_code, 503, r.text)
+        self.assertEqual(r.headers.get("retry-after"), "30")
+        self.assertIn("retryable_failure", r.json()["detail"])
+
+    def test_candidate_post_commit_refresh_failure_503_and_replay(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        body = self._body(ids)
+
+        def _proxy() -> _RefreshFailsProxy:
+            return _RefreshFailsProxy(Session(_ENGINE))
+
+        broken = _client_with_db(_proxy)
+        r = broken.post("/candidates", json=body)
+        self.assertEqual(r.status_code, 503, r.text)
+        self.assertEqual(r.headers.get("retry-after"), "30")
+        self.assertEqual(r.json()["status"], "retryable_failure")
+        self.assertEqual(r.json()["reason_code"], "storage_unavailable")
+
+        # The committed row survives the failed refresh + rollback.
+        with Session(_ENGINE) as session:
+            row = get_event_by_source(session, body["source_event_id"])
+            self.assertIsNotNone(row)
+
+        # Same id/body replay classifies duplicate — no second row.
+        replay = client.post("/candidates", json=body)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertEqual(replay.json()["status"], "accepted_duplicate")
+        self.assertIsNotNone(replay.json()["stored_event_id"])
+        with Session(_ENGINE) as session:
+            count = session.exec(select(func.count()).select_from(AlertEvent)).one()
+        self.assertEqual(count, 1)
+
+    def test_device_event_post_commit_refresh_failure_503_and_replay(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        body = {
+            "source_event_id": "dev-refresh-http-1",
+            "kind": "offline",
+            "warehouse_id": ids["wid"],
+            "device_id": "device-01",
+            "sampled_at": "2026-10-14T00:01:00Z",
+        }
+
+        def _proxy() -> _RefreshFailsProxy:
+            return _RefreshFailsProxy(Session(_ENGINE))
+
+        broken = _client_with_db(_proxy)
+        r = broken.post("/device-events", json=body)
+        self.assertEqual(r.status_code, 503, r.text)
+        self.assertEqual(r.headers.get("retry-after"), "30")
+        self.assertEqual(r.json()["status"], "retryable_failure")
+
+        with Session(_ENGINE) as session:
+            row = get_event_by_source(session, body["source_event_id"])
+            self.assertIsNotNone(row)
+
+        replay = client.post("/device-events", json=body)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertEqual(replay.json()["status"], "accepted_duplicate")
+        with Session(_ENGINE) as session:
+            count = session.exec(select(func.count()).select_from(AlertEvent)).one()
+        self.assertEqual(count, 1)
 
 
 # ---------------------------------------------------------------------------
