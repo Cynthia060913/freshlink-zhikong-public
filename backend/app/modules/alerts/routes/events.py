@@ -96,7 +96,6 @@ def read_candidate_by_source(
     session: SessionDep,
     _current_user: CurrentUser,
     source_event_id: str,
-    response: Response,
 ) -> AlertEventPublic:
     try:
         row = get_event_by_source(session, source_event_id)
@@ -105,10 +104,14 @@ def read_candidate_by_source(
     except OperationalError as exc:
         # Read-phase storage failure: the caller retries the same
         # source_event_id with bounded backoff — this is NOT not_found
-        # and NOT invalid (F03-RC2).
-        response.headers["Retry-After"] = "30"
+        # and NOT invalid (F03-RC2). The header must ride on the
+        # HTTPException itself: FastAPI builds the error response from
+        # the exception, so headers set on an injected Response are
+        # discarded on this path (PR #10 round-2 review).
         raise HTTPException(
-            status_code=503, detail="retryable_failure: storage_unavailable"
+            status_code=503,
+            detail="retryable_failure: storage_unavailable",
+            headers={"Retry-After": "30"},
         ) from exc
     return _to_public(row)
 
@@ -133,7 +136,6 @@ def list_attempts(
     session: SessionDep,
     _current_user: CurrentUser,
     event_id: uuid.UUID,
-    response: Response,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> list[NotificationAttemptPublic]:
@@ -144,9 +146,12 @@ def list_attempts(
     except EventNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except OperationalError as exc:
-        response.headers["Retry-After"] = "30"
+        # Same as by-source: the Retry-After header must be carried by
+        # the HTTPException, not an injected Response (PR #10 round-2).
         raise HTTPException(
-            status_code=503, detail="retryable_failure: storage_unavailable"
+            status_code=503,
+            detail="retryable_failure: storage_unavailable",
+            headers={"Retry-After": "30"},
         ) from exc
     return [_attempt_to_public(r) for r in rows]
 

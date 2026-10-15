@@ -122,8 +122,11 @@ def _insert_event(session: Session, row: AlertEvent) -> str | None:
     digest (``"integrity"``). An ``OperationalError`` on the commit is
     a transient storage failure (``"operational"``). A refresh
     failure AFTER a successful commit is not a write failure — the
-    row is stored — so it is swallowed and the caller answers
-    ``accepted_new`` (a later replay would just classify duplicate).
+    row is stored — but the ORM object is expired and its attributes
+    must not be read. Roll back the dead session and report
+    ``"refresh"``: the caller answers ``retryable_failure`` and the
+    client retries the SAME ``source_event_id``, which then classifies
+    as ``accepted_duplicate`` (PR #10 round-2 review).
     """
 
     session.add(row)
@@ -138,7 +141,8 @@ def _insert_event(session: Session, row: AlertEvent) -> str | None:
     try:
         session.refresh(row)
     except OperationalError:
-        pass
+        session.rollback()
+        return "refresh"
     return None
 
 
@@ -197,7 +201,7 @@ def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateRe
 
     row = _candidate_row(payload, digest)
     failure = _insert_event(session, row)
-    if failure == "operational":
+    if failure in ("operational", "refresh"):
         return _retryable_receipt(source_event_id)
     if failure == "integrity":
         try:
@@ -266,7 +270,7 @@ def receive_device_event(
         related_source_event_id=payload.related_source_event_id,
     )
     failure = _insert_event(session, row)
-    if failure == "operational":
+    if failure in ("operational", "refresh"):
         return _retryable_receipt(source_event_id)
     if failure == "integrity":
         try:
