@@ -124,3 +124,6 @@ Python `datetime` 只保留六位小数。旧纯处理若接受七位及以上�
 恢复事件的新来源 ID 如何引用原异常，及 B 的历史规则选择接口、批次归属
 校验和数据库失败分类。新库远端 PR #10 当前尚非 RC2 实现，C 不向其最小
 DTO 投递此样例，也不擅自改共同 contracts 或迁移链。
+
+2026-10-15 C 内部补充：`backend/app/modules/telemetry/candidate_preview.py::build_candidate_preview(processed, *, observation_id, source_event_id, rule)`
+现将固定高温处理结果与合成历史规则投影成上述 RC2 JSON。观测和来源 ID 均须由未来的持久事务提供；函数不创建 ID、不读 B 规则、不发送事件。它对缺规则或非候选返回空结果，对规则归属、采样时刻有效区间、单位、阈值或 ID 不一致显式拒绝。该纯投影只让样例映射可执行，**不构成 F03 正式签收或 C→B 实际交付**；B PR #10 同版 DTO/摘要及唯一迁移 head 仍是正式接线前置条件。
