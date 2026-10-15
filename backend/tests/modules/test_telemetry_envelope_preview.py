@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from app.modules.telemetry.envelope_preview import prepare_receptions
@@ -44,6 +45,78 @@ def _reception(raw: dict, **changes) -> ExampleReception:
 
 
 class EnvelopePreviewTests(unittest.TestCase):
+    def test_raw_text_and_processing_payload_must_agree(self) -> None:
+        reception = _reception(_raw())
+        changed = _raw()
+        changed["metrics"][0]["value"] = 12
+        inconsistent = SimpleNamespace(
+            raw_text=reception.raw_text,
+            raw_payload=changed,
+            authenticated_device_id=DEVICE,
+            warehouse_id=WAREHOUSE,
+            received_at=NOW,
+            reception_id=reception.reception_id,
+        )
+        with self.assertRaisesRegex(ValueError, "raw_text and raw_payload differ"):
+            prepare_receptions([inconsistent], 8)
+        self.assertEqual(changed["metrics"][0]["value"], 12)
+
+    def test_raw_text_rejects_duplicate_members_and_invalid_json(self) -> None:
+        raw = _raw()
+        for text in (
+            '{"device_id":"first","device_id":"second"}',
+            "{bad",
+            '{"temperature":NaN}',
+        ):
+            with self.subTest(text=text):
+                inconsistent = SimpleNamespace(
+                    raw_text=text,
+                    raw_payload=raw,
+                    authenticated_device_id=DEVICE,
+                    warehouse_id=WAREHOUSE,
+                    received_at=NOW,
+                    reception_id=uuid4(),
+                )
+                with self.assertRaisesRegex(ValueError, "valid JSON object"):
+                    prepare_receptions([inconsistent], 8)
+
+    def test_raw_text_must_contain_an_object(self) -> None:
+        reception = _reception(_raw())
+        inconsistent = SimpleNamespace(
+            raw_text="[]",
+            raw_payload=_raw(),
+            authenticated_device_id=DEVICE,
+            warehouse_id=WAREHOUSE,
+            received_at=NOW,
+            reception_id=reception.reception_id,
+        )
+        with self.assertRaisesRegex(ValueError, "raw_text must be a JSON object"):
+            prepare_receptions([inconsistent], 8)
+
+    def test_invalid_text_is_rejected_before_payload_property_is_read(self) -> None:
+        # ExampleReception.raw_payload parses raw_text and would include raw input
+        # in JSONDecodeError if it were accessed before C's bounded diagnostic.
+        with self.assertRaisesRegex(ValueError, "valid JSON object") as caught:
+            prepare_receptions([ExampleReception(raw_text="{bad")], 8)
+        self.assertNotIn("{bad", str(caught.exception))
+
+    def test_json_number_and_boolean_are_not_equal_evidence(self) -> None:
+        raw = _raw()
+        raw["metrics"][0]["value"] = 1
+        reception = _reception(raw)
+        changed = deepcopy(raw)
+        changed["metrics"][0]["value"] = True
+        inconsistent = SimpleNamespace(
+            raw_text=reception.raw_text,
+            raw_payload=changed,
+            authenticated_device_id=DEVICE,
+            warehouse_id=WAREHOUSE,
+            received_at=NOW,
+            reception_id=reception.reception_id,
+        )
+        with self.assertRaisesRegex(ValueError, "raw_text and raw_payload differ"):
+            prepare_receptions([inconsistent], 8)
+
     def test_trusted_fields_fill_view_without_rewriting_raw(self) -> None:
         raw = _raw()
         del raw["warehouse_id"]

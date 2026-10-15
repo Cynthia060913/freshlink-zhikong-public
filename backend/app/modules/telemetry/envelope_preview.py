@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -38,6 +39,19 @@ def _raw_matches_uuid(value: object, expected: UUID) -> bool:
         return False
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("raw_text has duplicate JSON members")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value: str) -> Any:
+    raise ValueError("raw_text contains a non-JSON constant")
+
+
 def prepare_receptions(
     receptions: list[ReceptionLike], threshold_c: float | None = None
 ) -> list[dict[str, Any]]:
@@ -65,9 +79,30 @@ def prepare_receptions(
             raise ValueError("received_at must be a trusted aware timestamp")
         if not isinstance(reception.raw_text, str):
             raise ValueError("raw_text must be text")
+        try:
+            parsed_raw = json.loads(
+                reception.raw_text,
+                object_pairs_hook=_unique_json_object,
+                parse_constant=_reject_json_constant,
+            )
+        except (ValueError, RecursionError):
+            raise ValueError("raw_text must be a valid JSON object") from None
+        if not isinstance(parsed_raw, dict):
+            raise ValueError("raw_text must be a JSON object")
         raw_payload = deepcopy(reception.raw_payload)
         if not isinstance(raw_payload, dict):
             raise ValueError("raw_payload must be an object")
+        try:
+            parsed_canonical = json.dumps(
+                parsed_raw, sort_keys=True, ensure_ascii=True, allow_nan=False
+            )
+            payload_canonical = json.dumps(
+                raw_payload, sort_keys=True, ensure_ascii=True, allow_nan=False
+            )
+        except (TypeError, ValueError):
+            raise ValueError("raw_payload must contain JSON values") from None
+        if parsed_canonical != payload_canonical:
+            raise ValueError("raw_text and raw_payload differ")
         if not _raw_matches_uuid(raw_payload.get("device_id"), device_id):
             raise ValueError("raw device_id differs from trusted device")
         if "warehouse_id" in raw_payload and not _raw_matches_uuid(

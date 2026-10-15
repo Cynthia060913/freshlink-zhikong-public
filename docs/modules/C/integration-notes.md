@@ -44,6 +44,8 @@ A 的 MQTT 身份/绑定/超限拒绝审计与待发队列由 A 实现并测试�
 
 C 新增 `backend/app/modules/telemetry/envelope_preview.py::prepare_receptions`，结构性读取 A 的 RC1 接收封装，不 import 尚未合并的 PR #14。它把可信仓库与 UTC 接收时间只加入质量处理视图，单独保留 exact `raw_text`、原 `raw_payload` 和可信接收元数据。设备自报 `received_at` 不进入规范时间；原文缺仓库不会被误判为 C 缺字段。身份与绑定不符显式失败；正常、高温、缺失/坏单位、批内重复/冲突与无规则样例有 C 单元测试。
 
+2026-10-15 补充：该纯投影现额外验证 `raw_text` 可严格解析成对象且与 `raw_payload` 的 JSON 类型和值一致；重复成员、非 JSON 常量或两者不符显式失败，防止原文证据与清洗结果不一致。这只是 C 边界防护，不表示 A 的正式适配、持久拒绝审计或 HTTP/MQTT 接线完成。
+
 本函数只是可执行的投影原型：`batch_duplicate` 只在一次调用内有效，`threshold_c` 仍是固定测试规则；没有数据库事务、跨重启幂等、真实规则快照、持久候选、MQTT 监听、授权查询或 CSV。正式接线仍由 A 提供可信身份/封装，B 提供规则及仓库政策，C 在已合并 B 唯一迁移 head 上实现观测/reception/outbox 持久化。
 
 ## C1 CSV 预览接线边界（2026-10-12）
