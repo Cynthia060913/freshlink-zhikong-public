@@ -85,7 +85,9 @@ def prepare_receptions(
                 object_pairs_hook=_unique_json_object,
                 parse_constant=_reject_json_constant,
             )
-        except (ValueError, RecursionError):
+        except ValueError:
+            raise ValueError("raw_text must be a valid JSON object") from None
+        except RecursionError:
             raise ValueError("raw_text must be a valid JSON object") from None
         if not isinstance(parsed_raw, dict):
             raise ValueError("raw_text must be a JSON object")
@@ -99,7 +101,9 @@ def prepare_receptions(
             payload_canonical = json.dumps(
                 raw_payload, sort_keys=True, ensure_ascii=True, allow_nan=False
             )
-        except (TypeError, ValueError):
+        except TypeError:
+            raise ValueError("raw_payload must contain JSON values") from None
+        except ValueError:
             raise ValueError("raw_payload must contain JSON values") from None
         if parsed_canonical != payload_canonical:
             raise ValueError("raw_text and raw_payload differ")

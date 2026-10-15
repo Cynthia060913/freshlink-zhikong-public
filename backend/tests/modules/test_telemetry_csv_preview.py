@@ -144,7 +144,9 @@ class TelemetryCsvPreviewTests(unittest.TestCase):
                 self.assertEqual(row["temperature_c"], "")
                 self.assertEqual(case["raw"], raw)
 
-    def test_escaped_lone_surrogate_remains_exportable_and_raw_is_unchanged(self) -> None:
+    def test_escaped_lone_surrogate_remains_exportable_and_raw_is_unchanged(
+        self,
+    ) -> None:
         results, _ = _fixture()
         raw = deepcopy(results[0]["raw"])
         raw["metrics"][0]["value"] = "\ud800"

@@ -240,5 +240,6 @@ class CandidateContractProposalTests(unittest.TestCase):
                     self.assertEqual(result["risk"]["reason"], example["risk_reason"])
                 self.assertEqual(result["raw"], expected_raw[example["case"]])
 
+
 if __name__ == "__main__":
     unittest.main()
