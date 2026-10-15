@@ -103,6 +103,8 @@ def build_candidate_preview(
         threshold is None
         or numeric_value is None
         or risk.get("threshold_c") != threshold
+        or risk.get("temperature_c") != numeric_value
+        or risk.get("reason") != "threshold_exceeded"
         or numeric_value <= threshold
     ):
         raise ValueError("processed temperature and rule threshold disagree")
@@ -118,6 +120,8 @@ def build_candidate_preview(
     )
     if len(matching) != 1 or matching[0].get("unit") != "°C":
         raise ValueError("raw temperature evidence is ambiguous")
+    if _number(matching[0].get("value")) != numeric_value:
+        raise ValueError("raw temperature differs from processed temperature")
 
     return {
         "schema_version": "1.0",

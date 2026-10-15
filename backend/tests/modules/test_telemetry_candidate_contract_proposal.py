@@ -282,6 +282,28 @@ class CandidateContractProposalTests(unittest.TestCase):
                 rule=rule,
             )
 
+    def test_rc2_builder_refuses_changed_raw_or_risk_evidence(self) -> None:
+        source = deepcopy(self.rc2["source_observation"])
+        rule = self.rc2["rule_fixture"]
+        valid = process_batch([source], rule["threshold"])[0]
+        candidate = self.rc2["candidate"]
+        changed_raw = deepcopy(valid)
+        changed_raw["raw"]["metrics"][0]["value"] = 3
+        changed_risk_value = deepcopy(valid)
+        changed_risk_value["risk"]["temperature_c"] = 3
+        changed_risk_reason = deepcopy(valid)
+        changed_risk_reason["risk"]["reason"] = "within_threshold"
+        for row in (changed_raw, changed_risk_value, changed_risk_reason):
+            with self.subTest(row=row["risk"]):
+                with self.assertRaises(ValueError):
+                    build_candidate_preview(
+                        row,
+                        observation_id=candidate["observation_ids"][0],
+                        source_event_id=candidate["source_event_id"],
+                        rule=rule,
+                    )
+        self.assertEqual(valid["raw"], source)
+
     def test_rc2_failure_vectors_never_claim_low_risk_or_candidate(self) -> None:
         rc2 = self.rc2
         source = rc2["source_observation"]
