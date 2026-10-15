@@ -5,6 +5,251 @@ export type ClientOptions = {
 };
 
 /**
+ * AlertEventPublic
+ *
+ * Read-only shape returned by the by-source lookup.
+ *
+ * F03-RC2: the lookup must return the full stored traceability body
+ * (observation refs, rule/algorithm identity, evidence), not just
+ * the event id and value.
+ */
+export type AlertEventPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Source Event Id
+     */
+    source_event_id: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Batch Id
+     */
+    batch_id: string | null;
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string | null;
+    /**
+     * Device Id
+     */
+    device_id: string | null;
+    /**
+     * Metric Code
+     */
+    metric_code: string | null;
+    /**
+     * Sampled At
+     */
+    sampled_at: string;
+    /**
+     * Value
+     */
+    value: number | null;
+    /**
+     * Unit
+     */
+    unit: string | null;
+    /**
+     * Severity
+     */
+    severity: string | null;
+    /**
+     * Observation Ids
+     */
+    observation_ids?: Array<string>;
+    /**
+     * Rule Snapshot Id
+     */
+    rule_snapshot_id?: string | null;
+    /**
+     * Rule Version
+     */
+    rule_version?: string | null;
+    /**
+     * Algorithm Version
+     */
+    algorithm_version?: string | null;
+    /**
+     * Evidence
+     */
+    evidence?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Content Digest
+     */
+    content_digest: string;
+    /**
+     * Related Source Event Id
+     */
+    related_source_event_id: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * BatchCreate
+ *
+ * Payload accepted by ``POST /warehouses/{wid}/batches``.
+ */
+export type BatchCreate = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Product
+     */
+    product: string;
+    /**
+     * Started At
+     */
+    started_at?: string | null;
+    /**
+     * Ended At
+     */
+    ended_at?: string | null;
+};
+
+/**
+ * BatchPublic
+ *
+ * Read-only shape returned by the batch API.
+ */
+export type BatchPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string;
+    /**
+     * Product
+     */
+    product: string;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Ended At
+     */
+    ended_at: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * BatchRuleSnapshotCreate
+ *
+ * Payload accepted by ``POST /batches/{bid}/rule-snapshots``.
+ *
+ * F02 contract (B-side 6127332268): intervals are half-open
+ * ``[start, end)`` in UTC; ``end`` must be strictly after ``start``
+ * (an empty interval is rejected); ``rule_version`` is caller-
+ * provided and stored verbatim; ``supersedes_snapshot_ids`` is the
+ * append-only escape hatch that lets a successor snapshot replace
+ * overlapping predecessors without mutating them.
+ */
+export type BatchRuleSnapshotCreate = {
+    /**
+     * Version Id
+     */
+    version_id: string;
+    /**
+     * Rules
+     */
+    rules: Array<RuleDict>;
+    /**
+     * Effective Start At
+     */
+    effective_start_at: string;
+    /**
+     * Effective End At
+     */
+    effective_end_at?: string | null;
+    /**
+     * Rule Version
+     */
+    rule_version?: string | null;
+    /**
+     * Supersedes Snapshot Ids
+     */
+    supersedes_snapshot_ids?: Array<string>;
+};
+
+/**
+ * BatchRuleSnapshotPublic
+ *
+ * Read-only shape returned by the rule-snapshot API.
+ *
+ * The "is this the current snapshot?" question is answered by the
+ * GET ``/rule-snapshots/{id}`` vs ``/batches/{bid}/rule-snapshots/current``
+ * comparison — the row itself carries no flag. ``created_at``
+ * ordering is insertion order; uuid4 ids are NOT monotonic and are
+ * only used as a deterministic tie-break.
+ */
+export type BatchRuleSnapshotPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Batch Id
+     */
+    batch_id: string;
+    /**
+     * Version Id
+     */
+    version_id: string;
+    /**
+     * Rule Version
+     */
+    rule_version: string | null;
+    /**
+     * Rules
+     */
+    rules: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Signature
+     */
+    signature: string;
+    /**
+     * Effective Start At
+     */
+    effective_start_at: string;
+    /**
+     * Effective End At
+     */
+    effective_end_at: string | null;
+    /**
+     * Supersedes Snapshot Ids
+     */
+    supersedes_snapshot_ids: Array<string>;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
  * Body_login-login_access_token
  */
 export type Body_login_login_access_token = {
@@ -32,6 +277,130 @@ export type Body_login_login_access_token = {
      * Client Secret
      */
     client_secret?: string | null;
+};
+
+/**
+ * CandidateCreate
+ *
+ * Payload accepted by ``POST /candidates`` (pushed by C).
+ *
+ * F03-RC2 (contracts/F03-RC2.md) shape: alongside the core
+ * measurement the candidate carries the full traceability body —
+ * ``observation_ids``, ``rule_snapshot_id`` / ``rule_version``,
+ * ``algorithm_version``, ``severity`` and free-form ``evidence``.
+ * Every field is part of the canonical payload, so it is covered
+ * by the content digest: replaying the same ``source_event_id``
+ * with different traceability is a ``conflict``, never a
+ * ``duplicate`` (PR #10 defect 2).
+ */
+export type CandidateCreate = {
+    /**
+     * Schema Version
+     */
+    schema_version?: string;
+    /**
+     * Source Event Id
+     */
+    source_event_id: string;
+    kind: CandidateKind;
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string;
+    /**
+     * Batch Id
+     */
+    batch_id: string;
+    /**
+     * Observation Ids
+     */
+    observation_ids?: Array<string>;
+    /**
+     * Metric Code
+     */
+    metric_code: string;
+    /**
+     * Sampled At
+     */
+    sampled_at: string;
+    /**
+     * Value
+     */
+    value?: number | null;
+    /**
+     * Unit
+     */
+    unit?: string | null;
+    /**
+     * Severity
+     */
+    severity: string;
+    /**
+     * Rule Snapshot Id
+     */
+    rule_snapshot_id?: string | null;
+    /**
+     * Rule Version
+     */
+    rule_version?: string | null;
+    /**
+     * Algorithm Version
+     */
+    algorithm_version?: string | null;
+    /**
+     * Evidence
+     */
+    evidence?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * CandidateKind
+ *
+ * C-side candidate kinds. ``humidity_*`` values are reserved.
+ */
+export type CandidateKind = 'temperature_high' | 'temperature_low' | 'humidity_high' | 'humidity_low' | 'data_quality';
+
+/**
+ * CandidateReceipt
+ *
+ * Uniform five-way receipt envelope (all ingestion outcomes).
+ */
+export type CandidateReceipt = {
+    status: ReceiptStatus;
+    /**
+     * Event Id
+     */
+    event_id?: string | null;
+    /**
+     * Source Event Id
+     */
+    source_event_id: string;
+    /**
+     * Content Digest
+     */
+    content_digest?: string | null;
+    /**
+     * Reason Code
+     */
+    reason_code?: string | null;
+    /**
+     * Retryable
+     */
+    retryable?: boolean;
+    /**
+     * Retry After S
+     */
+    retry_after_s?: number | null;
+    /**
+     * Stored Event Id
+     */
+    stored_event_id?: string | null;
+    /**
+     * Created At
+     */
+    created_at?: string | null;
 };
 
 /**
@@ -215,6 +584,16 @@ export type CommandsPublic = {
 };
 
 /**
+ * DeviceBinding
+ */
+export type DeviceBinding = {
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string;
+};
+
+/**
  * DeviceConnectivityEventPublic
  */
 export type DeviceConnectivityEventPublic = {
@@ -287,6 +666,46 @@ export type DeviceCreate = {
      */
     warehouse_id?: string | null;
 };
+
+/**
+ * DeviceEventCreate
+ *
+ * Payload accepted by ``POST /device-events`` (pushed by A).
+ */
+export type DeviceEventCreate = {
+    /**
+     * Source Event Id
+     */
+    source_event_id: string;
+    kind: DeviceEventKind;
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string;
+    /**
+     * Device Id
+     */
+    device_id: string;
+    /**
+     * Batch Id
+     */
+    batch_id?: string | null;
+    /**
+     * Sampled At
+     */
+    sampled_at: string;
+    /**
+     * Related Source Event Id
+     */
+    related_source_event_id?: string | null;
+};
+
+/**
+ * DeviceEventKind
+ *
+ * A-side device lifecycle kinds, kept separate from candidates.
+ */
+export type DeviceEventKind = 'offline' | 'fault' | 'recovered';
 
 /**
  * DevicePublic
@@ -447,6 +866,50 @@ export type NewPassword = {
 };
 
 /**
+ * NotificationAttemptPublic
+ *
+ * Read-only shape for attempt listings.
+ */
+export type NotificationAttemptPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Alert Event Id
+     */
+    alert_event_id: string;
+    /**
+     * Channel
+     */
+    channel: string;
+    /**
+     * Outcome
+     */
+    outcome: string;
+    /**
+     * Delivered
+     */
+    delivered: boolean;
+    /**
+     * Detail
+     */
+    detail: string | null;
+    /**
+     * Server Response
+     */
+    server_response: string | null;
+    /**
+     * Retry After S
+     */
+    retry_after_s: number | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
  * PrivateUserCreate
  */
 export type PrivateUserCreate = {
@@ -497,6 +960,82 @@ export type ReceiptPublic = {
      */
     outcome: 'accepted' | 'late' | 'conflict';
 };
+
+/**
+ * ReceiptStatus
+ *
+ * Five-way receipt envelope shared by both ingestion shapes.
+ */
+export type ReceiptStatus = 'accepted_new' | 'accepted_duplicate' | 'conflict' | 'invalid' | 'retryable_failure';
+
+/**
+ * RecoverySpec
+ *
+ * Recovery condition for one rule (F02 contract, B-side 6127332268).
+ *
+ * A candidate is considered recovered only after ``min_samples``
+ * consecutive samples satisfy ``comparison threshold``. No data or
+ * no rule never auto-recovers.
+ */
+export type RecoverySpec = {
+    /**
+     * Comparison
+     */
+    comparison: '>' | '<' | '>=' | '<=';
+    /**
+     * Threshold
+     */
+    threshold: number;
+    /**
+     * Min Samples
+     */
+    min_samples?: number;
+};
+
+/**
+ * RuleDict
+ *
+ * One rule inside a snapshot's list.
+ *
+ * The dict is **canonical** in service-level JSON: keys are sorted
+ * by ``json.dumps(sort_keys=True)`` and ``metric_code`` is required.
+ * Units follow INTERFACES v0.1: temperature °C, humidity %RH.
+ */
+export type RuleDict = {
+    /**
+     * Metric Code
+     */
+    metric_code: string;
+    /**
+     * Candidate Kind
+     */
+    candidate_kind: string;
+    severity: RuleSeverity;
+    /**
+     * Threshold Low
+     */
+    threshold_low?: number | null;
+    /**
+     * Threshold High
+     */
+    threshold_high?: number | null;
+    /**
+     * Unit
+     */
+    unit?: string | null;
+    recovery?: RecoverySpec | null;
+};
+
+/**
+ * RuleSeverity
+ *
+ * Severity tier aligned with C's candidate_kind values.
+ *
+ * Kept intentionally narrow; the ingest service can map from
+ * additional C sample codes via :mod:`app.modules.alerts.rules.mapping`
+ * (B2 work).
+ */
+export type RuleSeverity = 'info' | 'warning' | 'critical';
 
 /**
  * Token
@@ -680,6 +1219,54 @@ export type ValidationError = {
     ctx?: {
         [key: string]: unknown;
     };
+};
+
+/**
+ * WarehouseCreate
+ *
+ * Payload accepted by ``POST /warehouses``.
+ */
+export type WarehouseCreate = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Location
+     */
+    location?: string | null;
+};
+
+/**
+ * WarehousePublic
+ *
+ * Read-only shape returned by the warehouse API.
+ */
+export type WarehousePublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Location
+     */
+    location: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
 };
 
 export type loginLoginAccessTokenData = {
@@ -1388,6 +1975,480 @@ export type devicesReadConnectivityEventsResponses = {
 };
 
 export type devicesReadConnectivityEventsResponse = devicesReadConnectivityEventsResponses[keyof devicesReadConnectivityEventsResponses];
+
+export type devicesBindDeviceData = {
+    body: DeviceBinding;
+    path: {
+        /**
+         * Device Id
+         */
+        device_id: string;
+    };
+    query?: never;
+    url: '/api/v1/devices/{device_id}/binding';
+};
+
+export type devicesBindDeviceErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type devicesBindDeviceError = devicesBindDeviceErrors[keyof devicesBindDeviceErrors];
+
+export type devicesBindDeviceResponses = {
+    /**
+     * Successful Response
+     */
+    200: DevicePublic;
+};
+
+export type devicesBindDeviceResponse = devicesBindDeviceResponses[keyof devicesBindDeviceResponses];
+
+export type warehousesListWarehousesEndpointData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/warehouses/';
+};
+
+export type warehousesListWarehousesEndpointErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type warehousesListWarehousesEndpointError = warehousesListWarehousesEndpointErrors[keyof warehousesListWarehousesEndpointErrors];
+
+export type warehousesListWarehousesEndpointResponses = {
+    /**
+     * Response Warehouses-List Warehouses Endpoint
+     *
+     * Successful Response
+     */
+    200: Array<WarehousePublic>;
+};
+
+export type warehousesListWarehousesEndpointResponse = warehousesListWarehousesEndpointResponses[keyof warehousesListWarehousesEndpointResponses];
+
+export type warehousesRegisterWarehouseData = {
+    body: WarehouseCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/warehouses/';
+};
+
+export type warehousesRegisterWarehouseErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type warehousesRegisterWarehouseError = warehousesRegisterWarehouseErrors[keyof warehousesRegisterWarehouseErrors];
+
+export type warehousesRegisterWarehouseResponses = {
+    /**
+     * Successful Response
+     */
+    201: WarehousePublic;
+};
+
+export type warehousesRegisterWarehouseResponse = warehousesRegisterWarehouseResponses[keyof warehousesRegisterWarehouseResponses];
+
+export type warehousesReadWarehouseData = {
+    body?: never;
+    path: {
+        /**
+         * Warehouse Id
+         */
+        warehouse_id: string;
+    };
+    query?: never;
+    url: '/api/v1/warehouses/{warehouse_id}';
+};
+
+export type warehousesReadWarehouseErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type warehousesReadWarehouseError = warehousesReadWarehouseErrors[keyof warehousesReadWarehouseErrors];
+
+export type warehousesReadWarehouseResponses = {
+    /**
+     * Successful Response
+     */
+    200: WarehousePublic;
+};
+
+export type warehousesReadWarehouseResponse = warehousesReadWarehouseResponses[keyof warehousesReadWarehouseResponses];
+
+export type batchesListBatchesEndpointData = {
+    body?: never;
+    path: {
+        /**
+         * Warehouse Id
+         */
+        warehouse_id: string;
+    };
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/warehouses/{warehouse_id}/batches';
+};
+
+export type batchesListBatchesEndpointErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type batchesListBatchesEndpointError = batchesListBatchesEndpointErrors[keyof batchesListBatchesEndpointErrors];
+
+export type batchesListBatchesEndpointResponses = {
+    /**
+     * Response Batches-List Batches Endpoint
+     *
+     * Successful Response
+     */
+    200: Array<BatchPublic>;
+};
+
+export type batchesListBatchesEndpointResponse = batchesListBatchesEndpointResponses[keyof batchesListBatchesEndpointResponses];
+
+export type batchesRegisterBatchData = {
+    body: BatchCreate;
+    path: {
+        /**
+         * Warehouse Id
+         */
+        warehouse_id: string;
+    };
+    query?: never;
+    url: '/api/v1/warehouses/{warehouse_id}/batches';
+};
+
+export type batchesRegisterBatchErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type batchesRegisterBatchError = batchesRegisterBatchErrors[keyof batchesRegisterBatchErrors];
+
+export type batchesRegisterBatchResponses = {
+    /**
+     * Successful Response
+     */
+    201: BatchPublic;
+};
+
+export type batchesRegisterBatchResponse = batchesRegisterBatchResponses[keyof batchesRegisterBatchResponses];
+
+export type batchesReadBatchData = {
+    body?: never;
+    path: {
+        /**
+         * Batch Id
+         */
+        batch_id: string;
+    };
+    query?: never;
+    url: '/api/v1/batches/{batch_id}';
+};
+
+export type batchesReadBatchErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type batchesReadBatchError = batchesReadBatchErrors[keyof batchesReadBatchErrors];
+
+export type batchesReadBatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: BatchPublic;
+};
+
+export type batchesReadBatchResponse = batchesReadBatchResponses[keyof batchesReadBatchResponses];
+
+export type ruleSnapshotsListSnapshotsEndpointData = {
+    body?: never;
+    path: {
+        /**
+         * Batch Id
+         */
+        batch_id: string;
+    };
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/batches/{batch_id}/rule-snapshots';
+};
+
+export type ruleSnapshotsListSnapshotsEndpointErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type ruleSnapshotsListSnapshotsEndpointError = ruleSnapshotsListSnapshotsEndpointErrors[keyof ruleSnapshotsListSnapshotsEndpointErrors];
+
+export type ruleSnapshotsListSnapshotsEndpointResponses = {
+    /**
+     * Response Rule-Snapshots-List Snapshots Endpoint
+     *
+     * Successful Response
+     */
+    200: Array<BatchRuleSnapshotPublic>;
+};
+
+export type ruleSnapshotsListSnapshotsEndpointResponse = ruleSnapshotsListSnapshotsEndpointResponses[keyof ruleSnapshotsListSnapshotsEndpointResponses];
+
+export type ruleSnapshotsCreateSnapshotEndpointData = {
+    body: BatchRuleSnapshotCreate;
+    path: {
+        /**
+         * Batch Id
+         */
+        batch_id: string;
+    };
+    query?: never;
+    url: '/api/v1/batches/{batch_id}/rule-snapshots';
+};
+
+export type ruleSnapshotsCreateSnapshotEndpointErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type ruleSnapshotsCreateSnapshotEndpointError = ruleSnapshotsCreateSnapshotEndpointErrors[keyof ruleSnapshotsCreateSnapshotEndpointErrors];
+
+export type ruleSnapshotsCreateSnapshotEndpointResponses = {
+    /**
+     * Successful Response
+     */
+    201: BatchRuleSnapshotPublic;
+};
+
+export type ruleSnapshotsCreateSnapshotEndpointResponse = ruleSnapshotsCreateSnapshotEndpointResponses[keyof ruleSnapshotsCreateSnapshotEndpointResponses];
+
+export type ruleSnapshotsReadCurrentSnapshotData = {
+    body?: never;
+    path: {
+        /**
+         * Batch Id
+         */
+        batch_id: string;
+    };
+    query?: never;
+    url: '/api/v1/batches/{batch_id}/rule-snapshots/current';
+};
+
+export type ruleSnapshotsReadCurrentSnapshotErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type ruleSnapshotsReadCurrentSnapshotError = ruleSnapshotsReadCurrentSnapshotErrors[keyof ruleSnapshotsReadCurrentSnapshotErrors];
+
+export type ruleSnapshotsReadCurrentSnapshotResponses = {
+    /**
+     * Successful Response
+     */
+    200: BatchRuleSnapshotPublic;
+};
+
+export type ruleSnapshotsReadCurrentSnapshotResponse = ruleSnapshotsReadCurrentSnapshotResponses[keyof ruleSnapshotsReadCurrentSnapshotResponses];
+
+export type ruleSnapshotsReadSnapshotData = {
+    body?: never;
+    path: {
+        /**
+         * Snapshot Id
+         */
+        snapshot_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rule-snapshots/{snapshot_id}';
+};
+
+export type ruleSnapshotsReadSnapshotErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type ruleSnapshotsReadSnapshotError = ruleSnapshotsReadSnapshotErrors[keyof ruleSnapshotsReadSnapshotErrors];
+
+export type ruleSnapshotsReadSnapshotResponses = {
+    /**
+     * Successful Response
+     */
+    200: BatchRuleSnapshotPublic;
+};
+
+export type ruleSnapshotsReadSnapshotResponse = ruleSnapshotsReadSnapshotResponses[keyof ruleSnapshotsReadSnapshotResponses];
+
+export type alertEventsCreateCandidateData = {
+    body: CandidateCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/candidates';
+};
+
+export type alertEventsCreateCandidateErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type alertEventsCreateCandidateError = alertEventsCreateCandidateErrors[keyof alertEventsCreateCandidateErrors];
+
+export type alertEventsCreateCandidateResponses = {
+    /**
+     * Successful Response
+     */
+    200: CandidateReceipt;
+};
+
+export type alertEventsCreateCandidateResponse = alertEventsCreateCandidateResponses[keyof alertEventsCreateCandidateResponses];
+
+export type alertEventsReadCandidateBySourceData = {
+    body?: never;
+    path: {
+        /**
+         * Source Event Id
+         */
+        source_event_id: string;
+    };
+    query?: never;
+    url: '/api/v1/candidates/by-source/{source_event_id}';
+};
+
+export type alertEventsReadCandidateBySourceErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type alertEventsReadCandidateBySourceError = alertEventsReadCandidateBySourceErrors[keyof alertEventsReadCandidateBySourceErrors];
+
+export type alertEventsReadCandidateBySourceResponses = {
+    /**
+     * Successful Response
+     */
+    200: AlertEventPublic;
+};
+
+export type alertEventsReadCandidateBySourceResponse = alertEventsReadCandidateBySourceResponses[keyof alertEventsReadCandidateBySourceResponses];
+
+export type alertEventsCreateDeviceEventData = {
+    body: DeviceEventCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/device-events';
+};
+
+export type alertEventsCreateDeviceEventErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type alertEventsCreateDeviceEventError = alertEventsCreateDeviceEventErrors[keyof alertEventsCreateDeviceEventErrors];
+
+export type alertEventsCreateDeviceEventResponses = {
+    /**
+     * Successful Response
+     */
+    200: CandidateReceipt;
+};
+
+export type alertEventsCreateDeviceEventResponse = alertEventsCreateDeviceEventResponses[keyof alertEventsCreateDeviceEventResponses];
+
+export type alertEventsListAttemptsData = {
+    body?: never;
+    path: {
+        /**
+         * Event Id
+         */
+        event_id: string;
+    };
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/alert-events/{event_id}/notification-attempts';
+};
+
+export type alertEventsListAttemptsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type alertEventsListAttemptsError = alertEventsListAttemptsErrors[keyof alertEventsListAttemptsErrors];
+
+export type alertEventsListAttemptsResponses = {
+    /**
+     * Response Alert-Events-List Attempts
+     *
+     * Successful Response
+     */
+    200: Array<NotificationAttemptPublic>;
+};
+
+export type alertEventsListAttemptsResponse = alertEventsListAttemptsResponses[keyof alertEventsListAttemptsResponses];
 
 export type deviceControlListCommandsData = {
     body?: never;

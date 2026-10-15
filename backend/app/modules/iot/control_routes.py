@@ -1,4 +1,4 @@
-"""Authenticated command API, fail-closed until B warehouse lookup is wired."""
+"""Authenticated command API using the actual request-scoped B warehouse lookup."""
 
 from datetime import UTC, datetime
 from typing import Annotated
@@ -20,18 +20,13 @@ from app.modules.iot.control_models import (
 from app.modules.iot.control_storage import ControlError, create_command, get_command
 from app.modules.iot.models import Device
 from app.modules.iot.registry import WarehouseExists
+from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
 
 router = APIRouter(prefix="/devices", tags=["device-control"])
 
 
-def control_warehouse_lookup() -> WarehouseExists:
-    # The integration owner must supply the actual B service. Never silently
-    # accept all UUIDs or create phantom warehouses when B isn't available.
-    raise HTTPException(
-        503,
-        detail={"reason_code": "warehouse_service_not_integrated"},
-        headers={"Retry-After": "30"},
-    )
+def control_warehouse_lookup(session: SessionDep) -> WarehouseExists:
+    return warehouse_lookup_for_session(session)
 
 
 @router.post("/{device_id}/commands", response_model=CommandPublic, status_code=201)
@@ -64,6 +59,7 @@ def queue_command(
         )
         raise HTTPException(status, detail={"reason_code": reason}) from None
     except SQLAlchemyError:
+        session.rollback()
         raise HTTPException(
             503,
             detail={"reason_code": "storage_unavailable"},

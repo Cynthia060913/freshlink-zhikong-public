@@ -625,9 +625,16 @@ def test_api_permissions_missing_integration_and_history(
         client.post(base, json=body, headers=normal_user_token_headers).status_code
         == 403
     )
-    assert (
-        client.post(base, json=body, headers=superuser_token_headers).status_code == 503
-    )
+    # The integration candidate now calls real B lookup, not a constant 503.
+    # Explicitly fail that boundary; missing tables or phantom UUIDs are not
+    # relied on as a test substitute for a transient service outage.
+    with patch(
+        "app.modules.iot.warehouse_bridge.get_warehouse",
+        side_effect=OperationalError("warehouse read", {}, RuntimeError("fixture")),
+    ):
+        unavailable = client.post(base, json=body, headers=superuser_token_headers)
+    assert unavailable.status_code == 503
+    assert unavailable.headers["Retry-After"] == "30"
     with Session(engine) as s:
         device = s.get(Device, identity)
         device.last_seen_at = datetime.now(UTC)

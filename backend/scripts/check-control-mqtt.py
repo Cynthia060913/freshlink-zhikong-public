@@ -1,11 +1,14 @@
 """Disposable authenticated API -> PG queue -> MQTT -> device -> PG ACK proof.
 
-B warehouse lookup is an explicit fixture, not a production override. Telemetry
-is observed on MQTT, not persisted by C. No real email/APP or production data.
+Default warehouse mode is an explicit fixture. Opt-in real mode creates only
+B's Warehouse table in the guarded disposable DB, then uses real B HTTP create,
+A HTTP binding and the actual lookup. Neither mode is a formal B migration or
+C telemetry persistence. No real email/APP or production data.
 """
 
 import json
 import logging
+import os
 import threading
 import time
 from datetime import UTC, datetime
@@ -16,7 +19,7 @@ from uuid import UUID, uuid4
 import paho.mqtt.client as mqtt
 from fastapi.testclient import TestClient
 from paho.mqtt.enums import CallbackAPIVersion
-from sqlmodel import Session
+from sqlmodel import Session, SQLModel
 
 from app.core.config import settings
 from app.core.db import engine
@@ -27,10 +30,23 @@ from app.modules.iot.control_worker import ControlWorker, ControlWorkerSettings
 from app.modules.iot.heartbeat_worker import HeartbeatWorker, HeartbeatWorkerSettings
 from app.modules.iot.models import Device
 from app.modules.iot.simulator_runtime import DeviceRuntime, RuntimeSettings
+from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
 
 SENSOR = UUID("11111111-1111-4111-8111-111111111111")
 ACTUATOR = UUID("66666666-6666-4666-8666-666666666666")
 WAREHOUSE = UUID("22222222-2222-4222-8222-222222222222")
+
+
+def authenticate(api):
+    login = api.post(
+        "/api/v1/login/access-token",
+        data={
+            "username": settings.FIRST_SUPERUSER,
+            "password": settings.FIRST_SUPERUSER_PASSWORD,
+        },
+    )
+    assert login.status_code == 200
+    return {"Authorization": "Bearer " + login.json()["access_token"]}
 
 
 def run() -> None:
@@ -46,6 +62,24 @@ def run() -> None:
     state_file = Path("/results/control-device.db")
     if target.exists() or state_file.exists():
         raise RuntimeError("Refusing to overwrite previous evidence")
+    mode = os.environ.get("CONTROL_MQTT_WAREHOUSE_MODE", "fixture")
+    if mode not in ("fixture", "real"):
+        raise RuntimeError("Invalid isolated warehouse mode")
+    warehouse_identity = WAREHOUSE
+    binding_proof = None
+    if mode == "real":
+        # TEST-ONLY DDL, after exact disposable host/name/project guards. Do not
+        # install all B models, add startup create_all, or claim B Alembic done.
+        SQLModel.metadata.tables["alerts_warehouse"].create(engine, checkfirst=False)
+        with TestClient(app) as api:
+            headers = authenticate(api)
+            warehouse = api.post(
+                "/api/v1/warehouses/",
+                headers=headers,
+                json={"code": "control-proof", "name": "Isolated B warehouse"},
+            )
+            assert warehouse.status_code == 201
+            warehouse_identity = UUID(warehouse.json()["id"])
     with Session(engine) as session:
         for identity, kind in [
             (SENSOR, "temperature_sensor"),
@@ -58,10 +92,47 @@ def run() -> None:
                     code="control-fixture-" + kind,
                     name="Explicit isolated control fixture",
                     kind=kind,
-                    warehouse_id=WAREHOUSE,
+                    warehouse_id=None if mode == "real" else warehouse_identity,
                 )
             )
         session.commit()
+    if mode == "real":
+        with TestClient(app) as api:
+            headers = authenticate(api)
+            for identity in (SENSOR, ACTUATOR):
+                path = f"/api/v1/devices/{identity}/binding"
+                missing = api.post(
+                    path, headers=headers, json={"warehouse_id": str(uuid4())}
+                )
+                assert missing.status_code == 404
+                assert (
+                    api.get(f"/api/v1/devices/{identity}", headers=headers).json()[
+                        "warehouse_id"
+                    ]
+                    is None
+                )
+                for _ in range(2):
+                    bound = api.post(
+                        path,
+                        headers=headers,
+                        json={"warehouse_id": str(warehouse_identity)},
+                    )
+                    assert bound.status_code == 200
+                    assert bound.json()["warehouse_id"] == str(warehouse_identity)
+                    assert bound.json()["connectivity"] == "unknown"
+            binding_proof = {
+                "warehouse_id": str(warehouse_identity),
+                "device_ids": [str(SENSOR), str(ACTUATOR)],
+                "unknown_warehouse_rejected": True,
+                "same_binding_retry_safe": True,
+                "did_not_claim_online": True,
+                "ddl_scope": "test-only alerts_warehouse; NOT B Alembic",
+            }
+    lookup_factory = (
+        warehouse_lookup_for_session
+        if mode == "real"
+        else lambda _session: lambda identity: identity == warehouse_identity
+    )
     common = {
         "host": "broker",
         "port": 1883,
@@ -86,9 +157,7 @@ def run() -> None:
             {**common, "client_id": "control-proof-worker", "device_ids": [ACTUATOR]}
         ),
         password="fixture-controller-only",
-        warehouse_lookup_factory=lambda _session: (
-            lambda identity: identity == WAREHOUSE
-        ),
+        warehouse_lookup_factory=lookup_factory,
     )
     device_config = RuntimeSettings.model_validate(
         {
@@ -100,7 +169,7 @@ def run() -> None:
             "actuator_username": "test-actuator",
             "sensor_id": SENSOR,
             "actuator_id": ACTUATOR,
-            "warehouse_id": WAREHOUSE,
+            "warehouse_id": warehouse_identity,
             "state_file": state_file,
             "sample_period_seconds": 0.5,
             "heartbeat_period_seconds": 0.5,
@@ -174,11 +243,11 @@ def run() -> None:
     observer.on_publish = lambda _c, _d, _m, r, _p: (
         denied.append(r.value) if r.is_failure else None
     )
-    # Only this isolated TestClient receives the test warehouse dependency.
     assert control_warehouse_lookup not in app.dependency_overrides
-    app.dependency_overrides[control_warehouse_lookup] = lambda: (
-        lambda identity: identity == WAREHOUSE
-    )
+    if mode == "fixture":
+        app.dependency_overrides[control_warehouse_lookup] = lambda: (
+            lambda identity: identity == warehouse_identity
+        )
     try:
         launch(heartbeat)
         control_thread = launch(control)
@@ -194,15 +263,7 @@ def run() -> None:
             )
         )
         with TestClient(app) as api:
-            login = api.post(
-                "/api/v1/login/access-token",
-                data={
-                    "username": settings.FIRST_SUPERUSER,
-                    "password": settings.FIRST_SUPERUSER_PASSWORD,
-                },
-            )
-            assert login.status_code == 200
-            headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+            headers = authenticate(api)
             prefix = f"/api/v1/devices/{ACTUATOR}/commands"
 
             def detail(identity):
@@ -283,9 +344,7 @@ def run() -> None:
             control = ControlWorker(
                 control.settings,
                 password="fixture-controller-only",
-                warehouse_lookup_factory=lambda _session: (
-                    lambda identity: identity == WAREHOUSE
-                ),
+                warehouse_lookup_factory=lookup_factory,
             )
             launch(control)
             resumed = new_device()
@@ -348,9 +407,15 @@ def run() -> None:
                 "worker_restart_preserved_original_payload": True,
                 "execution_count_after_two_valid_commands_and_expired_replay": 2,
                 "controller_ack_publish_denied": True,
-                "warehouse_lookup": "explicit isolated fixture, NOT B integration",
+                "warehouse_lookup": (
+                    "actual B service, same-session lookup; no dependency override"
+                    if mode == "real"
+                    else "explicit isolated fixture, NOT B integration"
+                ),
+                "warehouse_mode": mode,
+                "binding_proof": binding_proof,
                 "not_tested": [
-                    "B warehouse/alerts",
+                    "formal B migration/alerts/notifications",
                     "C telemetry persistence",
                     "browser control UI",
                     "two real notification receipts",

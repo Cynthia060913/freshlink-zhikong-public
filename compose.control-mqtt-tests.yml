@@ -33,6 +33,7 @@ services:
       SENTRY_DSN: ""
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: /app/backend
+      CONTROL_MQTT_WAREHOUSE_MODE: ${CONTROL_MQTT_WAREHOUSE_MODE:-fixture}
     volumes:
       - ./backend:/app/backend:ro
       - ${CONTROL_MQTT_RESULT_DIR:?Use check-control-mqtt.ps1}:/results
