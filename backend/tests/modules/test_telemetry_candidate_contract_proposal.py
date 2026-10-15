@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import UUID
@@ -15,6 +16,11 @@ class CandidateContractProposalTests(unittest.TestCase):
     def setUp(self) -> None:
         self.proposal = json.loads(
             (_EXAMPLES / "candidate-f03-rc1-proposal.json").read_text(encoding="utf-8")
+        )
+        self.rc2 = json.loads(
+            (_EXAMPLES / "candidate-f03-rc2-c-proposal.json").read_text(
+                encoding="utf-8"
+            )
         )
         observations = json.loads(
             (_EXAMPLES / "telemetry-contract-proposal.json").read_text(encoding="utf-8")
@@ -120,6 +126,119 @@ class CandidateContractProposalTests(unittest.TestCase):
         self.assertIsNone(example["temperature_c"])
         self.assertIs(example["candidate_sent"], False)
 
+    def test_rc2_single_batch_vector_matches_quality_and_rule_fixture(self) -> None:
+        rc2 = self.rc2
+        self.assertEqual(rc2["status"], "C_F03_RC2_proposal_not_implemented")
+        candidate = rc2["candidate"]
+        source = rc2["source_observation"]
+        rule = rc2["rule_fixture"]
+        result = process_batch([source], rule["threshold"])[0]
+        self.assertEqual(result["duplicate"], "new")
+        self.assertEqual(result["risk"]["state"], "candidate")
+        self.assertEqual(result["risk"]["reason"], "threshold_exceeded")
+        self.assertEqual(
+            set(candidate),
+            {
+                "schema_version",
+                "source_event_id",
+                "warehouse_id",
+                "batch_id",
+                "observation_ids",
+                "metric_code",
+                "sampled_at",
+                "value",
+                "unit",
+                "kind",
+                "severity",
+                "rule_snapshot_id",
+                "rule_version",
+                "algorithm_version",
+                "evidence",
+            },
+        )
+        self.assertEqual(candidate["schema_version"], "1.0")
+        self.assertEqual(
+            candidate["warehouse_id"], result["normalized"]["warehouse_id"]
+        )
+        self.assertEqual(candidate["batch_id"], rule["batch_id"])
+        self.assertEqual(rule["warehouse_id"], candidate["warehouse_id"])
+        self.assertEqual(candidate["metric_code"], rule["metric_code"])
+        self.assertEqual(candidate["sampled_at"], result["normalized"]["sampled_at"])
+        self.assertEqual(
+            candidate["value"], result["normalized"]["metrics"]["temperature"]
+        )
+        self.assertEqual(candidate["unit"], rule["unit"])
+        self.assertEqual(candidate["kind"], "temperature_high")
+        self.assertEqual(candidate["severity"], rule["severity"])
+        self.assertEqual(candidate["rule_snapshot_id"], rule["rule_snapshot_id"])
+        self.assertEqual(candidate["rule_version"], rule["rule_version"])
+        self.assertEqual(
+            candidate["observation_ids"], [self.assignments[3]["observation_id"]]
+        )
+        for field in (
+            "source_event_id",
+            "warehouse_id",
+            "batch_id",
+            "rule_snapshot_id",
+        ):
+            UUID(candidate[field])
+        for value in candidate["observation_ids"]:
+            UUID(value)
+        sampled = datetime.fromisoformat(candidate["sampled_at"].replace("Z", "+00:00"))
+        starts = datetime.fromisoformat(rule["effective_from"].replace("Z", "+00:00"))
+        self.assertEqual(sampled.utcoffset(), timedelta(0))
+        self.assertLessEqual(starts, sampled)
+        self.assertIsNone(rule["effective_to"])
+        evidence = candidate["evidence"]
+        self.assertEqual(evidence["device_id"], result["normalized"]["device_id"])
+        self.assertEqual(evidence["message_id"], result["normalized"]["message_id"])
+        self.assertEqual(evidence["raw_value"], source["metrics"][0]["value"])
+        self.assertEqual(evidence["raw_unit"], source["metrics"][0]["unit"])
+        self.assertEqual(evidence["normalized_value"], candidate["value"])
+        self.assertEqual(evidence["normalized_unit"], candidate["unit"])
+        self.assertEqual(evidence["comparison"], rule["comparison"])
+        self.assertEqual(evidence["threshold"], rule["threshold"])
+        self.assertEqual(evidence["quality"], result["quality"])
+
+    def test_rc2_failure_vectors_never_claim_low_risk_or_candidate(self) -> None:
+        rc2 = self.rc2
+        source = rc2["source_observation"]
+        missing = deepcopy(source)
+        missing["metrics"][0]["value"] = None
+        wrong_unit = deepcopy(source)
+        wrong_unit["metrics"][0]["value"] = 104
+        wrong_unit["metrics"][0]["unit"] = "°F"
+        replay = process_batch([source, deepcopy(source)], 8)[1]
+        changed = deepcopy(source)
+        changed["metrics"][0]["value"] = 12
+        conflict = process_batch([source, changed], 8)[1]
+        actual = {
+            "missing_temperature": process_batch([missing], 8)[0],
+            "wrong_temperature_unit": process_batch([wrong_unit], 8)[0],
+            "no_rule": process_batch([source])[0],
+            "same_message_replay": replay,
+            "same_message_changed_measurement": conflict,
+        }
+        expected_raw = {
+            "missing_temperature": missing,
+            "wrong_temperature_unit": wrong_unit,
+            "no_rule": source,
+            "same_message_replay": source,
+            "same_message_changed_measurement": changed,
+        }
+        self.assertEqual(set(actual), {row["case"] for row in rc2["failure_examples"]})
+        for example in rc2["failure_examples"]:
+            with self.subTest(case=example["case"]):
+                result = actual[example["case"]]
+                self.assertEqual(result["risk"]["state"], example["risk_state"])
+                self.assertIsNone(example["candidate"])
+                if "quality" in example:
+                    self.assertEqual(result["quality"], example["quality"])
+                if "duplicate" in example:
+                    self.assertEqual(result["duplicate"], example["duplicate"])
+                if "risk_reason" in example:
+                    self.assertEqual(result["risk"]["reason"], example["risk_reason"])
+                self.assertEqual(result["raw"], expected_raw[example["case"]])
 
 if __name__ == "__main__":
     unittest.main()

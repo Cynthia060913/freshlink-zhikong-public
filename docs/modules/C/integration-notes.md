@@ -96,3 +96,29 @@ Python `datetime` 只保留六位小数。旧纯处理若接受七位及以上�
 六位以内仍接受 UTC `Z`/`+00:00`。这是 C 预览的保守边界，**不是已冻结的
 生产 F01 格式**；请 A 确认设备采样时间最高精度，正式接收服务不得无声截断
 更高精度时间。没有据此宣称数据库、MQTT 或 E1 已验证。
+
+## 新公开仓库 F03-RC2 单批候选消费提案（2026-10-15，未接线）
+
+对照新仓库 PR #14 `contracts/F03-RC2.md` 和
+`contracts/examples/candidate-f03-rc2.json`，C 新增
+`examples/candidate-f03-rc2-c-proposal.json` 固定向量。它从 C 的独立
+`schema_version="1.0"` 高温**处理视图**与显式批次/规则样例核对：顶层使用
+`batch_id`、`sampled_at`、`value`、`unit`、`metric_code`，同时保留
+`source_event_id`、单个 `observation_ids`、`warehouse_id`、
+`rule_snapshot_id`、`rule_version`、`algorithm_version` 和质量/阈值证据。
+批次与仓库必须对应，规则以有时区 UTC 采样时刻选择；同一观测若作用于不同
+批次，各候选需要不同且持久的来源 ID。样例里的 `received_at` 仅属于 C
+处理视图，生产时由 A 的可信封装给出，不从设备原文信任。
+
+缺温、错单位、无规则、重复或冲突均不生成正常/低风险或第二个候选；有效
+高温仍保留原始值。C 的目标是在同一事务中保存候选及不可变正文，后续
+超时查无时使用**原 `source_event_id` 与原正文**有界重试；B 回重复需核
+规范内容，永久拒绝/冲突留失败证据，不让通知服务内部重试代替 C→B 投递。
+当前 JSON 与单元测试只验证固定映射和不发条件，没有 B 接收、数据库 outbox、
+跨重启 ID 稳定性或恢复事件。
+
+请 A/B 在 S0 #5 对同一 F03-RC2 提交确认：B 的候选 DTO/规范摘要与 by-source
+回读须覆盖完整证据；`timeout → by-source 404 → 同 ID 重试` 不可转永久拒绝；
+恢复事件的新来源 ID 如何引用原异常，及 B 的历史规则选择接口、批次归属
+校验和数据库失败分类。新库远端 PR #10 当前尚非 RC2 实现，C 不向其最小
+DTO 投递此样例，也不擅自改共同 contracts 或迁移链。
