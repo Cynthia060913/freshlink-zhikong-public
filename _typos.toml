@@ -7,3 +7,5 @@
 # flagged for A's cross-review.
 [default.extend-words]
 helo = "helo"
+# Eclipse Mosquitto is the actual MQTT broker product name, not the insect.
+mosquitto = "mosquitto"

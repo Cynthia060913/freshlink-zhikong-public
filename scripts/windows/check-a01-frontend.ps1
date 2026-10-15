@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'common.ps1')
 $savedLocation = Get-Location
 $reportPath = $null
-$result = [ordered]@{ stage = 'A01 frontend SDK/lint/build'; status = 'checking'; image = 'oven/bun:1.3.12'; registry = 'https://registry.npmjs.org'; dependency_storage = 'disposable Linux volume'; schema_sha256 = $null; error = $null }
+$result = [ordered]@{ stage = 'A01 frontend SDK/lint/build'; status = 'checking'; image = 'oven/bun:1.3.12'; registry = 'https://registry.npmjs.org'; dependency_storage = 'disposable Linux volume'; schema_sha256 = $null; bundle_directory = $null; error = $null }
 try {
     $projectRoot = Get-FreshLinkRoot
     Set-Location -LiteralPath $projectRoot
@@ -44,10 +44,15 @@ try {
     }
     # Copy a generated, non-secret schema artifact; it is ignored by Git.
     Copy-Item -LiteralPath $schemaPath -Destination (Join-Path $projectRoot 'frontend/openapi.json')
+    # Preserve the actual build output, not only the successful compiler log.
+    $bundleDirectory = Join-Path $projectRoot ('work/frontend-bundle-' + [guid]::NewGuid().ToString('N'))
+    [IO.Directory]::CreateDirectory($bundleDirectory) | Out-Null
+    $result.bundle_directory = $bundleDirectory
     Write-Output 'Dependencies use a temporary Linux volume, official npm registry and 4 concurrent downloads.'
     Write-Output 'Lockfile and package integrity checks remain enabled. Existing Windows dependencies are left untouched.'
     $argsForDocker = @('run', '--rm', '--pull', 'never',
         '--mount', ('type=bind,source=' + (Join-Path $projectRoot 'frontend') + ',target=/workspace/frontend'),
+        '--mount', ('type=bind,source=' + $bundleDirectory + ',target=/workspace/backend/app/frontend'),
         '--mount', 'type=volume,target=/workspace/frontend/node_modules',
         '--mount', ('type=bind,source=' + (Join-Path $projectRoot 'packages/react-email/package.json') + ',target=/workspace/packages/react-email/package.json,readonly'),
         '--mount', ('type=bind,source=' + (Join-Path $projectRoot 'package.json') + ',target=/workspace/package.json,readonly'),
@@ -58,9 +63,11 @@ try {
     & $dockerExecutable @argsForDocker
     if ($LASTEXITCODE -ne 0) { throw 'Frontend SDK, lint or build failed; keep the output for your Agent.' }
     $result.status = 'passed'
+    if (-not (Test-Path -LiteralPath (Join-Path $bundleDirectory 'index.html'))) { throw 'Build reported success but frontend bundle was not preserved.' }
     Write-Output 'PASS A01 frontend SDK generation, Biome check and Vite/TypeScript build.'
     Write-Output 'NOT CHECKED: browser interaction, full pre-commit hooks, remote CI or B/C integration.'
     Write-Output 'Generated SDK source may have changed. Do not run git add .; let your Agent review the diff.'
+    Write-Output ('Preserved frontend bundle: ' + $bundleDirectory)
 } catch {
     $result.status = 'failed'
     $result.error = $_.Exception.Message

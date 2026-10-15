@@ -12,12 +12,20 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import useAuth from "@/hooks/useAuth"
 import { type DeviceKind, deviceError, devicesApi, deviceTime } from "./api"
+import { connectionLabel } from "./connection"
+import DeviceControlPanel from "./DeviceControlPanel"
 
 const kindNames: Record<DeviceKind, string> = {
   temperature_sensor: "温度测点",
   cooling_actuator: "制冷执行器",
 }
 const pageSize = 20
+const deliveryLabels = {
+  pending: "待投递告警模块",
+  held_unbound: "未绑定，保留设备事件",
+  delivered: "告警模块已接收（不代表通知实收）",
+  failed: "投递失败，待处理",
+}
 
 export default function DevicesPage() {
   const { user } = useAuth()
@@ -31,11 +39,19 @@ export default function DevicesPage() {
   const list = useQuery({
     queryKey: ["devices", page],
     queryFn: () => devicesApi.list(page * pageSize, pageSize),
+    refetchInterval: 5000,
   })
   const detail = useQuery({
     queryKey: ["device", selectedId],
     queryFn: () => devicesApi.detail(selectedId!),
     enabled: selectedId !== null,
+    refetchInterval: 5000,
+  })
+  const history = useQuery({
+    queryKey: ["device-connectivity-events", selectedId],
+    queryFn: () => devicesApi.events(selectedId!),
+    enabled: selectedId !== null && detail.isSuccess,
+    refetchInterval: 5000,
   })
   const registration = useMutation({
     mutationFn: devicesApi.register,
@@ -62,8 +78,8 @@ export default function DevicesPage() {
         </p>
       </header>
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
-        当前仅完成注册与查询。设备均为仿真设备，冷库尚未绑定，未接入心跳、MQTT
-        和控制；“未连接/未知”不代表正常在线。
+        设备为软件仿真。连接状态取自服务端已保存的心跳结果；“在线”不代表温湿度
+        正常，“未连接/未知”不能当作在线。冷库未绑定时无法进行仓储联动。
       </div>
       {user?.is_superuser ? (
         <section className="rounded-lg border p-5">
@@ -199,7 +215,7 @@ export default function DevicesPage() {
                     </td>
                     <td className="p-3">
                       <span className="rounded bg-muted px-2 py-1">
-                        未连接 / 未知
+                        {connectionLabel(device)}
                       </span>
                     </td>
                     <td className="p-3">{device.warehouse_id ?? "未绑定"}</td>
@@ -248,11 +264,11 @@ export default function DevicesPage() {
           if (!open) setSelectedId(null)
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>设备详情</DialogTitle>
             <DialogDescription>
-              时间使用北京时间；尚未接入真实心跳或控制。
+              时间使用北京时间；连接状态来自服务端已保存的心跳记录。
             </DialogDescription>
           </DialogHeader>
           {detail.isPending ? (
@@ -278,7 +294,7 @@ export default function DevicesPage() {
                 <dt>数据来源</dt>
                 <dd>软件仿真</dd>
                 <dt>连接状态</dt>
-                <dd>未连接 / 未知</dd>
+                <dd>{connectionLabel(detail.data)}</dd>
                 <dt>冷库</dt>
                 <dd>{detail.data.warehouse_id ?? "未绑定"}</dd>
                 <dt>注册时间</dt>
@@ -287,6 +303,62 @@ export default function DevicesPage() {
                 <dd>{deviceTime(detail.data.last_seen_at)}</dd>
               </dl>
             )
+          )}
+          {detail.isSuccess && (
+            <section className="border-t pt-4" aria-label="连接事件记录">
+              <h3 className="font-medium">最近连接事件</h3>
+              {history.isPending ? (
+                <p className="text-sm">正在加载事件…</p>
+              ) : history.isError ? (
+                <div role="alert" className="text-sm">
+                  连接事件查询失败，未把失败解释为没有故障。
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => history.refetch()}
+                  >
+                    重试
+                  </Button>
+                </div>
+              ) : history.data?.count === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  暂无连接事件；不代表设备或温湿度正常。
+                </p>
+              ) : (
+                <ol className="space-y-3 text-sm">
+                  {history.data?.data.map((event) => (
+                    <li
+                      key={event.source_event_id}
+                      className="rounded border p-3"
+                    >
+                      <div className="font-medium">
+                        {event.kind === "offline" ? "心跳超时离线" : "连接恢复"}
+                      </div>
+                      <div>{deviceTime(event.occurred_at)}</div>
+                      <div className="break-all text-xs">
+                        来源 ID：{event.source_event_id}
+                      </div>
+                      {event.related_source_event_id && (
+                        <div className="break-all text-xs">
+                          关联离线：{event.related_source_event_id}
+                        </div>
+                      )}
+                      <div className="text-xs text-muted-foreground">
+                        {deliveryLabels[event.delivery_state]}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
+          {detail.isSuccess && detail.data && user && (
+            <DeviceControlPanel
+              key={`${user.id}:${detail.data.id}`}
+              device={detail.data}
+              actorId={user.id}
+              canControl={user.is_superuser === true}
+            />
           )}
         </DialogContent>
       </Dialog>

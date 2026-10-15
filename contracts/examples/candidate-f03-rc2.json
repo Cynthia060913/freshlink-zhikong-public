@@ -1,0 +1,24 @@
+{
+  "status": "proposal_not_implemented",
+  "candidate": {
+    "schema_version": "1.0",
+    "source_event_id": "77777777-7777-4777-8777-777777777777",
+    "warehouse_id": "22222222-2222-4222-8222-222222222222",
+    "batch_id": "55555555-5555-4555-8555-555555555555",
+    "observation_ids": ["00000000-0000-4000-8000-000000000004"],
+    "metric_code": "temperature",
+    "sampled_at": "2026-10-14T00:01:00Z",
+    "value": 11.0,
+    "unit": "°C",
+    "kind": "temperature_high",
+    "severity": "warning",
+    "rule_snapshot_id": "88888888-8888-4888-8888-888888888888",
+    "rule_version": "v1",
+    "algorithm_version": "threshold-rule/0.2.0-rc2",
+    "evidence": {
+      "comparison": ">",
+      "threshold": 8.0,
+      "quality": ["ok"]
+    }
+  }
+}

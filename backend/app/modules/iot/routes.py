@@ -6,7 +6,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
-from app.modules.iot.models import Device, DeviceCreate, DevicePublic, DevicesPublic
+from app.modules.iot.models import (
+    Device,
+    DeviceConnectivityEvent,
+    DeviceConnectivityEventPublic,
+    DeviceConnectivityEventsPublic,
+    DeviceCreate,
+    DevicePublic,
+    DevicesPublic,
+)
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -65,3 +73,37 @@ def read_device(
     if device is None:
         raise HTTPException(status_code=404, detail="Device not found")
     return device
+
+
+@router.get(
+    "/{device_id}/connectivity-events", response_model=DeviceConnectivityEventsPublic
+)
+def read_connectivity_events(
+    session: SessionDep,
+    current_user: CurrentUser,
+    device_id: uuid.UUID,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> DeviceConnectivityEventsPublic:
+    _ = current_user
+    if session.get(Device, device_id) is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    total = session.exec(
+        select(func.count())
+        .select_from(DeviceConnectivityEvent)
+        .where(DeviceConnectivityEvent.device_id == device_id)
+    ).one()
+    rows = session.exec(
+        select(DeviceConnectivityEvent)
+        .where(DeviceConnectivityEvent.device_id == device_id)
+        .order_by(
+            col(DeviceConnectivityEvent.occurred_at).desc(),
+            col(DeviceConnectivityEvent.source_event_id).desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+    ).all()
+    return DeviceConnectivityEventsPublic(
+        data=[DeviceConnectivityEventPublic.model_validate(row) for row in rows],
+        count=total,
+    )
