@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label"
 import useAuth from "@/hooks/useAuth"
 import { type DeviceKind, deviceError, devicesApi, deviceTime } from "./api"
 import { connectionLabel } from "./connection"
+import DeviceControlPanel from "./DeviceControlPanel"
 
 const kindNames: Record<DeviceKind, string> = {
   temperature_sensor: "温度测点",
@@ -350,6 +351,14 @@ export default function DevicesPage() {
                 </ol>
               )}
             </section>
+          )}
+          {detail.isSuccess && detail.data && user && (
+            <DeviceControlPanel
+              key={`${user.id}:${detail.data.id}`}
+              device={detail.data}
+              actorId={user.id}
+              canControl={user.is_superuser === true}
+            />
           )}
         </DialogContent>
       </Dialog>
