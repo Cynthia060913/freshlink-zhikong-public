@@ -14,6 +14,7 @@ from typing import Any
 from app.modules.telemetry.quality import _number, _utc, _uuid, process_batch
 
 ALGORITHM_VERSION = "threshold-rule/0.2.0-rc2"
+F03_SEVERITIES = frozenset({"info", "warning", "critical"})
 
 
 def _required_uuid(value: object, name: str) -> str:
@@ -105,6 +106,9 @@ def build_candidate_preview(
         raise ValueError("rule metric or unit differs from temperature preview")
     if rule.get("comparison") != ">":
         raise ValueError("RC2 preview requires a strict high-temperature rule")
+    severity = rule.get("severity")
+    if not isinstance(severity, str) or severity not in F03_SEVERITIES:
+        raise ValueError("rule severity must be info, warning, or critical")
 
     threshold = _number(rule.get("threshold"))
     metrics = normalized.get("metrics")
@@ -156,7 +160,7 @@ def build_candidate_preview(
         "value": numeric_value,
         "unit": "°C",
         "kind": "temperature_high",
-        "severity": _required_text(rule.get("severity"), "severity"),
+        "severity": severity,
         "rule_snapshot_id": snapshot_id,
         "rule_version": _required_text(rule.get("rule_version"), "rule_version"),
         "algorithm_version": ALGORITHM_VERSION,

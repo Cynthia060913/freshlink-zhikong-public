@@ -2,6 +2,10 @@
 
 状态：C4 的阶段性真实证据汇编；更新于 2026-10-15。当前实现含 C0 纯处理/A 接收封装投影、C1 隔离数据库事务候选与内存筛选/CSV 字节预览，以及 C2 的固定 F03 候选纯投影；**没有**正式 PostgreSQL 迁移、应用持久化接线、数据库查询、权限、HTTP 导出、候选持久交付或 E1 联调。以下新库证据按明确代码 SHA 解释；更早章节按当时状态保留，其中“本机待上传”等描述已被后续远端提交覆盖，不能当作当前阻塞。
 
+## C2 F03 严重程度枚举（2026-10-15）
+
+在[共同 #5 四项答复](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6194380612) 中，C 接受 `info|warning|critical` 为 F03-RC2 目标集合。固定候选投影仅从有效规则复制这些值，其他值或类型显式拒绝；`normal` 不是严重程度，缺测/无规则不能由此伪装为低风险。新增一项回归验证三个接受值和五种拒绝输入。Windows/Codex Python 3.13.9 隔离虚拟环境实际运行六组 C-only `unittest` **87/87 OK**；改动的两个 Python 文件 Ruff lint/format、候选模块 mypy strict 与 ty 均通过。此测试只覆盖 C 内存候选及前述隔离 SQLite 候选，不证明 B DTO 已收窄、正式契约签收、持久 outbox 或真实投递。同版远端 CI 以本提交推送后 GitHub 实际结果为准。
+
 ## C1 隔离数据库事务候选（2026-10-15；代码 `7f566b9f13de171b9e268b0e5edb813e8da5c640`）
 
 - `storage_candidate.py::ingest_observation` 在 C 自有、未纳入正式迁移的候选表上将 observation、reception 和 evaluation work 放入同一 SQLAlchemy 事务。可信 A 封装的 exact `raw_text`、原 `raw_payload`、可信设备/仓库/接收时间分别保留；设备/消息 UUID 唯一约束、reception UUID 主键确保新消息、重发、冲突与同一接收调用重试区分。提交前失败回 `retryable_failure` 并回滚；新 observation 的 ID 和待评估任务跨数据库重开保留。结构性坏业务键只留 reception，坏采样时间/单位照实保存为 `unknown`，真实高温值不删除；规则未接入，风险仍 `unknown`。

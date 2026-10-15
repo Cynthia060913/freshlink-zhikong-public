@@ -282,6 +282,30 @@ class CandidateContractProposalTests(unittest.TestCase):
                 rule=rule,
             )
 
+    def test_rc2_builder_only_copies_agreed_rule_severity(self) -> None:
+        rule = self.rc2["rule_fixture"]
+        row = process_batch([deepcopy(self.rc2["source_observation"])], 8)[0]
+        candidate = self.rc2["candidate"]
+        for severity in ("info", "warning", "critical"):
+            with self.subTest(severity=severity):
+                built = build_candidate_preview(
+                    row,
+                    observation_id=candidate["observation_ids"][0],
+                    source_event_id=candidate["source_event_id"],
+                    rule={**rule, "severity": severity},
+                )
+                self.assertIsNotNone(built)
+                self.assertEqual(built["severity"], severity)
+        for severity in ("emergency", "normal", "", None, ["warning"]):
+            with self.subTest(severity=severity):
+                with self.assertRaisesRegex(ValueError, "rule severity"):
+                    build_candidate_preview(
+                        row,
+                        observation_id=candidate["observation_ids"][0],
+                        source_event_id=candidate["source_event_id"],
+                        rule={**rule, "severity": severity},
+                    )
+
     def test_rc2_builder_refuses_changed_raw_or_risk_evidence(self) -> None:
         source = deepcopy(self.rc2["source_observation"])
         rule = self.rc2["rule_fixture"]

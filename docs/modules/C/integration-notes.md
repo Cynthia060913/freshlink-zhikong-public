@@ -2,6 +2,10 @@
 
 状态：接线提案，未实施。请指定集成 Agent 协调；C 不直接改根 API、公共导航、Compose、锁文件或迁移链。下文 2026-10-11 至 2026-10-13 的旧私有库 URL、PR 编号和 SHA 仅是历史证据；**当前协作、评论及代码交付均使用新公开仓库**。
 
+## F03-RC2 四项 C 答复（2026-10-15）
+
+见[共同 #5 C 答复](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6194380612)：候选 `severity` 只复制有效规则的 `info|warning|critical`；C 负责原始观测、质量、阈值和 evidence 一致性，B 仅需有界 JSON 透传、全文摘要与回读；A 的可信 `received_at` 留在 C 接收证据，B 候选不接收；缺测、坏单位/时间、无规则、重复和冲突不投递。暂时性的规则读取故障必须保留待评估任务重试，不误作永久 `unknown_batch`。C 的固定候选投影新增枚举校验，但这不代表正式 F03-RC2 签收或真实投递；A 的 PR #10 复审和 B 的同版 DTO/F02 故障分类仍待确认。
+
 ## 2026-10-15 最新依赖与 C1 候选
 
 - 共同 main 仍 `f7fe62a95eceee75bebba3e135fc67d6c7728643`。B 新库 PR #10 现已推至 `1e5e005970e5cdeca7fcf6a4210e0857787f85b1`，分支包含该 main；B 在 #8 记录同版 F03-RC2 DTO、按源回读、故障边界修复及该 HEAD CI 成功。下方“B 仍只有较小 DTO / 未上传”是旧版本快照，不再作为当前事实。正式同版签收、B 唯一迁移 head 合入、C 对 B 实际 API/PG 验证仍待完成。
