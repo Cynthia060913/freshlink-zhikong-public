@@ -2,6 +2,12 @@
 
 状态：接线提案，未实施。请指定集成 Agent 协调；C 不直接改根 API、公共导航、Compose、锁文件或迁移链。下文 2026-10-11 至 2026-10-13 的旧私有库 URL、PR 编号和 SHA 仅是历史证据；**当前协作、评论及代码交付均使用新公开仓库**。
 
+## 2026-10-15 最新依赖与 C1 候选
+
+- 共同 main 仍 `f7fe62a95eceee75bebba3e135fc67d6c7728643`。B 新库 PR #10 现已推至 `1e5e005970e5cdeca7fcf6a4210e0857787f85b1`，分支包含该 main；B 在 #8 记录同版 F03-RC2 DTO、按源回读、故障边界修复及该 HEAD CI 成功。下方“B 仍只有较小 DTO / 未上传”是旧版本快照，不再作为当前事实。正式同版签收、B 唯一迁移 head 合入、C 对 B 实际 API/PG 验证仍待完成。
+- C 新增 `storage_candidate.py::ingest_observation(engine, envelope)`：输入只消费 A 可信封装，保留 exact 原文与可信接收元数据，在 C 独立候选表的一次 SQLAlchemy 事务中记录 observation、reception 与 evaluation work；同设备/消息去重、同接收重试、冲突和数据库失败有显式结果。**它没有正式 Alembic 迁移或应用路由，不能对生产 engine 建表或称已接 A→C 正式入库。**临时 SQLite 文件数据库和 7 项事务回归只证明隔离实现；PostgreSQL、并发、完整重启、B 规则和候选投递仍待实测。
+- 集成方后续需在唯一已合并 A01→B head 上协调 C 正式表/迁移及可信 A ingress 调用，明确失败回执和拒绝证据；C 在同版 B 规则/候选契约签收后补历史规则选择与 outbox。共享根路由、权限和 Compose 仍由 A 协调。
+
 ## 新仓库当前接线核对（2026-10-15）
 
 - 当前共同 main `f7fe62a95eceee75bebba3e135fc67d6c7728643`；C 自有分支 `feature/c-data-quality-bootstrap` / [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) HEAD `e0f14c44c19597c925ca5e3ed387d8f01d1796cd`。迁移入口仍为 `WAIT_VERIFICATION`；S0 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5)、E1 [#6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6) 均未完成。

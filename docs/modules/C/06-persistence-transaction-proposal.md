@@ -1,7 +1,13 @@
 # C1 观测事务与幂等实现提案
 
-状态：**C 内部设计草案，未接数据库、未建迁移、未开放 API**。本文件供
+状态：**C 内部设计草案，已有隔离 SQLite 事务候选，未接正式 PostgreSQL、未建迁移、未开放 API**。本文件供
 S0/F01—F03 审核；正式表和字段只在 B 的唯一迁移 head 合入、共同契约确认后落地。
+候选实现在 `backend/app/modules/telemetry/storage_candidate.py`，独立
+SQLAlchemy `MetaData` 只供隔离测试建表；生产不得 `create_all`。它把原始观测、
+每次接收与待评估任务放进单事务，含设备/消息唯一约束和接收 ID 主键。
+Windows/Codex Python 3.13.9 的临时 SQLite 文件数据库执行了 7 个新事务测试，
+连同已有五组 C-only 测试 **85/85 OK**；实际证据在 `03-test-evidence.md`。
+没有 PostgreSQL、并发唯一约束、正式迁移、A/B 服务或 E1 验收。
 固定 JSON 和隔离纯处理测试不是本设计的持久化验收；早期记录的 60 项是当时快照。2026-10-15 新库 C 代码 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd` 在 Windows/Codex Python 3.13.9 五组 C-only 测试为 **76/76 OK**，接线说明受检提交为 `c08829be8cc4437a34e9f442bf606448b9cfa7ce`；完整证据见 `03-test-evidence.md` 顶部及[新 #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019)。本设计仍无正式 PostgreSQL 事务、迁移或 E1 结果。
 另用共同 main `0bf33f86c1fde9af1cb7e7e5a9a74d411b42f813` 的
 `iot/ingress.py` 与 C PR #11 的 `envelope_preview.py` 在隔离目录运行了
