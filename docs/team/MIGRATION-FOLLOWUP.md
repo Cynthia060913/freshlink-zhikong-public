@@ -1,6 +1,14 @@
 # 2026-10-14 本机补查与继续开发条件
 
-本次核查已完成源码范围，仍待B/C本人接入与本机补漏确认；S0/E1保持开放。
+本次核查已完成A本机源码范围；B/C已本人提交接入/限定范围补查，仍待B首个真实推送和
+当前main确认。C未定位目录的完整检查仍未做，不将有限检索说成整机无遗漏；S0/E1保持开放。
+
+2026-10-15事实更新：共同main为`f7fe62a95eceee75bebba3e135fc67d6c7728643`，PR15已合，
+新main适用CI通过。C新库读/评论/普通push已确认（#1的6181504937），PR11当前HEAD
+`0a808f71a9bf5cd0416073e7601817864948d1a8`。C0纯处理/契约/材料底稿有增量，但C1真实
+入库/查询/CSV并未因此完成。B的f3f570b仍仅本人本机；可以立即按本人授权上传，不等ACTIVE。
+A新增PR18控制worker候选：独立本地340项/96%，实际MQTT/PG/API/仿真器与进程重启恢复通过，
+仍不等于B/C接线、控制页面、通知实收或E1。下面保留10/14补查的原版本证据。
 
 ## 已完成但未上传旧库的A成果
 
@@ -40,9 +48,10 @@ B readiness收件地址脱敏，最新新库readiness已不含该私密地址。
 
 2026-10-14实际回读：新库Public、Actions enabled；PR15在真实标准GitHub runner上完成
 后端、Compose、pre-commit、Zizmor和浏览器四分片，说明当前能运行，并非仅创建了任务。
-新库artifact为0，2个cache合计115412803字节；未设置ENABLE_DEPLOYMENT、
+当时新库artifact为0，2个cache合计115412803字节（历史快照，非当前存储承诺）；未设置ENABLE_DEPLOYMENT、
 ENABLE_EXTERNAL_COVERAGE、ENABLE_CI_ARTIFACTS。后续回读B已接受write邀请、提交接入和
-无本机漏迁确认并批准PR15；push通道尚待首个真实交付验证。C仍待本人接入确认。
+无本机漏迁确认并批准PR15；push通道尚待首个真实交付验证。C本人接入已经在10/15确认，
+不再依据旧快照等待邀请。
 
 GitHub官方[Actions计费](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
 说明公开库标准托管runner运行免费；大型runner和存储另有规则。缓存免费范围当前为每库
@@ -54,6 +63,7 @@ GitHub官方[Actions计费](https://docs.github.com/en/billing/concepts/product-
 网络恢复后再补同一提交CI。若Git上传中断，保留本地提交和补丁，不整库重建或强推。
 第三方邮件/APP接收条件由B提前确认；无凭据时做Mock/失败测试并明确未实收。
 
-下一步：B可先推已完成的本角色修复并回读SHA/CI；C按#1完成接入和逐项补漏。
-负责人核对交叉审PR15与检查、收齐全队签收后再更新迁移入口ACTIVE；
+下一步：B推已完成的本角色修复、同步当前main并回读SHA/CI；C接入已完成，按#9继续就绪任务，
+发现额外旧成果时按补漏流程追加，不重复克隆/邀请。PR15已合，C对PR16指出的接入事实已更新；
+负责人收齐剩余真实推送/版本签收和文档复核后再更新迁移入口ACTIVE；
 同时维护#5契约确认、A/B/C各自待审与联调准备。迁移完成不替代S0、E1和最终材料签收。

@@ -3,8 +3,13 @@
 STATE: WAIT_VERIFICATION
 
 本页优先于下层历史说明。用户已批准按检查点迁移；代码和任务已迁入，
-远端及全新克隆核对通过。**公开后的基础CI已实跑通过；尚待B/C本人接入、
-本机未上传增量清点及交叉审查，不宣布三人正式切换。**
+远端及全新克隆核对通过。**公开后的基础CI已实跑通过；B/C均已本人报告接入。
+尚待B首个真实推送/当前main确认和迁移文档审查收尾，不宣布全部检查点完成。**
+
+2026-10-15：共同main为 `f7fe62a95eceee75bebba3e135fc67d6c7728643`，PR15已由
+B交叉批准、A网页合并，新main适用检查通过。C已在#1的6181504937确认新库读取、本人
+评论、普通推送和已定位成果补查；当前PR11 HEAD为`0a808f71a9bf5cd0416073e7601817864948d1a8`。
+C其他未定位目录未完整检查，保留该边界，不把有限清点说成整机无遗漏。
 
 2026-10-14补查：A旧本机14条分支和5个工作区已核对，未上传旧库的心跳持久化、
 MQTT服务端接收、控制事务/API及A/B接线提案均有新库对应版本。
@@ -13,8 +18,9 @@ B/C必须各自执行 [未上传成果迁入与持续协作](UNPUBLISHED-WORK-TR
 不能由A代替确认两台电脑是否存在遗漏。
 
 成员接入和全队切换分开记录。B已提交本人接入/无漏迁确认，并批准PR15；push通道须首个
-真实交付验证。已完成本人接入的成员可将补漏与本角色修复推到新库本人功能分支、更新PR和
-评论，不必等C或全队ACTIVE；依赖公共契约/正式迁移/接线的操作仍须按#5确认。
+真实交付验证；B本机四项修复f3f570b仍未见远端交付。C本人接入/推送已实测，不再等待邀请。
+已完成本人接入的成员可将补漏与本角色修复推到新库本人功能分支、更新PR和
+评论，不必等全队ACTIVE；依赖公共契约/正式迁移/接线的操作仍须按#5确认。
 WAIT_VERIFICATION只表示全队签收未齐，不冻结已就绪成员的安全功能分支开发。
 
 ## 仓库与版本
@@ -47,9 +53,11 @@ WAIT_VERIFICATION只表示全队签收未齐，不冻结已就绪成员的安全
 |参赛功能/材料签收|[#12](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/12)|
 |A心跳MQTT/控制API待审|[PR13](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/13)，源dec9660|
 |A/B权限接线和RC2提案|[PR14](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/14)，源eb131c3，依赖B|
+|A控制真实MQTT往返候选|[PR18](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/18)，依赖PR13|
 
 完整导入时的SHA、文件数量和变更边界见 [PUBLIC-MIGRATION-INVENTORY.json](PUBLIC-MIGRATION-INVENTORY.json)。
-所有PR保持草稿，原审查/CI不冒充新仓库结果。旧文档的URL、PR编号与SHA仅为私有历史。
+业务候选仍待审，PR15的CI基础已合并；原审查/CI不冒充新仓库结果。
+旧文档的URL、PR编号与SHA仅为私有历史。当前HEAD和检查必须实时回读。
 接口以三方对同一契约提交明确签收为准；S0和E1仍未完成。
 
 ## 已核对与保留边界
