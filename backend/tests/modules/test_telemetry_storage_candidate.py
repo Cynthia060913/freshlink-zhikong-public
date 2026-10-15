@@ -174,6 +174,18 @@ class StorageCandidateTests(unittest.TestCase):
         self.assertEqual(len(self._rows(receptions)), 1)
         self.assertEqual(len(self._rows(evaluation_jobs)), 0)
 
+    def test_bad_metric_shape_cannot_be_queued_for_rule_evaluation(self) -> None:
+        payload = _raw(
+            metrics=[{"key": "temperature", "value": 11, "unit": "°C"}, "bad-entry"]
+        )
+        result = ingest_observation(self.engine, _reception(payload))
+        self.assertEqual(result.status, "accepted_new")
+        stored = self._rows(observations)[0]
+        self.assertEqual(stored["raw_payload"]["metrics"], payload["metrics"])
+        self.assertEqual(stored["risk"]["state"], "unknown")
+        self.assertEqual(stored["risk"]["reason"], "invalid_metric_shape")
+        self.assertEqual(self._rows(evaluation_jobs)[0]["state"], "held_unknown")
+
     def test_mid_transaction_storage_failure_rolls_back_and_can_retry(self) -> None:
         receipt = _reception(_raw())
         broken = False

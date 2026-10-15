@@ -15,6 +15,11 @@
 - 前一 C **代码**提交 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd` 在 Windows/Codex Python 3.13.9 的五组 C-only `unittest` 实跑 **76/76 OK**；同 SHA 五个工作流均完成且成功。该组仅覆盖固定纯处理、内存筛选/CSV 预览和合成候选，不覆盖 PostgreSQL、授权 HTTP、B 接收、跨重启、MQTT 或 E1。项目 Python 3.14 与 Docker 在这台执行环境不可用，未执行本机完整启动/登录；A→C ingress 模块因本机 3.13 不能解析 A 的 3.14 语法，未计入本机通过。
 - [新 #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019) 保持最新版状态；下列各节按自身 SHA 和当时测试解释。A/B 的材料证据仍待各本人提供，M03 不据此签收。
 
+## C1 质量门控补查（2026-10-15；增量提交待记录）
+
+- 隔离事务候选原先只要采样时刻和规范温度存在，就将观测加入规则待评估队列；但原包同时出现非法指标项时，质量处理给出 `invalid_metric_shape` 和 `unknown`。现收紧为仅 `no_threshold_rule`、有效采样时刻与有效温度可排队，非法指标形状仍保留原文/观测但任务为 `held_unknown`，避免后续规则层从不可采信投影制造候选。
+- 新增该失败边界回归，Windows/Codex Python 3.13.9 隔离 SQLAlchemy 2.0.51 虚拟环境实跑六组 C-only unittest **86/86 OK**（存储候选 8 项）；Ruff lint/format、新存储单文件 mypy strict 和 ty 均通过。该结果仍只含临时 SQLite 数据库，不是正式 PG、B 规则调用或 E1；对应远端同 SHA 检查在推送后回读。
+
 ## C0 乱序到达高温回归（2026-10-15）
 
 - 固定样例先到一条较新的正常观测，再到同设备、不同消息 ID 的较早高温观测。C 纯处理保持两条原始观测和各自 UTC 采样/接收时刻，不把晚到高温误判为重复或删除；后者仍标为高温候选。此测试不建立正式事件时间水位、数据库历史排序或 B 规则版本选择。

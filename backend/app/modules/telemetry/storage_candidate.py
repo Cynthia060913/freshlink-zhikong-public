@@ -218,6 +218,7 @@ def _ingest_once(engine: Engine, view: dict[str, Any]) -> IngestResult:
             "pending"
             if "sampled_at" in normalized
             and "temperature" in normalized.get("metrics", {})
+            and view["risk"]["reason"] == "no_threshold_rule"
             else "held_unknown"
         )
         connection.execute(
