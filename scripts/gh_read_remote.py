@@ -2,17 +2,19 @@
 """Read remote GitHub state via REST API.
 Fetches: repo main tip, PR #10 head, PR #14, Issues #5/#8 last comments,
 PR #10 / PR #14 review state, last commit status."""
+
 from __future__ import annotations
 
 import json
+
+# Token is deliberately NOT hardcoded (repo went public).
+# Provide a fresh token via environment: set GITHUB_TOKEN=ghp_...
+import os
 import sys
 import time
 import urllib.error
 import urllib.request
 
-# Token is deliberately NOT hardcoded (repo went public).
-# Provide a fresh token via environment: set GITHUB_TOKEN=ghp_...
-import os
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 API = "https://api.github.com"
 H = {
@@ -51,9 +53,7 @@ def main() -> int:
 
     # PRs #10, #14
     for n in (10, 14):
-        out[f"pr_{n}"] = fetch(
-            f"{API}/repos/Cynthia060913/freshlink-zhikong/pulls/{n}"
-        )
+        out[f"pr_{n}"] = fetch(f"{API}/repos/Cynthia060913/freshlink-zhikong/pulls/{n}")
         out[f"pr_{n}_commits"] = fetch(
             f"{API}/repos/Cynthia060913/freshlink-zhikong/pulls/{n}/commits?per_page=5"
         )
@@ -79,9 +79,7 @@ def main() -> int:
         )
 
     # also check PR #4 (merged) for main tip comparison
-    out["pr_4"] = fetch(
-        f"{API}/repos/Cynthia060913/freshlink-zhikong/pulls/4"
-    )
+    out["pr_4"] = fetch(f"{API}/repos/Cynthia060913/freshlink-zhikong/pulls/4")
 
     print(json.dumps(out, indent=2, ensure_ascii=False, default=str))
     return 0

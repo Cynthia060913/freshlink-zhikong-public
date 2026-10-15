@@ -1,7 +1,7 @@
 # B：最小业务接口提案（阶段一提交）
 
-> 落地位置：`docs/modules/B/01-contract-proposal.md`（共同仓库 `feature/b-notification-bootstrap` 分支）。  
-> 严格遵循 `contracts/INTERFACES.md` v0.1 字段，**不发明**新字段；待确认字段单独用 `?` 标注。  
+> 落地位置：`docs/modules/B/01-contract-proposal.md`（共同仓库 `feature/b-notification-bootstrap` 分支）。
+> 严格遵循 `contracts/INTERFACES.md` v0.1 字段，**不发明**新字段；待确认字段单独用 `?` 标注。
 > 阶段一交付物：本提案 + 通知适配器骨架 + 单元测试；service/routes/迁移留到 B1 阶段。
 
 ## 0. 元信息

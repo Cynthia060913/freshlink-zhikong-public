@@ -3,7 +3,7 @@
 Covers:
 
 - canonical signature is stable across dict insertion order
-- create_snapshot only INSERTs; never UPDATEs a prior row
+- create_snapshot only inserts; never updates a prior row
 - duplicate (batch_id, signature) is rejected with SnapshotConflict
 - get_current_snapshot returns the latest by created_at
 - list returns history (oldest first)

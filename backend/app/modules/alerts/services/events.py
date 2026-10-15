@@ -3,23 +3,30 @@
 Pure-Python functions over a SQLModel Session; route handlers wrap
 them and translate receipts into HTTP responses.
 
-Idempotency contract (pinned in #5 6139896658):
+Idempotency contract (pinned in #5 6139896658, F03 shape per RC2):
 
 - ``source_event_id`` is the stable idempotency key.
-- Content identity is the canonical-payload sha256 digest. A replay
-  with identical content is ``accepted_duplicate``; a replay with
-  different content under the same key is ``conflict``.
+- Content identity is the canonical-payload sha256 digest — the
+  canonical payload covers the full F03-RC2 traceability body
+  (observation ids, rule/algorithm identity, severity, evidence), so
+  replaying a key with different traceability is ``conflict``,
+  never ``accepted_duplicate``.
 - ``invalid`` is returned ONLY for explicit semantic rejections
-  (unknown batch / warehouse). It is final — the caller must stop
-  retrying.
-- ``retryable_failure`` covers transient storage errors. The caller
-  must retry the SAME ``source_event_id`` with bounded backoff; a
-  by-source lookup that answers ``not_found`` is NOT ``invalid`` and
-  must not be treated as such.
+  (unknown batch / warehouse, batch from another warehouse). It is
+  final — the caller must stop retrying.
+- ``retryable_failure`` covers transient storage errors on every
+  phase: the batch/warehouse pre-read, the idempotency lookup, the
+  INSERT, the post-integrity re-read and the post-commit refresh
+  (F03-RC2: 读前置对象、幂等查找、写提交、并发冲突后读取和提交后
+  读取均要考虑数据库故障). The caller must retry the SAME
+  ``source_event_id`` with bounded backoff; a by-source lookup that
+  answers ``not_found`` is NOT ``invalid`` and must not be treated
+  as such.
 """
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -79,6 +86,14 @@ def _conflict_receipt(
     )
 
 
+def _invalid_receipt(source_event_id: str, reason_code: str) -> CandidateReceipt:
+    return CandidateReceipt(
+        status="invalid",  # type: ignore[arg-type]
+        source_event_id=source_event_id,
+        reason_code=reason_code,
+    )
+
+
 def _retryable_receipt(source_event_id: str) -> CandidateReceipt:
     return CandidateReceipt(
         status="retryable_failure",  # type: ignore[arg-type]
@@ -89,13 +104,26 @@ def _retryable_receipt(source_event_id: str) -> CandidateReceipt:
     )
 
 
+def _classify_existing(
+    stored: AlertEvent, source_event_id: str, digest: str
+) -> CandidateReceipt:
+    """Duplicate-or-conflict classification shared by every read path."""
+
+    if stored.content_digest == digest:
+        return _duplicate_receipt(stored, source_event_id, digest)
+    return _conflict_receipt(stored, source_event_id, digest)
+
+
 def _insert_event(session: Session, row: AlertEvent) -> str | None:
     """INSERT one row; return None on success, a failure tag on error.
 
     A unique-violation on ``source_event_id`` is a concurrent replay
     of the same key: fall back to the stored row and classify by
-    digest (``"integrity"``). An ``OperationalError`` is a transient
-    storage failure (``"operational"``).
+    digest (``"integrity"``). An ``OperationalError`` on the commit is
+    a transient storage failure (``"operational"``). A refresh
+    failure AFTER a successful commit is not a write failure — the
+    row is stored — so it is swallowed and the caller answers
+    ``accepted_new`` (a later replay would just classify duplicate).
     """
 
     session.add(row)
@@ -107,8 +135,38 @@ def _insert_event(session: Session, row: AlertEvent) -> str | None:
     except OperationalError:
         session.rollback()
         return "operational"
-    session.refresh(row)
+    try:
+        session.refresh(row)
+    except OperationalError:
+        pass
     return None
+
+
+def _candidate_row(payload: CandidateCreate, digest: str) -> AlertEvent:
+    """Build the append-only row, persisting the F03-RC2 body."""
+
+    return AlertEvent(
+        source_event_id=payload.source_event_id,
+        kind=str(payload.kind),
+        warehouse_id=payload.warehouse_id,
+        batch_id=payload.batch_id,
+        metric_code=payload.metric_code,
+        sampled_at=payload.sampled_at,
+        value=payload.value,
+        unit=payload.unit,
+        severity=payload.severity,
+        observation_ids_json=json.dumps(payload.observation_ids, ensure_ascii=False),
+        rule_snapshot_id=payload.rule_snapshot_id,
+        rule_version=payload.rule_version,
+        algorithm_version=payload.algorithm_version,
+        evidence_json=(
+            json.dumps(payload.evidence, sort_keys=True, ensure_ascii=False)
+            if payload.evidence is not None
+            else None
+        ),
+        content_digest=digest,
+        payload_json=canonical_payload_json(payload),
+    )
 
 
 def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateReceipt:
@@ -117,43 +175,41 @@ def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateRe
     source_event_id = payload.source_event_id
     digest = compute_content_digest(payload)
 
-    batch = session.get(Batch, payload.batch_id)
+    try:
+        batch = session.get(Batch, payload.batch_id)
+    except OperationalError:
+        session.rollback()
+        return _retryable_receipt(source_event_id)
     if batch is None:
-        return CandidateReceipt(
-            status="invalid",  # type: ignore[arg-type]
-            source_event_id=source_event_id,
-            reason_code="unknown_batch",
-        )
+        return _invalid_receipt(source_event_id, "unknown_batch")
+    # F03-RC2: the candidate names both warehouse and batch — the
+    # batch must belong to that warehouse or the input is invalid.
+    if batch.warehouse_id != payload.warehouse_id:
+        return _invalid_receipt(source_event_id, "batch_warehouse_mismatch")
 
-    existing = _get_by_source(session, source_event_id)
+    try:
+        existing = _get_by_source(session, source_event_id)
+    except OperationalError:
+        session.rollback()
+        return _retryable_receipt(source_event_id)
     if existing is not None:
-        if existing.content_digest == digest:
-            return _duplicate_receipt(existing, source_event_id, digest)
-        return _conflict_receipt(existing, source_event_id, digest)
+        return _classify_existing(existing, source_event_id, digest)
 
-    row = AlertEvent(
-        source_event_id=source_event_id,
-        kind=str(payload.kind),
-        batch_id=payload.batch_id,
-        metric_code=payload.metric_code,
-        sampled_at=payload.sampled_at,
-        value=payload.value,
-        unit=payload.unit,
-        content_digest=digest,
-        payload_json=canonical_payload_json(payload),
-    )
+    row = _candidate_row(payload, digest)
     failure = _insert_event(session, row)
     if failure == "operational":
         return _retryable_receipt(source_event_id)
     if failure == "integrity":
-        existing = _get_by_source(session, source_event_id)
-        if existing is None:
-            # A non-key unique violation: no reason to classify as
-            # retryable, but nothing was stored either.
+        try:
+            existing = _get_by_source(session, source_event_id)
+        except OperationalError:
+            session.rollback()
             return _retryable_receipt(source_event_id)
-        if existing.content_digest == digest:
-            return _duplicate_receipt(existing, source_event_id, digest)
-        return _conflict_receipt(existing, source_event_id, digest)
+        if existing is None:
+            # A non-key unique violation: nothing was stored, but there
+            # is no caller input we could fix — classify retriable.
+            return _retryable_receipt(source_event_id)
+        return _classify_existing(existing, source_event_id, digest)
     return CandidateReceipt(
         status="accepted_new",  # type: ignore[arg-type]
         event_id=row.id,
@@ -178,24 +234,25 @@ def receive_device_event(
     source_event_id = payload.source_event_id
     digest = compute_content_digest(payload)
 
-    if session.get(Warehouse, payload.warehouse_id) is None:
-        return CandidateReceipt(
-            status="invalid",  # type: ignore[arg-type]
-            source_event_id=source_event_id,
-            reason_code="unknown_warehouse",
-        )
-    if payload.batch_id is not None and session.get(Batch, payload.batch_id) is None:
-        return CandidateReceipt(
-            status="invalid",  # type: ignore[arg-type]
-            source_event_id=source_event_id,
-            reason_code="unknown_batch",
-        )
+    try:
+        if session.get(Warehouse, payload.warehouse_id) is None:
+            return _invalid_receipt(source_event_id, "unknown_warehouse")
+        if (
+            payload.batch_id is not None
+            and session.get(Batch, payload.batch_id) is None
+        ):
+            return _invalid_receipt(source_event_id, "unknown_batch")
+    except OperationalError:
+        session.rollback()
+        return _retryable_receipt(source_event_id)
 
-    existing = _get_by_source(session, source_event_id)
+    try:
+        existing = _get_by_source(session, source_event_id)
+    except OperationalError:
+        session.rollback()
+        return _retryable_receipt(source_event_id)
     if existing is not None:
-        if existing.content_digest == digest:
-            return _duplicate_receipt(existing, source_event_id, digest)
-        return _conflict_receipt(existing, source_event_id, digest)
+        return _classify_existing(existing, source_event_id, digest)
 
     row = AlertEvent(
         source_event_id=source_event_id,
@@ -212,12 +269,14 @@ def receive_device_event(
     if failure == "operational":
         return _retryable_receipt(source_event_id)
     if failure == "integrity":
-        existing = _get_by_source(session, source_event_id)
+        try:
+            existing = _get_by_source(session, source_event_id)
+        except OperationalError:
+            session.rollback()
+            return _retryable_receipt(source_event_id)
         if existing is None:
             return _retryable_receipt(source_event_id)
-        if existing.content_digest == digest:
-            return _duplicate_receipt(existing, source_event_id, digest)
-        return _conflict_receipt(existing, source_event_id, digest)
+        return _classify_existing(existing, source_event_id, digest)
     return CandidateReceipt(
         status="accepted_new",  # type: ignore[arg-type]
         event_id=row.id,

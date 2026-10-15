@@ -1,7 +1,7 @@
 # B：本机与共同仓库就绪报告
 
-> 落地位置：`docs/modules/B/00-readiness.md`（共同仓库 `feature/b-notification-bootstrap` 分支）。  
-> 角色：B（GitHub `xixidamei`）。  
+> 落地位置：`docs/modules/B/00-readiness.md`（共同仓库 `feature/b-notification-bootstrap` 分支）。
+> 角色：B（GitHub `xixidamei`）。
 > 日期：2026-10-10。
 
 ## 0. 元信息

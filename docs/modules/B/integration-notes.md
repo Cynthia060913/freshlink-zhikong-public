@@ -1,6 +1,6 @@
 # B → A 集成接线说明（integration-notes）
 
-> 落地位置：`docs/modules/B/integration-notes.md`（共同仓库 `feature/b-notification-bootstrap` 分支）。  
+> 落地位置：`docs/modules/B/integration-notes.md`（共同仓库 `feature/b-notification-bootstrap` 分支）。
 > 目的：明确 B 第一轮**没动**共享根路由/导航/Compose/锁/迁移；列出 B 在 B1/B2 阶段需要 A 接力的接线动作。
 
 ## 0. 范围
@@ -21,11 +21,12 @@ B 第一轮已完成的局部实现见 `01-contract-proposal.md` 与各模块内
 
 ### 2.1 公共根路由 register
 
-`backend/app/api/main.py` 当前只导入 `iot`、`items`、`login`、`users`、`utils`、`private`。  
+`backend/app/api/main.py` 当前只导入 `iot`、`items`、`login`、`users`、`utils`、`private`。
 B1 阶段 B 会写 `backend/app/modules/alerts/routes.py`；A 需要：
 
 ```python
 from app.modules.alerts.routes import router as alerts_router
+
 api_router.include_router(alerts_router)
 ```
 
@@ -35,7 +36,7 @@ api_router.include_router(alerts_router)
 
 ### 2.2 公共根路由 navigation entry
 
-`frontend/src/components/Sidebar/AppSidebar.tsx` 当前包含 `devices` 等若干条目。  
+`frontend/src/components/Sidebar/AppSidebar.tsx` 当前包含 `devices` 等若干条目。
 B2 阶段建议 A 在 Sidebar 增加 `alerts` 与 `warehouses` 条目（指向 `/alerts` 和 `/warehouses`）；B 的 `frontend/src/features/{alerts,warehouse}/` 在 B1/B2 阶段建。
 
 理由：同上（共享导航属于 A 主导）。
@@ -85,3 +86,19 @@ B 在 v0.2 之前的迁移都不算正式固化。
 4. （可选）引入 client 自动生成的接口定义文件到 B 模块（按 v4 第 5 章"路由文件可以按模板生成"）
 
 A 实际整合后，B 模块才能进一步落地 service.py / routes.py。
+
+## 5. F03-RC2 候选输入契约（2026-10-14，PR #10 四缺陷修复）
+
+本节为准线状态，覆盖第 2/3 节中与新实现冲突的旧描述。修复 A 在新库 #8 复现的四项
+缺陷后，`POST /candidates` 的输入按 `contracts/F03-RC2.md`（feature/a-b-integration-review
+分支）执行，与 `contracts/examples/candidate-f03-rc2.json` 对齐：
+
+- 新增字段：`schema_version`（仅接受 `"1.0"`）、`warehouse_id`（必填）、
+  `observation_ids`（≤64 个，各 1–128 字符）、`severity`（必填，1–32 字符）、
+  `rule_snapshot_id`、`rule_version`、`algorithm_version`、`evidence`（任意 JSON 对象）。
+- `sampled_at` 同时接受 ISO-8601 字符串（`Z`/带偏移）与内部 aware datetime；naive 一律 422 拒绝，不猜测时区。
+- 规范摘要（content digest）覆盖全部新字段：同 `source_event_id` 换任何追溯证据重投 → `conflict(409)`，不再被忽略后误报 `accepted_duplicate`。
+- 校验：批次必须属于候选声明的 `warehouse_id`，否则 `invalid(422) reason_code=batch_warehouse_mismatch`；规范化负载 >32768 字节显式 422，不截断。
+- 存储与回读：`alerts_event` 新列 `severity/observation_ids_json/rule_snapshot_id/rule_version/algorithm_version/evidence_json`；`GET /candidates/by-source/{sid}` 返回完整追溯正文（缺陷 2 的回读要求）。迁移（alembic）待接已合并唯一 A→B→C 链时补。
+- 存储故障分类（缺陷 3）：前置读取、幂等查找、并发冲突后回读任一 `OperationalError` → `retryable_failure(503, Retry-After: 30, reason=storage_unavailable)`；by-source 读取故障同映射 503，`not_found(404)` 语义不变。
+- 规则版本替换（缺陷 4）：写侧重叠检查改用与读取端相同的后继派生半开窗口，开放链 S1→S2→S3 的第三次替换不再误判重叠；乱序或未声明的真实重叠仍拒绝。
