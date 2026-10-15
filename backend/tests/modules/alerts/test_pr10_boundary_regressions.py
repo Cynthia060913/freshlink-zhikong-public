@@ -285,7 +285,9 @@ class TraceabilityDigestCase(unittest.TestCase):
         payload = _rc2()
         self.assertEqual(payload.severity, "warning")
         self.assertEqual(payload.observation_ids, [_OBS_A])
-        self.assertEqual(payload.evidence, {"comparison": ">", "threshold": 8.0, "quality": ["ok"]})
+        self.assertEqual(
+            payload.evidence, {"comparison": ">", "threshold": 8.0, "quality": ["ok"]}
+        )
 
     def test_digest_covers_observation_ids(self) -> None:
         self.assertNotEqual(
@@ -294,8 +296,12 @@ class TraceabilityDigestCase(unittest.TestCase):
         )
 
     def test_digest_covers_evidence(self) -> None:
-        changed = _rc2(evidence={"comparison": ">", "threshold": 9.5, "quality": ["ok"]})
-        self.assertNotEqual(compute_content_digest(_rc2()), compute_content_digest(changed))
+        changed = _rc2(
+            evidence={"comparison": ">", "threshold": 9.5, "quality": ["ok"]}
+        )
+        self.assertNotEqual(
+            compute_content_digest(_rc2()), compute_content_digest(changed)
+        )
 
     def test_digest_covers_rule_snapshot_id(self) -> None:
         self.assertNotEqual(
@@ -336,7 +342,9 @@ class TraceabilityPersistenceCase(_World):
     def test_by_source_exposes_full_body(self) -> None:
         with Session(self.eng) as session:
             receive_candidate(session, self._world_candidate())
-            stored = get_event_by_source(session, "77777777-7777-4777-8777-777777777777")
+            stored = get_event_by_source(
+                session, "77777777-7777-4777-8777-777777777777"
+            )
         self.assertEqual(stored.severity, "warning")
         self.assertEqual(stored.warehouse_id, self.wid)
         self.assertEqual(stored.rule_version, "v1")
@@ -532,7 +540,11 @@ class ChainReplacementCase(_World):
             s2 = create_snapshot(session, self.bid, _snapshot(T1, (s1.id,)))
             s3 = create_snapshot(session, self.bid, _snapshot(T2, (s2.id,)))
             picks = []
-            for probe in (T0 + timedelta(hours=1), T1 + timedelta(hours=1), T2 + timedelta(hours=1)):
+            for probe in (
+                T0 + timedelta(hours=1),
+                T1 + timedelta(hours=1),
+                T2 + timedelta(hours=1),
+            ):
                 selection = select_rules_for_observation(
                     session,
                     warehouse_id=self.wid,
@@ -553,9 +565,7 @@ class ChainReplacementCase(_World):
             s1 = create_snapshot(session, self.bid, _snapshot(T0))
             s2 = create_snapshot(session, self.bid, _snapshot(T2, (s1.id,)))
             with self.assertRaises(SnapshotOverlapConflict):
-                create_snapshot(
-                    session, self.bid, _snapshot(T1, (s2.id,))
-                )
+                create_snapshot(session, self.bid, _snapshot(T1, (s2.id,)))
 
     def test_unsuperseded_open_overlap_still_rejected(self) -> None:
         with Session(self.eng) as session:

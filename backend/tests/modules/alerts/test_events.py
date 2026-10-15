@@ -125,7 +125,9 @@ class _World(unittest.TestCase):
 class FiveWayReceiptCase(_World):
     def test_accepted_new_first_arrival(self) -> None:
         with Session(self.eng) as session:
-            receipt = receive_candidate(session, _candidate(batch_id=self.bid, warehouse_id=self.wid))
+            receipt = receive_candidate(
+                session, _candidate(batch_id=self.bid, warehouse_id=self.wid)
+            )
         self.assertEqual(receipt.status, "accepted_new")
         self.assertEqual(receipt.source_event_id, "evt-1")
         self.assertIsNotNone(receipt.event_id)
@@ -133,8 +135,12 @@ class FiveWayReceiptCase(_World):
 
     def test_same_content_replay_is_duplicate(self) -> None:
         with Session(self.eng) as session:
-            first = receive_candidate(session, _candidate(batch_id=self.bid, warehouse_id=self.wid))
-            replay = receive_candidate(session, _candidate(batch_id=self.bid, warehouse_id=self.wid))
+            first = receive_candidate(
+                session, _candidate(batch_id=self.bid, warehouse_id=self.wid)
+            )
+            replay = receive_candidate(
+                session, _candidate(batch_id=self.bid, warehouse_id=self.wid)
+            )
         self.assertEqual(replay.status, "accepted_duplicate")
         self.assertEqual(replay.event_id, first.event_id)
         self.assertEqual(replay.stored_event_id, first.event_id)
@@ -142,12 +148,12 @@ class FiveWayReceiptCase(_World):
 
     def test_same_id_different_content_is_conflict(self) -> None:
         with Session(self.eng) as session:
-            first = receive_candidate(session, _candidate(batch_id=self.bid, warehouse_id=self.wid))
+            first = receive_candidate(
+                session, _candidate(batch_id=self.bid, warehouse_id=self.wid)
+            )
             clash = receive_candidate(
                 session,
-                _candidate(
-                    batch_id=self.bid, warehouse_id=self.wid, value=99.0
-                )
+                _candidate(batch_id=self.bid, warehouse_id=self.wid, value=99.0),
             )
         self.assertEqual(clash.status, "conflict")
         self.assertEqual(clash.reason_code, "content_digest_mismatch")
@@ -168,7 +174,9 @@ class FiveWayReceiptCase(_World):
                 mock.patch.object(session, "commit", side_effect=broken),
                 mock.patch.object(session, "rollback"),
             ):
-                receipt = receive_candidate(session, _candidate(batch_id=self.bid, warehouse_id=self.wid))
+                receipt = receive_candidate(
+                    session, _candidate(batch_id=self.bid, warehouse_id=self.wid)
+                )
         self.assertEqual(receipt.status, "retryable_failure")
         self.assertTrue(receipt.retryable)
         self.assertEqual(receipt.retry_after_s, 30.0)
@@ -210,7 +218,9 @@ class DigestStabilityCase(unittest.TestCase):
 class BySourceLookupCase(_World):
     def test_found_returns_stored_event(self) -> None:
         with Session(self.eng) as session:
-            receipt = receive_candidate(session, _candidate(batch_id=self.bid, warehouse_id=self.wid))
+            receipt = receive_candidate(
+                session, _candidate(batch_id=self.bid, warehouse_id=self.wid)
+            )
             stored = get_event_by_source(session, "evt-1")
         self.assertEqual(stored.id, receipt.event_id)
         self.assertEqual(stored.kind, "temperature_high")
@@ -223,7 +233,9 @@ class BySourceLookupCase(_World):
 
     def test_payload_json_preserved(self) -> None:
         with Session(self.eng) as session:
-            receive_candidate(session, _candidate(batch_id=self.bid, warehouse_id=self.wid))
+            receive_candidate(
+                session, _candidate(batch_id=self.bid, warehouse_id=self.wid)
+            )
             stored = get_event_by_source(session, "evt-1")
         self.assertIn("temperature_high", stored.payload_json)
         self.assertIn("sampled_at", stored.payload_json)
@@ -321,7 +333,9 @@ class NotificationAttemptCase(_World):
 
     def test_record_and_list_attempts(self) -> None:
         with Session(self.eng) as session:
-            receipt = receive_candidate(session, _candidate(batch_id=self.bid, warehouse_id=self.wid))
+            receipt = receive_candidate(
+                session, _candidate(batch_id=self.bid, warehouse_id=self.wid)
+            )
             assert receipt.event_id is not None
             record_notification_attempt(
                 session,
@@ -349,7 +363,9 @@ class NotificationAttemptCase(_World):
 
     def test_attempt_rows_persisted_on_alert_event(self) -> None:
         with Session(self.eng) as session:
-            receipt = receive_candidate(session, _candidate(batch_id=self.bid, warehouse_id=self.wid))
+            receipt = receive_candidate(
+                session, _candidate(batch_id=self.bid, warehouse_id=self.wid)
+            )
             assert receipt.event_id is not None
             record_notification_attempt(
                 session,

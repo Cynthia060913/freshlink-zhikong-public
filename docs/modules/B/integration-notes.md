@@ -1,6 +1,6 @@
 # B → A 集成接线说明（integration-notes）
 
-> 落地位置：`docs/modules/B/integration-notes.md`（共同仓库 `feature/b-notification-bootstrap` 分支）。  
+> 落地位置：`docs/modules/B/integration-notes.md`（共同仓库 `feature/b-notification-bootstrap` 分支）。
 > 目的：明确 B 第一轮**没动**共享根路由/导航/Compose/锁/迁移；列出 B 在 B1/B2 阶段需要 A 接力的接线动作。
 
 ## 0. 范围
@@ -21,11 +21,12 @@ B 第一轮已完成的局部实现见 `01-contract-proposal.md` 与各模块内
 
 ### 2.1 公共根路由 register
 
-`backend/app/api/main.py` 当前只导入 `iot`、`items`、`login`、`users`、`utils`、`private`。  
+`backend/app/api/main.py` 当前只导入 `iot`、`items`、`login`、`users`、`utils`、`private`。
 B1 阶段 B 会写 `backend/app/modules/alerts/routes.py`；A 需要：
 
 ```python
 from app.modules.alerts.routes import router as alerts_router
+
 api_router.include_router(alerts_router)
 ```
 
@@ -35,7 +36,7 @@ api_router.include_router(alerts_router)
 
 ### 2.2 公共根路由 navigation entry
 
-`frontend/src/components/Sidebar/AppSidebar.tsx` 当前包含 `devices` 等若干条目。  
+`frontend/src/components/Sidebar/AppSidebar.tsx` 当前包含 `devices` 等若干条目。
 B2 阶段建议 A 在 Sidebar 增加 `alerts` 与 `warehouses` 条目（指向 `/alerts` 和 `/warehouses`）；B 的 `frontend/src/features/{alerts,warehouse}/` 在 B1/B2 阶段建。
 
 理由：同上（共享导航属于 A 主导）。

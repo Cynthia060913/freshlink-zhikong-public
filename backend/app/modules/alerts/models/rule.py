@@ -5,7 +5,7 @@ govern what counts as an alert for one batch. Per the B → A reply on
 Issue #5 (comment 6108448780):
 
 - Snapshots are **strictly append-only**. Once a row is committed,
-  the service layer never UPDATEs or DELETEs any column. The alembic
+  the service layer never updates or deletes any column. The alembic
   migration that lands them (deferred until PR #4 merges) installs a
   PostgreSQL ``BEFORE UPDATE / DELETE`` trigger to enforce this at
   the DB level too. Reviewed and confirmed on PR #10 round 2:

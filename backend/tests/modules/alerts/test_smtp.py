@@ -239,7 +239,7 @@ class ClassifySmtpErrorUnitCase(unittest.TestCase):
         self.assertEqual(outcome, DeliveryOutcome.PERMANENT_FAILURE)
         self.assertIsNone(retry)
 
-    def test_unparseable_code_is_permanent(self) -> None:
+    def test_unparsable_code_is_permanent(self) -> None:
         outcome, retry = self._classify("not-a-number")
         self.assertEqual(outcome, DeliveryOutcome.PERMANENT_FAILURE)
 

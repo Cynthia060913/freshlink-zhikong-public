@@ -476,7 +476,7 @@ def _normalise_refused(raw: object) -> dict[str, int | None]:
 
     ``raw`` is ``{addr: (code, msg)}`` from either
     ``SMTPRecipientsRefused.recipients`` or the partial-refusal dict
-    returned by ``send_message``. Unparseable codes are kept as
+    returned by ``send_message``. Unparsable codes are kept as
     ``None`` (classified permanent, not retriable).
     """
 
@@ -503,7 +503,7 @@ def _classify_smtp_error(smtp_code: object) -> tuple[DeliveryOutcome, float | No
       Examples: 421 service not available, 450 mailbox busy, 451 aborted.
     - 5yz Permanent Negative Completion → PERMANENT_FAILURE (no retry).
       Examples: 550 mailbox not found, 552 message too large, 553 bad sequence.
-    - Unknown / unparseable code → PERMANENT_FAILURE (do not silently retry).
+    - Unknown / unparsable code → PERMANENT_FAILURE (do not silently retry).
     """
 
     try:

@@ -4,7 +4,7 @@ Per B → A reply on Issue #5 (comment 6108448780), PR #10 review
 round 2, and the S0 F02 contract signed in #5 comment 6127332268:
 
 - A snapshot is **strictly append-only**. Once a row is committed,
-  the service layer never UPDATEs or DELETEs any column. A future
+  the service layer never updates or deletes any column. A future
   alembic phase installs a postgres ``BEFORE UPDATE / DELETE``
   trigger to enforce this at the DB layer too.
 - Rule **selection** is by ``sampled_at`` against the half-open UTC
@@ -120,9 +120,7 @@ def _successor_starts_by_predecessor(
         select(BatchRuleSnapshot).where(BatchRuleSnapshot.batch_id == batch_id)
     ).all():
         for pred_id in load_supersedes(row):
-            successors.setdefault(pred_id, []).append(
-                _as_utc(row.effective_start_at)
-            )
+            successors.setdefault(pred_id, []).append(_as_utc(row.effective_start_at))
     return successors
 
 
@@ -221,7 +219,7 @@ def create_snapshot(
       4. Rejects effective-interval overlap on the same
          ``(batch_id, metric_code)`` unless the overlapping
          predecessor is explicitly superseded.
-      5. INSERTs the new row. **No prior row is modified.**
+      5. Inserts the new row. **No prior row is modified.**
     """
 
     get_batch(session, batch_id)

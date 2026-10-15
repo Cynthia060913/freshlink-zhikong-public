@@ -159,7 +159,7 @@ def _parse_json_column(raw: str | None, default: Any) -> Any:
         return default
     try:
         return json.loads(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 

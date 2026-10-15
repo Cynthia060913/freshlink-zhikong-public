@@ -155,9 +155,7 @@ def _candidate_row(payload: CandidateCreate, digest: str) -> AlertEvent:
         value=payload.value,
         unit=payload.unit,
         severity=payload.severity,
-        observation_ids_json=json.dumps(
-            payload.observation_ids, ensure_ascii=False
-        ),
+        observation_ids_json=json.dumps(payload.observation_ids, ensure_ascii=False),
         rule_snapshot_id=payload.rule_snapshot_id,
         rule_version=payload.rule_version,
         algorithm_version=payload.algorithm_version,
@@ -239,7 +237,10 @@ def receive_device_event(
     try:
         if session.get(Warehouse, payload.warehouse_id) is None:
             return _invalid_receipt(source_event_id, "unknown_warehouse")
-        if payload.batch_id is not None and session.get(Batch, payload.batch_id) is None:
+        if (
+            payload.batch_id is not None
+            and session.get(Batch, payload.batch_id) is None
+        ):
             return _invalid_receipt(source_event_id, "unknown_batch")
     except OperationalError:
         session.rollback()

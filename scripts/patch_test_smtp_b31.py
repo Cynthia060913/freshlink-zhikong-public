@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Patch tests/modules/alerts/test_smtp.py for B3-1 staged classification."""
+
 from __future__ import annotations
 
 import pathlib
@@ -20,14 +21,14 @@ R = [
     ),
     # mixed partial refusal: TRANSIENT so retryable addresses are not lost
     (
-        '''        result = SMTPTransport(_config(), _factory()).send(envelope)
+        """        result = SMTPTransport(_config(), _factory()).send(envelope)
         self.assertFalse(result.delivered)
         self.assertEqual(result.outcome, DeliveryOutcome.PERMANENT_FAILURE)
         # Permanent wins: no retry-after.
         self.assertIsNone(result.retry_after_s)
         self.assertIn("busy@example.com", result.detail)
-        self.assertIn("dead@example.com", result.detail)''',
-        '''        result = SMTPTransport(_config(), _factory()).send(envelope)
+        self.assertIn("dead@example.com", result.detail)""",
+        """        result = SMTPTransport(_config(), _factory()).send(envelope)
         self.assertFalse(result.delivered)
         # Mixed 4yz+5yz: top-level TRANSIENT so the 450 address stays
         # retryable; per-recipient records carry the permanent flag.
@@ -41,7 +42,7 @@ R = [
         self.assertEqual(by_addr["busy@example.com"].code, 450)
         self.assertTrue(by_addr["dead@example.com"].refused)
         self.assertFalse(by_addr["dead@example.com"].retriable)
-        self.assertEqual(by_addr["dead@example.com"].code, 550)''',
+        self.assertEqual(by_addr["dead@example.com"].code, 550)""",
     ),
 ]
 

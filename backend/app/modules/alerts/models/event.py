@@ -208,9 +208,7 @@ class CandidateCreate(SQLModel):
         if value is None:
             return _CANDIDATE_SCHEMA_VERSION
         if value != _CANDIDATE_SCHEMA_VERSION:
-            raise ValueError(
-                f"schema_version must be {_CANDIDATE_SCHEMA_VERSION!r}"
-            )
+            raise ValueError(f"schema_version must be {_CANDIDATE_SCHEMA_VERSION!r}")
         return str(value)
 
     @field_validator("source_event_id", mode="before")
@@ -231,9 +229,7 @@ class CandidateCreate(SQLModel):
                 raise ValueError("each observation id must be text")
             stripped = item.strip()
             if not stripped or len(stripped) > 128:
-                raise ValueError(
-                    "each observation id must be 1-128 characters"
-                )
+                raise ValueError("each observation id must be 1-128 characters")
             cleaned.append(stripped)
         if len(cleaned) > _MAX_OBSERVATION_IDS:
             raise ValueError(
@@ -295,9 +291,7 @@ class CandidateCreate(SQLModel):
     def _payload_within_bound(self) -> CandidateCreate:
         encoded = canonical_payload_json(self).encode("utf-8")
         if len(encoded) > _MAX_PAYLOAD_BYTES:
-            raise ValueError(
-                "canonical payload exceeds the 32768-byte F03-RC2 bound"
-            )
+            raise ValueError("canonical payload exceeds the 32768-byte F03-RC2 bound")
         return self
 
 
@@ -350,7 +344,7 @@ class AlertEvent(SQLModel, table=True):
     """Append-only ingested event row (candidate or device event).
 
     ``source_event_id`` is the idempotency key (unique); content
-    identity is ``content_digest``. Rows are never UPDATEd or DELETEd;
+    identity is ``content_digest``. Rows are never updated or deleted;
     a correction is a new event.
     """
 

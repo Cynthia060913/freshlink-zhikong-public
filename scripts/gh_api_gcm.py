@@ -18,6 +18,7 @@ Note for HTTPS-with-GCM runs: git itself may use a *different* stored
 credential than api.github.com requests; this script only reads what the
 credential manager hands back for host github.com.
 """
+
 from __future__ import annotations
 
 import sys
@@ -53,6 +54,7 @@ def _credential() -> tuple[str, str]:
         encoding="utf-8",
         errors="replace",
         env=env,
+        check=False,
     )
     if proc.returncode != 0:
         raise SystemExit(
