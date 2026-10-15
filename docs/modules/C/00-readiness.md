@@ -1,6 +1,6 @@
 # C 首轮准备状态
 
-> 本文件主体保留 2026-10-10 首轮检查的历史快照，下面当时的 PR #4/main/CI 表述不代表当前状态。2026-10-12 远程 main 已为 `a99c2a091204012891b8fa0c80e10b63087c57c1`，C 分支已非强制合入此基线；最近受检代码提交 `c9ff123ef5c7bacafc8108b0deedee7cc59cc1e1`、草稿 PR #11。最新完成/CI/未测以 [#9 的 STATUS C](https://github.com/Cynthia060913/freshlink-zhikong/issues/9#issuecomment-6106008709) 和 `03-test-evidence.md` 为准。本机工作树和启动仍未检查。
+> 本文件主体保留 2026-10-10 首轮检查的历史快照；下面旧私有仓库的 PR #4/main/CI 和“本机未检查”均不是当前状态。2026-10-15 已转至[新公开仓库](https://github.com/Cynthia060913/freshlink-zhikong-public)，最新交付和限制以[新 #9 的 STATUS C](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019)、[新 PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)及 `03-test-evidence.md` 顶部为准。该日核对 main `f7fe62a95eceee75bebba3e135fc67d6c7728643`、C 接线文档提交 `c08829be8cc4437a34e9f442bf606448b9cfa7ce`；Windows/Codex 工作区的 Git/Python、分支和未提交状态已检查，但项目 Python 3.14、Docker/PostgreSQL、启动/登录、真实持久化与 E1 未实测。旧段落继续保留为当时证据，不作当前结论。
 
 日期：2026-10-10。角色：C，GitHub 连接身份 im1yt。状态：开发中；此文件只记录已核实事实。
 

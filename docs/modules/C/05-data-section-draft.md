@@ -2,7 +2,7 @@
 
 状态：2026-10-12 C4 模块素材，供团队 M03 软件设计文档选用；**不是**完整系统验收报告、真实采集统计或 M06 模型性能报告。正式发布时以同一实际发布 SHA 复核代码、截图、表格和本文。对应主任务 [#9](https://github.com/Cynthia060913/freshlink-zhikong/issues/9)、草稿 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong/pull/11)。
 
-2026-10-15 新库续作注记：以上旧库链接只作历史证据；当前开发入口为 `Cynthia060913/freshlink-zhikong-public`。本轮受检 C 代码提交 `ba2eeae560cf75aacd81f7f28bde515ecdbe7143` 的五组纯处理测试共 63 项通过，新增超过微秒精度时间的无损失败边界；尚未上传、无同版新库 CI。完整运行条件与缺口见 `03-test-evidence.md` 最新节。下文较早测试数和“本机未检查”叙述保留为当时记录，不代表本轮实际状态。
+2026-10-15 新库续作注记：以上旧库链接只作历史证据；当前开发入口为 `Cynthia060913/freshlink-zhikong-public`。受检 C 代码提交 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd` 已普通推送至[新 PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)，Windows/Codex Python 3.13.9 五组 C-only 测试 **76/76 OK**；该 SHA 的后端、Compose、pre-commit、Zizmor、Playwright 五个工作流均成功。接线说明提交 `c08829be8cc4437a34e9f442bf606448b9cfa7ce` 另刷新[接线边界](integration-notes.md)，是纯文档提交，其同 SHA 五个工作流也成功；没有新增正式 PostgreSQL、HTTP 或 E1 测试。完整运行条件与缺口见 `03-test-evidence.md` 顶部及[新 #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019)。下文较早测试数、旧私有链接和“本机未检查”叙述保留为当时记录，不代表当前状态。
 
 ## 数据对象与来源
 
@@ -27,7 +27,7 @@ C 本机 Windows 项目、Docker/数据库启动、登录/设备页、MQTT→C �
 | 资料 | 当前状态 | 需要的实证 |
 | --- | --- | --- |
 | 观测/reception/outbox 数据模型与迁移 | 未实现 | 在已合并 A01→B 唯一 Alembic head 上执行空库升级、事务/唯一约束及跨重启重发/冲突测试 |
-| 实时/历史页面及权限 CSV | 未实现 | 同 actor、同筛选、同接收水位核对页/导出 ID、行数、单位、空值、失败码和大于 10000 行拒绝 |
+| 实时/历史页面及权限 CSV | 未实现 | 同 actor、同筛选、同服务端固定结果快照核对页/导出 ID、行数、单位、空值、失败码和大于 10000 行拒绝 |
 | B 历史规则和异常/恢复候选 | 未实现 | 真实版本、采样时刻、批次、来源 ID、持久 outbox/超时重试和 B 回执；缺规则/缺测保持未知 |
 | MQTT 与 E1 | 未执行 | 一库一测点一执行器的真实消息、入库、告警、通知、控制 ACK 和后续数据证据，按 #6 留记录 |
 | 累计暴露或可选模型 | 未开始 | 必选闭环后才定公式/单位/训练划分/独立实验/系统调用；无真实结果不填品质概率、货架期或节能率 |

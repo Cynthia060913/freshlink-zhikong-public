@@ -1,11 +1,17 @@
 # C 测试证据与后续复现清单
 
-状态：C4 的阶段性真实证据汇编；更新于 2026-10-15。当前实现含 C0 纯处理/A 接收封装投影、C1 内存筛选/CSV 字节预览，以及 C2 的固定 F03 候选纯投影；**没有**正式存储、数据库查询、权限、HTTP 导出、候选持久交付或 E1 联调。以下“当前新库证据”按明确代码 SHA 解释；更早章节按当时状态保留，其中“本机待上传”等描述已被后续远端提交覆盖，不能当作当前阻塞。
+状态：C4 的阶段性真实证据汇编；更新于 2026-10-15。当前实现含 C0 纯处理/A 接收封装投影、C1 内存筛选/CSV 字节预览，以及 C2 的固定 F03 候选纯投影；**没有**正式存储、数据库查询、权限、HTTP 导出、候选持久交付或 E1 联调。以下新库证据按明确代码 SHA 解释；更早章节按当时状态保留，其中“本机待上传”等描述已被后续远端提交覆盖，不能当作当前阻塞。
+
+## 新库当前证据索引（2026-10-15）
+
+- 接线说明受检提交 `c08829be8cc4437a34e9f442bf606448b9cfa7ce` 位于 C PR #11 / `feature/c-data-quality-bootstrap`，当时 base main `f7fe62a95eceee75bebba3e135fc67d6c7728643`。该提交仅刷新 C 接线文档；本机 `git diff --cached --check`、有限暂存文本扫描（426 文件零发现、9 个二进制未按文本扫描）及公开安全脚本测试 **10/10 OK**。同 SHA 的后端、Compose、pre-commit、Zizmor、Playwright 五个工作流均 completed/success；通用工程检查不等于 C 业务验收。
+- 最近 C **代码**提交 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd` 在 Windows/Codex Python 3.13.9 的五组 C-only `unittest` 实跑 **76/76 OK**；同 SHA 五个工作流均完成且成功。该组仅覆盖固定纯处理、内存筛选/CSV 预览和合成候选，不覆盖 PostgreSQL、授权 HTTP、B 接收、跨重启、MQTT 或 E1。项目 Python 3.14 与 Docker 在这台执行环境不可用，未执行本机完整启动/登录；A→C ingress 模块因本机 3.13 不能解析 A 的 3.14 语法，未计入本机通过。
+- [新 #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019) 保持最新版状态；下列各节按自身 SHA 和当时测试解释。A/B 的材料证据仍待各本人提供，M03 不据此签收。
 
 ## C2 原始身份与采样时间追溯回归（2026-10-15）
 
 - 基于已推送 C 分支 `3cc1ac7b1b01b9f531d625abf757c3167ce63907`，纯候选投影补查原始观测与规范投影的 schema、设备、仓库、消息 ID 和采样时刻；任一不一致则拒绝生成候选，不能从被修改的原始身份或时间制造可追溯告警。UTC 等价格式仍由已有有效向量覆盖，原始输入不改写。
-- Windows/Codex Python 3.13.9 在 `backend` 目录实际运行五个 C-only `unittest` 模块：**76/76 OK**，其中候选模块 **10/10 OK**。本轮只验证固定内存对象及拒绝边界；PostgreSQL、B 接收、正式 API/页面、重启与 E1 均未测试。本轮完整提交 SHA 与同提交远端 CI 待推送后回读。
+- Windows/Codex Python 3.13.9 在 `backend` 目录实际运行五个 C-only `unittest` 模块：**76/76 OK**，其中候选模块 **10/10 OK**。本轮只验证固定内存对象及拒绝边界；PostgreSQL、B 接收、正式 API/页面、重启与 E1 均未测试。该增量完整提交为 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd`，同 SHA 五个远端工作流已回读成功。
 
 ## C2 原始温度证据一致性回归（2026-10-15）
 
@@ -17,7 +23,7 @@
 - C 自有代码提交 `2aac6e476190c0875d2094b4d1346fa1dd950782` 新增 `candidate_preview.py::build_candidate_preview`。函数消耗已处理高温、外部已分配的 `observation_id`/`source_event_id` 和**合成规则快照**，生成与 `examples/candidate-f03-rc2-c-proposal.json` 一致的单批 JSON；缺规则、缺温、错单位、无规则状态、重发和冲突不发候选。仓库不匹配、规则不在采样时刻生效、单位/阈值不一致或来源 ID 非 UUID 均显式拒绝，原始观测和规则输入不变。它不生成或持久保存来源 ID，也未调用 B 服务。
 - Windows/Codex Python 3.13.9 在 `backend` 目录实际运行五个 C-only `unittest` 模块，**74/74 OK**（原 71 项加 3 项构建/不发/错误规则测试）；`git diff --cached --check` 通过。一次尝试把 A→C 导入边界模块加入同一命令，因 A 的 Python 3.14 多异常语法在本机 Python 3.13 解析失败，随后只运行上述五个 C-only 模块；没有修改 A 源码，也不把失败尝试称为通过。项目 Python 3.14、B DTO 实际接收、持久 outbox、跨重启幂等、PostgreSQL、HTTP、页面和 E1 仍未测试。本提交的远端检查须以 PR #11 对应 SHA 的实际运行结果另行记录。
 
-## 当前新库证据与 M03 测试章节底稿（2026-10-15）
+## 新库早期证据与 M03 测试章节底稿（2026-10-15，历史版本）
 
 - 对应 C 业务代码完整提交：`1ee909cf0efe9b29a540ba1e50c99d62285e18a0`，新库 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)，基线 main `f7fe62a95eceee75bebba3e135fc67d6c7728643`。本人分支已普通推送，本地/远端/PR HEAD 回读一致；工作树干净、相对 main 落后 0/领先 10。此文档的后续提交仅更新证据文字，不追溯改写已测代码版本。
 - 本机环境是 Windows 上的 Codex 工作区、Python 3.13.9；设置 `PYTHONPATH=backend`、`PYTHONDONTWRITEBYTECODE=1` 后，对 `test_telemetry_quality.py`、`test_telemetry_envelope_preview.py`、`test_telemetry_query_preview.py`、`test_telemetry_csv_preview.py`、`test_telemetry_candidate_contract_proposal.py` 分别运行 `python -X utf8 -m unittest discover -s backend/tests/modules -p <文件名> -q`，结果 **32+11+13+10+5=71/71 OK**。项目 Python 3.14 未在这台机器安装；`ruff` 本机不可用。`git diff --check` 通过。

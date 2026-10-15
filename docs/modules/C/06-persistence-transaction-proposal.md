@@ -2,7 +2,7 @@
 
 状态：**C 内部设计草案，未接数据库、未建迁移、未开放 API**。本文件供
 S0/F01—F03 审核；正式表和字段只在 B 的唯一迁移 head 合入、共同契约确认后落地。
-固定 JSON 和 60 项隔离纯处理测试不是本设计的持久化验收。
+固定 JSON 和隔离纯处理测试不是本设计的持久化验收；早期记录的 60 项是当时快照。2026-10-15 新库 C 代码 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd` 在 Windows/Codex Python 3.13.9 五组 C-only 测试为 **76/76 OK**，接线说明受检提交为 `c08829be8cc4437a34e9f442bf606448b9cfa7ce`；完整证据见 `03-test-evidence.md` 顶部及[新 #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019)。本设计仍无正式 PostgreSQL 事务、迁移或 E1 结果。
 另用共同 main `0bf33f86c1fde9af1cb7e7e5a9a74d411b42f813` 的
 `iot/ingress.py` 与 C PR #11 的 `envelope_preview.py` 在隔离目录运行了
 5 项 A→C **代码边界**测试：合法高温、重复/冲突、缺测/错单位/坏采样时间、
