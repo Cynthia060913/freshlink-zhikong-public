@@ -70,6 +70,24 @@ class TelemetryQualityTests(unittest.TestCase):
         self.assertIn("invalid_time:sampled_at", result["quality"])
         self.assertEqual(result["risk"]["reason"], "untraceable_observation")
 
+    def test_submicrosecond_time_is_not_silently_truncated_into_replay(self) -> None:
+        first = _base()
+        first["sampled_at"] = "2026-10-10T00:00:00.1234561Z"
+        changed = deepcopy(first)
+        changed["sampled_at"] = "2026-10-10T00:00:00.1234569Z"
+        results = process_batch([first, changed], 8)
+        self.assertEqual([row["duplicate"] for row in results], ["new", "conflict"])
+        for row, raw in zip(results, (first, changed), strict=True):
+            self.assertEqual(row["raw"], raw)
+            self.assertIn("invalid_time:sampled_at", row["quality"])
+            self.assertNotIn("sampled_at", row["normalized"])
+            self.assertEqual(row["risk"]["state"], "unknown")
+
+        valid = deepcopy(first)
+        valid["sampled_at"] = "2026-10-10T00:00:00.123456Z"
+        accepted = process_batch([valid], 8)[0]
+        self.assertEqual(accepted["normalized"]["sampled_at"], valid["sampled_at"])
+
     def test_invalid_unit_does_not_convert_temperature(self) -> None:
         original = _base()
         original["metrics"][0]["unit"] = "°F"

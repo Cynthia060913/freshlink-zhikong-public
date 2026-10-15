@@ -26,7 +26,9 @@ _INVALID_METRIC_SHAPE_PREFIXES = (
     "invalid_metric_entry",
 )
 _TIME_PATTERN = re.compile(
-    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)"
+    # datetime stores microseconds. Longer fractions are rejected instead of
+    # silently rounded down and mistaken for an equivalent replay.
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)"
 )
 
 
