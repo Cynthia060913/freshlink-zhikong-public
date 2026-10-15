@@ -65,9 +65,7 @@ class TelemetryQualityTests(unittest.TestCase):
         )
         self.assertEqual(results[1]["raw"], older_heat)
         self.assertEqual(results[1]["quality"], ["ok"])
-        self.assertEqual(
-            results[1]["normalized"]["sampled_at"], "2026-10-10T00:05:00Z"
-        )
+        self.assertEqual(results[1]["normalized"]["sampled_at"], "2026-10-10T00:05:00Z")
         self.assertEqual(
             results[1]["normalized"]["received_at"], "2026-10-10T00:11:00Z"
         )
