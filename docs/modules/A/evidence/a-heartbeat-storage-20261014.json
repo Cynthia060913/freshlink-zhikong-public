@@ -1,0 +1,12 @@
+{
+  "stage": "A02 local heartbeat persistence candidate",
+  "shared_main": "0bf33f86c1fde9af1cb7e7e5a9a74d411b42f813",
+  "backend": {"passed": 229, "failed": 0, "coverage_percent": 96},
+  "migration": {"legacy_a01_fixture_preserved": true, "alembic_check": "no new upgrade operations"},
+  "restart": {"actual_postgresql_container_restart": true, "new_runner_verified": true, "duplicate_did_not_extend_online": true},
+  "frontend": {"sdk_lint_typescript_vite": "passed", "preserved_bundle_files": 36, "pure_view_tests_passed": 5},
+  "not_tested": ["production MQTT", "B delivery", "actual notification receipts", "browser interaction", "remote current CI", "E1"],
+  "application_database_modified": false,
+  "system_python_modified": false,
+  "shared_main_updated": false
+}

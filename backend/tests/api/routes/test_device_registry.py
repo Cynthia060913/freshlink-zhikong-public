@@ -22,6 +22,7 @@ from app.modules.iot.models import Device
 from app.modules.iot.registry import (
     DeviceBindingError,
     bind_registered_device,
+    receive_registered_heartbeat,
     receive_registered_telemetry,
 )
 
@@ -269,3 +270,111 @@ def test_payload_cannot_override_binding_or_topic(registered_device: UUID):
                 lambda _: True,
                 topic=f"freshlink/v1/devices/{uuid4()}/telemetry",
             )
+
+
+def heartbeat(session: Session, device_id: UUID, **overrides):
+    args = {
+        "authenticated_device_id": device_id,
+        "credential_enabled": True,
+        "topic": f"freshlink/v1/devices/{device_id}/heartbeat",
+        "payload": payload_for(device_id, sent_at=NOW.isoformat()),
+        "received_at": NOW,
+        "retained": False,
+    }
+    args.update(overrides)
+    return receive_registered_heartbeat(session, **args)
+
+
+def test_registered_heartbeat_allows_unbound_without_writing_last_seen(
+    registered_device: UUID,
+):
+    with Session(engine) as session:
+        result = heartbeat(session, registered_device)
+        assert result.device_id == registered_device
+        assert result.received_at == NOW
+        session.expire_all()
+        device = session.get(Device, registered_device)
+        assert device.warehouse_id is None
+        assert device.last_seen_at is None
+
+
+@pytest.mark.parametrize(
+    "which,reason",
+    [
+        ("disabled", "device_disabled"),
+        ("oversized", "payload_too_large"),
+        ("retained", "retained_heartbeat"),
+    ],
+)
+def test_heartbeat_rejects_pre_database_boundary(
+    which: str, reason: str, registered_device: UUID
+):
+    overrides = {}
+    if which == "disabled":
+        overrides["credential_enabled"] = False
+    elif which == "oversized":
+        overrides["payload"] = b" " * (MAX_PAYLOAD_BYTES + 1)
+    else:
+        overrides["retained"] = True
+    with Session(engine) as session, patch.object(session, "exec") as lookup:
+        with pytest.raises(IngressRejected, match=reason):
+            heartbeat(session, registered_device, **overrides)
+        lookup.assert_not_called()
+
+
+def test_heartbeat_unknown_registration_rejected(db: Session):
+    with pytest.raises(IngressRejected, match="device_unknown"):
+        heartbeat(db, uuid4())
+
+
+def test_heartbeat_cannot_choose_another_identity_or_binding(registered_device: UUID):
+    with Session(engine) as session:
+        for overrides in (
+            {"payload": payload_for(uuid4(), sent_at=NOW.isoformat())},
+            {
+                "payload": payload_for(
+                    registered_device,
+                    sent_at=NOW.isoformat(),
+                    warehouse_id=str(uuid4()),
+                )
+            },
+            {"topic": f"freshlink/v1/devices/{uuid4()}/heartbeat"},
+        ):
+            with pytest.raises(IngressRejected):
+                heartbeat(session, registered_device, **overrides)
+
+
+def test_heartbeat_refreshes_other_request_binding(registered_device: UUID):
+    warehouse_id = uuid4()
+    with Session(engine) as stale_session:
+        cached = stale_session.get(Device, registered_device)
+        assert cached.warehouse_id is None
+        with Session(engine) as writer:
+            bind(writer, registered_device, warehouse_id)
+        result = heartbeat(
+            stale_session,
+            registered_device,
+            payload=payload_for(
+                registered_device,
+                sent_at=NOW.isoformat(),
+                warehouse_id=str(warehouse_id),
+            ),
+        )
+        assert result.device_id == registered_device
+        assert cached.warehouse_id == warehouse_id
+        assert cached.last_seen_at is None
+
+
+def test_heartbeat_database_failure_propagates(registered_device: UUID):
+    with (
+        Session(engine) as session,
+        patch.object(
+            session,
+            "exec",
+            side_effect=OperationalError(
+                "statement", {}, Exception("disposable DB unavailable")
+            ),
+        ),
+    ):
+        with pytest.raises(OperationalError):
+            heartbeat(session, registered_device)

@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from app.models import User
+from app.modules.iot.heartbeat import Heartbeat, HeartbeatPolicy, receive_heartbeat
 from app.modules.iot.ingress import (
     MAX_PAYLOAD_BYTES,
     DeviceContext,
@@ -105,4 +106,46 @@ def receive_registered_telemetry(
         payload=payload,
         context=DeviceContext(device.id, device.warehouse_id),
         received_at=received_at,
+    )
+
+
+def receive_registered_heartbeat(
+    session: Session,
+    *,
+    authenticated_device_id: UUID,
+    credential_enabled: bool,
+    topic: str,
+    payload: bytes,
+    received_at: datetime,
+    retained: bool,
+    policy: HeartbeatPolicy = HeartbeatPolicy(),
+) -> Heartbeat:
+    """Read current registration, then validate an authenticated heartbeat.
+
+    Broker credentials/ACLs are a trusted adapter prerequisite. Unlike telemetry,
+    heartbeat does not require a warehouse: registering a device precedes its
+    binding. Explicit payload warehouse claims must still match the current DB
+    binding. This read-only step neither updates last_seen nor commits a plan.
+    Storage failures propagate; do not turn an unavailable DB into success.
+    """
+    if len(payload) > MAX_PAYLOAD_BYTES:
+        raise IngressRejected("payload_too_large", payload)
+    if credential_enabled is not True:
+        raise IngressRejected("device_disabled", payload)
+    if retained is not False:
+        raise IngressRejected("retained_heartbeat", payload)
+    device = session.exec(
+        select(Device)
+        .where(Device.id == authenticated_device_id)
+        .execution_options(populate_existing=True)
+    ).first()
+    if device is None:
+        raise IngressRejected("device_unknown", payload)
+    return receive_heartbeat(
+        topic=topic,
+        payload=payload,
+        context=DeviceContext(device.id, device.warehouse_id),
+        received_at=received_at,
+        retained=retained,
+        policy=policy,
     )
