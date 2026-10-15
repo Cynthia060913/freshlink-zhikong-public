@@ -2,11 +2,12 @@
 
 状态：C4 的阶段性真实证据汇编；更新于 2026-10-15。当前实现含 C0 纯处理/A 接收封装投影、C1 隔离数据库事务候选与内存筛选/CSV 字节预览，以及 C2 的固定 F03 候选纯投影；**没有**正式 PostgreSQL 迁移、应用持久化接线、数据库查询、权限、HTTP 导出、候选持久交付或 E1 联调。以下新库证据按明确代码 SHA 解释；更早章节按当时状态保留，其中“本机待上传”等描述已被后续远端提交覆盖，不能当作当前阻塞。
 
-## C1 隔离数据库事务候选（2026-10-15；提交与远端 CI 待回读）
+## C1 隔离数据库事务候选（2026-10-15；代码 `7f566b9f13de171b9e268b0e5edb813e8da5c640`）
 
 - `storage_candidate.py::ingest_observation` 在 C 自有、未纳入正式迁移的候选表上将 observation、reception 和 evaluation work 放入同一 SQLAlchemy 事务。可信 A 封装的 exact `raw_text`、原 `raw_payload`、可信设备/仓库/接收时间分别保留；设备/消息 UUID 唯一约束、reception UUID 主键确保新消息、重发、冲突与同一接收调用重试区分。提交前失败回 `retryable_failure` 并回滚；新 observation 的 ID 和待评估任务跨数据库重开保留。结构性坏业务键只留 reception，坏采样时间/单位照实保存为 `unknown`，真实高温值不删除；规则未接入，风险仍 `unknown`。
 - Windows/Codex Python 3.13.9 使用**独立临时虚拟环境**，安装项目锁定的 SQLAlchemy 2.0.51、Ruff 0.16.9、mypy 2.3.1、ty 0.0.84；实际运行 7 个新 SQLite 文件数据库事务测试，加原五组 C-only 测试，共 **85/85 OK**。覆盖原文/可信时间隔离、engine 重开后的重发、同接收 ID 幂等、同消息冲突、坏时间/单位/缺温、坏消息 ID、事务中途故障回滚后重试。Ruff lint 通过，格式化后复测通过；新存储模块单文件 mypy strict 和指定隔离解释器的 ty 均通过。该测试使用临时 SQLite 文件，不是 PostgreSQL、应用重启、并发双写或正式业务路由验收；表结构是 C 内部候选，生产不得 `create_all` 或另建平行迁移头。
-- 本轮本机 Python 3.14、Docker/真实 PostgreSQL、A 实际 MQTT 调用、B 历史规则/候选投递、正式鉴权查询/CSV、页面和 E1 均**未测**。同提交远端 CI 须在推送后按完整 SHA 单独回读，不预称通过。
+- 同代码 HEAD 的远端 Actions 已回读：Backend [run 38747430823](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38747430823) 在 GitHub Ubuntu/Python 3.14.8 执行整仓 **288 passed、75 warnings、95% 总覆盖率**，日志列出本文件 7 项测试；[pre-commit](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38747431020)、[Compose](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38747430909)、[Zizmor](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38747430852)、[Playwright](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38747430799) 均 completed/success。288 是整仓数量；Compose/浏览器是通用检查，不证明 C 已接正式 PG/页面。
+- 本轮本机 Python 3.14、Docker/真实 PostgreSQL、A 实际 MQTT 调用、B 历史规则/候选投递、正式鉴权查询/CSV、页面和 E1 均**未测**。
 
 ## 新库当前证据索引（2026-10-15）
 
