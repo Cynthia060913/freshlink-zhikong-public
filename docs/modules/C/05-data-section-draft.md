@@ -2,6 +2,8 @@
 
 状态：2026-10-12 C4 模块素材，供团队 M03 软件设计文档选用；**不是**完整系统验收报告、真实采集统计或 M06 模型性能报告。正式发布时以同一实际发布 SHA 复核代码、截图、表格和本文。对应主任务 [#9](https://github.com/Cynthia060913/freshlink-zhikong/issues/9)、草稿 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong/pull/11)。
 
+2026-10-15 新库续作注记：以上旧库链接只作历史证据；当前开发入口为 `Cynthia060913/freshlink-zhikong-public`。本轮受检 C 代码提交 `ba2eeae560cf75aacd81f7f28bde515ecdbe7143` 的五组纯处理测试共 63 项通过，新增超过微秒精度时间的无损失败边界；尚未上传、无同版新库 CI。完整运行条件与缺口见 `03-test-evidence.md` 最新节。下文较早测试数和“本机未检查”叙述保留为当时记录，不代表本轮实际状态。
+
 ## 数据对象与来源
 
 项目目标为认证设备经 A 的接收边界上报仓储温湿度。A [PR #14](https://github.com/Cynthia060913/freshlink-zhikong/pull/14) 给出可信设备、绑定仓库、UTC 接收时间和 reception ID 的内部封装提案；该 PR 尚未合并，C 尚未接真实 MQTT/数据库。C 当前 `envelope_preview.py` 对该结构作独立纯处理投影：原始 UTF-8 文本与 JSON payload 快照分开保留；设备自报的接收时间不覆盖服务器可信时间；处理视图另补可信仓库和 UTC 接收时间。身份/仓库冲突显式失败。原文留存是将来审计与复核的前提，不能用清洗值反向覆盖。
