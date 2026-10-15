@@ -46,6 +46,32 @@ class TelemetryQualityTests(unittest.TestCase):
         self.assertEqual(result["normalized"]["metrics"]["temperature"], 12.0)
         self.assertEqual(result["risk"]["state"], "candidate")
 
+    def test_late_older_heat_remains_a_candidate(self) -> None:
+        recent = _base()
+        recent["schema_version"] = "1.0"
+        recent["sampled_at"] = "2026-10-10T00:10:00Z"
+        recent["received_at"] = "2026-10-10T00:10:01Z"
+        older_heat = deepcopy(recent)
+        older_heat["message_id"] = "44444444-4444-4444-8444-444444444444"
+        older_heat["sampled_at"] = "2026-10-10T00:05:00Z"
+        older_heat["received_at"] = "2026-10-10T00:11:00Z"
+        older_heat["metrics"][0]["value"] = 12
+
+        results = process_batch([recent, older_heat], 8)
+
+        self.assertEqual([row["duplicate"] for row in results], ["new", "new"])
+        self.assertEqual(
+            [row["risk"]["state"] for row in results], ["normal", "candidate"]
+        )
+        self.assertEqual(results[1]["raw"], older_heat)
+        self.assertEqual(results[1]["quality"], ["ok"])
+        self.assertEqual(
+            results[1]["normalized"]["sampled_at"], "2026-10-10T00:05:00Z"
+        )
+        self.assertEqual(
+            results[1]["normalized"]["received_at"], "2026-10-10T00:11:00Z"
+        )
+
     def test_missing_field_and_metric_are_unknown(self) -> None:
         original = _base()
         del original["received_at"]
