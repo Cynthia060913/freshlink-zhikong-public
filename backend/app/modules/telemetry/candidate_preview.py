@@ -98,11 +98,12 @@ def build_candidate_preview(
     threshold = _number(rule.get("threshold"))
     metrics = normalized.get("metrics")
     value = metrics.get("temperature") if isinstance(metrics, dict) else None
+    numeric_value = _number(value)
     if (
         threshold is None
-        or _number(value) is None
+        or numeric_value is None
         or risk.get("threshold_c") != threshold
-        or value <= threshold
+        or numeric_value <= threshold
     ):
         raise ValueError("processed temperature and rule threshold disagree")
     raw_metrics = raw.get("metrics")
@@ -126,7 +127,7 @@ def build_candidate_preview(
         "observation_ids": [_required_uuid(observation_id, "observation_id")],
         "metric_code": "temperature",
         "sampled_at": _utc(normalized["sampled_at"]),
-        "value": float(value),
+        "value": numeric_value,
         "unit": "°C",
         "kind": "temperature_high",
         "severity": _required_text(rule.get("severity"), "severity"),
@@ -138,7 +139,7 @@ def build_candidate_preview(
             "message_id": message_id,
             "raw_value": deepcopy(matching[0].get("value")),
             "raw_unit": matching[0]["unit"],
-            "normalized_value": float(value),
+            "normalized_value": numeric_value,
             "normalized_unit": "°C",
             "comparison": ">",
             "threshold": threshold,
