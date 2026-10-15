@@ -11,7 +11,7 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-from app.modules.telemetry.quality import _number, _utc, _uuid
+from app.modules.telemetry.quality import _number, _utc, _uuid, process_batch
 
 ALGORITHM_VERSION = "threshold-rule/0.2.0-rc2"
 
@@ -133,6 +133,17 @@ def build_candidate_preview(
         raise ValueError("raw temperature evidence is ambiguous")
     if _number(matching[0].get("value")) != numeric_value:
         raise ValueError("raw temperature differs from processed temperature")
+
+    # A candidate must carry the quality verdict for the same raw observation.
+    # In particular, a missing humidity reading must not be rewritten as "ok".
+    checked = process_batch([raw], threshold)[0]
+    if (
+        checked["duplicate"] != "new"
+        or checked["normalized"] != normalized
+        or checked["quality"] != quality
+        or checked["risk"] != risk
+    ):
+        raise ValueError("processed evidence differs from raw observation")
 
     return {
         "schema_version": "1.0",

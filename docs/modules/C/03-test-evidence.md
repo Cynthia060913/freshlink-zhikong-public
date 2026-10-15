@@ -5,8 +5,13 @@
 ## 新库当前证据索引（2026-10-15）
 
 - 接线说明受检提交 `c08829be8cc4437a34e9f442bf606448b9cfa7ce` 位于 C PR #11 / `feature/c-data-quality-bootstrap`，当时 base main `f7fe62a95eceee75bebba3e135fc67d6c7728643`。该提交仅刷新 C 接线文档；本机 `git diff --cached --check`、有限暂存文本扫描（426 文件零发现、9 个二进制未按文本扫描）及公开安全脚本测试 **10/10 OK**。同 SHA 的后端、Compose、pre-commit、Zizmor、Playwright 五个工作流均 completed/success；通用工程检查不等于 C 业务验收。
-- 最近 C **代码**提交 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd` 在 Windows/Codex Python 3.13.9 的五组 C-only `unittest` 实跑 **76/76 OK**；同 SHA 五个工作流均完成且成功。该组仅覆盖固定纯处理、内存筛选/CSV 预览和合成候选，不覆盖 PostgreSQL、授权 HTTP、B 接收、跨重启、MQTT 或 E1。项目 Python 3.14 与 Docker 在这台执行环境不可用，未执行本机完整启动/登录；A→C ingress 模块因本机 3.13 不能解析 A 的 3.14 语法，未计入本机通过。
+- 前一 C **代码**提交 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd` 在 Windows/Codex Python 3.13.9 的五组 C-only `unittest` 实跑 **76/76 OK**；同 SHA 五个工作流均完成且成功。该组仅覆盖固定纯处理、内存筛选/CSV 预览和合成候选，不覆盖 PostgreSQL、授权 HTTP、B 接收、跨重启、MQTT 或 E1。项目 Python 3.14 与 Docker 在这台执行环境不可用，未执行本机完整启动/登录；A→C ingress 模块因本机 3.13 不能解析 A 的 3.14 语法，未计入本机通过。
 - [新 #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019) 保持最新版状态；下列各节按自身 SHA 和当时测试解释。A/B 的材料证据仍待各本人提供，M03 不据此签收。
+
+## C2 候选质量证据一致性回归（2026-10-15）
+
+- 纯候选投影在输出前用同一原始处理视图和固定阈值重新核对规范值、质量标记与风险记录。原始温度真实升高而湿度缺失时仍保留高温候选，并在证据中保留 `missing_metric:humidity`；若质量被改写成 `ok`，或原始湿度被事后补入但处理结果未更新，则显式拒绝候选。原始对象不被修改。这仍是固定样例的内部防护，**没有**接 B 的规则仓库或正式候选接收端。
+- Windows/Codex Python 3.13.9 在 `backend` 目录运行五组 C-only `unittest`：**77/77 OK**，候选模块 **11/11 OK**；`git diff --check` 通过。测试只针对纯内存对象，未运行项目 Python 3.14、PostgreSQL、真实 API/页面、跨重启 outbox 或 E1。同提交远端检查以 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11/checks) 的实际结果为准；此处不提前记为通过。
 
 ## C2 原始身份与采样时间追溯回归（2026-10-15）
 

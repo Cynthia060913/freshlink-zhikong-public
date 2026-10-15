@@ -329,6 +329,48 @@ class CandidateContractProposalTests(unittest.TestCase):
                     )
         self.assertEqual(valid["raw"], source)
 
+    def test_rc2_builder_keeps_missing_humidity_quality_in_evidence(self) -> None:
+        source = deepcopy(self.rc2["source_observation"])
+        source["metrics"] = [
+            metric for metric in source["metrics"] if metric["key"] == "temperature"
+        ]
+        rule = self.rc2["rule_fixture"]
+        valid = process_batch([source], rule["threshold"])[0]
+        self.assertEqual(valid["risk"]["state"], "candidate")
+        self.assertIn("missing_metric:humidity", valid["quality"])
+        candidate = self.rc2["candidate"]
+        built = build_candidate_preview(
+            valid,
+            observation_id=candidate["observation_ids"][0],
+            source_event_id=candidate["source_event_id"],
+            rule=rule,
+        )
+        self.assertIsNotNone(built)
+        self.assertEqual(built["evidence"]["quality"], valid["quality"])
+        self.assertEqual(built["evidence"]["raw_value"], source["metrics"][0]["value"])
+
+        changed_quality = deepcopy(valid)
+        changed_quality["quality"] = ["ok"]
+        with self.assertRaisesRegex(ValueError, "processed evidence differs"):
+            build_candidate_preview(
+                changed_quality,
+                observation_id=candidate["observation_ids"][0],
+                source_event_id=candidate["source_event_id"],
+                rule=rule,
+            )
+
+        changed_raw = deepcopy(valid)
+        changed_raw["raw"]["metrics"].append(
+            {"key": "humidity", "value": 91, "unit": "%RH"}
+        )
+        with self.assertRaisesRegex(ValueError, "processed evidence differs"):
+            build_candidate_preview(
+                changed_raw,
+                observation_id=candidate["observation_ids"][0],
+                source_event_id=candidate["source_event_id"],
+                rule=rule,
+            )
+
     def test_rc2_failure_vectors_never_claim_low_risk_or_candidate(self) -> None:
         rc2 = self.rc2
         source = rc2["source_observation"]
