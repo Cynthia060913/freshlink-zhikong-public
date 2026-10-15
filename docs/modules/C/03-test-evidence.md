@@ -2,12 +2,18 @@
 
 状态：C4 的阶段性真实证据汇编；更新于 2026-10-15。当前实现含 C0 纯处理/A 接收封装投影，以及 C1 内存筛选、排序、样例续页与 CSV 字节预览；**没有**正式存储、数据库查询、权限、HTTP 导出、C2 告警交付或 E1 联调。以下较早章节保留其当时提交与运行记录，最新阶段见紧接的章节。
 
+## 新库接入后 CSV 边界复测（2026-10-15；本机待上传）
+
+- 基于本机 C 分支 `78a77629bdf454409bfc8ad51beb74d30a571fa4`，只修改 C 的 CSV 预览、对应测试和说明：对 BOM、零宽、双向格式字符开头的外来文本加人工查看前缀；JSON 中孤立代理项在 CSV 视图转义为可见文本，原始观测仍保留。此增量没有接正式 HTTP 导出。
+- 当前 Windows/Codex Python 3.13.9 分别运行五个 `test_telemetry_*.py` 独立模块（不包括需 Python 3.14 的 A→C 导入边界）：**32+6+13+10+3=64/64 OK**。CSV 模块单独 10/10 OK；新增代理项回归，格式字符在原有用例增加 3 个子场景。`git diff --check` 无错误。项目 Python 3.14、PostgreSQL、鉴权、页面、真实 CSV 接口和 E1 未测；未取得本增量同 SHA 的远端 CI。
+- 邀请已接受，身份 im1yt、网页发帖成功；[新 #1 接入记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/1#issuecomment-6181504937) 和 [新 #9 C 状态](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019) 已发布。Git CLI 安全认证与 Connector 新库选择仍未完成，**本机增量未上传**；远端 PR #11 不含上述本机增量。下方较早的“邀请待接受”记录只描述当时状态。
+
 ## 新公开仓库本机复核（2026-10-15；尚未上传）
 
 - 新库 `origin/main` 为 `f7fe62a95eceee75bebba3e135fc67d6c7728643`；本轮受检 C 代码提交 `ba2eeae560cf75aacd81f7f28bde515ecdbe7143` 位于本机 `feature/c-data-quality-bootstrap`，远端 C 分支仍为 `33f9ad84ea0504a5f4614d3ee21ae00d6cc6dd80`。新 main 已安全合入；受检提交相对 main 落后 0、领先 4，PR #11 相对新 main 的文件差异仅含 C 模块、C 测试和 C 说明。新旧仓库 SHA 不可互认，以下旧库链接仅作历史证据。
 - Windows 上 Python 3.13.9 设置 `PYTHONPATH=backend`、`PYTHONDONTWRITEBYTECODE=1` 后，分别以 `python -m unittest discover -s backend/tests/modules -p <文件名> -q` 执行 `test_telemetry_quality.py`、`test_telemetry_envelope_preview.py`、`test_telemetry_query_preview.py`、`test_telemetry_csv_preview.py`、`test_telemetry_candidate_contract_proposal.py`：**32+6+13+9+3=63 项通过**。新增一项验证超过六位小数的采样时间保留原文、标无效/未知，且同键不同原文不因 Python 微秒截断而误判重复。A→C 代码边界另依赖项目 Python 3.14，未在此环境完整运行。
 - 暂存快照有限文本安全检查 424 文件、零发现，9 个二进制文件未按文本扫描；`git diff --check` 通过。`ruff` 在当前 Python 3.13 环境不可用，未完成规范检查；项目 Python 3.14、PostgreSQL、Docker、MQTT、真实应用启动/登录、权限、重启及 E1 均未测。本轮受检提交未推送，**没有同 SHA 新库 CI**；这些 63 项纯测试不证明正式业务入库、HTTP 查询或 CSV。
-- 新库接入阻塞：Connector 身份 `im1yt`，公开源码可读但没有写权限；评论/审查曾返回 `403 Resource not accessible by integration`。C 邀请待本人接受，所有者还需把新库加入 Connector 授权范围。因此新 #1/#9 尚无 C 本人状态评论，以上提交仅在本机，不能算其他成员可获取的交付。
+- 当时的新库接入阻塞：Connector 身份 `im1yt`，公开源码可读但尚未取得新库写入通道；评论/审查曾返回 `403 Resource not accessible by integration`。其后邀请已接受、网页发帖已成功；当前 Connector 所选仓库仍缺新库，Git 推送未成功。以上提交仅在本机，不能算其他成员可获取的源码交付。
 
 ## 最新增量：A→C 边界与 F03 目标样例（2026-10-13）
 

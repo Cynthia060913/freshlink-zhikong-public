@@ -121,7 +121,16 @@ class TelemetryCsvPreviewTests(unittest.TestCase):
 
     def test_fullwidth_formula_prefixes_remain_text_and_raw_is_unchanged(self) -> None:
         results, _ = _fixture()
-        for expression in ("＝1+1", "　＋1", "－5", "＠SUM(1)", "\x00＝1"):
+        for expression in (
+            "＝1+1",
+            "　＋1",
+            "－5",
+            "＠SUM(1)",
+            "\x00＝1",
+            "\ufeff=1+1",
+            "\u200b=1+1",
+            "\u202e=1+1",
+        ):
             with self.subTest(expression=expression):
                 raw = deepcopy(results[0]["raw"])
                 raw["metrics"][0]["value"] = expression
@@ -131,6 +140,18 @@ class TelemetryCsvPreviewTests(unittest.TestCase):
                 self.assertEqual(row["raw_temperature_value"], "'" + expression)
                 self.assertEqual(row["temperature_c"], "")
                 self.assertEqual(case["raw"], raw)
+
+    def test_escaped_lone_surrogate_remains_exportable_and_raw_is_unchanged(self) -> None:
+        results, _ = _fixture()
+        raw = deepcopy(results[0]["raw"])
+        raw["metrics"][0]["value"] = "\ud800"
+        case = process_batch([raw], 8)[0]
+        case["observation_id"] = results[0]["observation_id"]
+        row = _parse(render_preview_csv([case], {}))[0]
+        self.assertEqual(row["raw_temperature_value"], "\\ud800")
+        self.assertEqual(row["temperature_c"], "")
+        self.assertEqual(row["risk_state"], "unknown")
+        self.assertEqual(case["raw"], raw)
 
     def test_negative_temperature_stays_numeric_while_text_is_neutralized(self) -> None:
         results, _ = _fixture()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from io import StringIO
 from typing import Any
+from unicodedata import category
 
 from app.modules.telemetry.query_preview import (
     select_preview_observations,
@@ -12,6 +13,7 @@ from app.modules.telemetry.query_preview import (
 )
 
 MAX_PREVIEW_EXPORT_ROWS = 10_000
+_LEADING_UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
 PREVIEW_COLUMNS = (
     "observation_id",
     "device_id",
@@ -33,10 +35,15 @@ PREVIEW_COLUMNS = (
 def _display_cell(value: object) -> str:
     if value is None:
         return ""
-    rendered = str(value)
+    # JSON permits escaped lone surrogates. Keep the exact value in raw evidence,
+    # but render it visibly in a UTF-8 CSV instead of failing the whole export.
+    rendered = str(value).encode("utf-8", errors="backslashreplace").decode("utf-8")
+    starts_with_format = (
+        bool(rendered) and category(rendered[0]) in _LEADING_UNSAFE_CATEGORIES
+    )
     if isinstance(value, str) and (
         rendered.lstrip().startswith(("=", "+", "-", "@", "＝", "＋", "－", "＠"))
-        or (rendered and ord(rendered[0]) < 32)
+        or starts_with_format
     ):
         # Human spreadsheet preview only; this is not safe for arbitrary re-import.
         return "'" + rendered

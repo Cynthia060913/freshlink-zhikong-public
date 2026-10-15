@@ -34,6 +34,6 @@
 
 `render_preview_csv(results, filters)` 先调用同一 `select_preview_observations`，再按样例采样时间/ID 排序，输出 UTF-8 BOM 与 `csv.writer(QUOTE_ALL)` 的 CRLF CSV；空结果只含表头，超过 10000 行明确拒绝而不静默截断。C 已在 [S0 #5](https://github.com/Cynthia060913/freshlink-zhikong/issues/5#issuecomment-6118778985) 接受 A 建议的**有界 14 列**作为 F06 目标，本预览现按此顺序输出：`observation_id,device_id,warehouse_id,sampled_at,received_at,raw_temperature_value,raw_temperature_unit,temperature_c,raw_humidity_value,raw_humidity_unit,humidity_percent,quality,risk_state,rule_version`。原始完整 JSON 不进入 CSV，应由后续受权详情读取；C 纯处理/接收证据仍原样保留 raw 与 exact raw_text。
 
-样例 `rule_version` 尚无真实 B 快照，故为空；缺值与重复 metric key 的歧义列也留空，同时质量/风险维持 `unknown`，不任选值。高温原值与 candidate 保留，合法负温按数值导出。针对人工表格查看，外来文本去前导空白后若以公式字符开头或首字符为控制字符，加单引号前缀；已验证数值不加前缀。自动化测试解析实际 CSV 字节，核对分页/导出同筛选 ID、非法时间/缺测、空结果、上限、中文换行/公式样文本、负温及重复 key。此前预览中含 `raw_json`、使用 `[text]` 标记的列集只是历史草案，已从当前代码移除；不能用历史 CSV 结果冒充正式导出。
+样例 `rule_version` 尚无真实 B 快照，故为空；缺值与重复 metric key 的歧义列也留空，同时质量/风险维持 `unknown`，不任选值。高温原值与 candidate 保留，合法负温按数值导出。针对人工表格查看，外来文本去前导空白后若以公式字符开头，或首字符为控制/格式字符（含 BOM、零宽和双向格式字符），加单引号前缀；已验证数值不加前缀。JSON 允许的孤立代理项只在 CSV 视图中转义成可见 `\\uXXXX`，原始观测保持不变，避免整次 UTF-8 导出失败。自动化测试解析实际 CSV 字节，核对分页/导出同筛选 ID、非法时间/缺测、空结果、上限、中文换行/公式样文本、负温及重复 key。此前预览中含 `raw_json`、使用 `[text]` 标记的列集只是历史草案，已从当前代码移除；不能用历史 CSV 结果冒充正式导出。
 
 该函数仍只有固定内存结果，没有 actor、仓库 ACL、正式签名游标/水位、数据库持久化或 HTTP 导出，**不能直接开放为用户路由**。上述列与防护为 C 接受的 RC1 目标，B 权限范围和三方正式版本仍待确认；人工查看前缀不能保证任意表格软件再保存/机器导入的普遍安全。
