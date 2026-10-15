@@ -2,6 +2,10 @@
 
 状态：C4 的阶段性真实证据汇编；更新于 2026-10-15。当前实现含 C0 纯处理/A 接收封装投影、C1 隔离数据库事务候选与内存筛选/CSV 字节预览，以及 C2 的固定 F03 候选纯投影；**没有**正式 PostgreSQL 迁移、应用持久化接线、数据库查询、权限、HTTP 导出、候选持久交付或 E1 联调。以下新库证据按明确代码 SHA 解释；更早章节按当时状态保留，其中“本机待上传”等描述已被后续远端提交覆盖，不能当作当前阻塞。
 
+## C1 双接收并发回归（2026-10-15）
+
+在临时 SQLite 文件数据库，两个线程同时把同一设备/消息、不同可信 `reception_id` 送入 C 独立事务候选。若竞争事务返回 `retryable_failure`，待锁释放后用原接收封装重试；最终一条 `accepted_new`、一条 `accepted_duplicate`，两者引用同一 observation，库中只有一条 observation、两条 reception、一条 evaluation job。Windows/Codex Python 3.13.9 隔离 venv 首次九项存储候选测试 **9/9 OK**，连续执行该存储测试组十遍均通过；六组 C-only 合计 **88/88 OK**。修改的测试文件 Ruff lint/format 通过。此证据只证明隔离 SQLite 的双接收与可重试边界；不证明 PostgreSQL 唯一约束的并发隔离、正式 Alembic、生产 A 接收或应用重启。远端 CI 结果在推送并回读后另记。
+
 ## C2 F03 严重程度枚举（2026-10-15）
 
 在[共同 #5 四项答复](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6194380612) 中，C 接受 `info|warning|critical` 为 F03-RC2 目标集合。固定候选投影仅从有效规则复制这些值，其他值或类型显式拒绝；`normal` 不是严重程度，缺测/无规则不能由此伪装为低风险。新增一项回归验证三个接受值和五种拒绝输入。Windows/Codex Python 3.13.9 隔离虚拟环境实际运行六组 C-only `unittest` **87/87 OK**；改动的两个 Python 文件 Ruff lint/format、候选模块 mypy strict 与 ty 均通过。此测试只覆盖 C 内存候选及前述隔离 SQLite 候选，不证明 B DTO 已收窄、正式契约签收、持久 outbox 或真实投递。同版远端 CI 以本提交推送后 GitHub 实际结果为准。

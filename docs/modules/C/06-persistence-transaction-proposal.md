@@ -8,6 +8,8 @@ SQLAlchemy `MetaData` 只供隔离测试建表；生产不得 `create_all`。它
 Windows/Codex Python 3.13.9 的临时 SQLite 文件数据库执行了 8 个事务测试，
 连同已有五组 C-only 测试 **86/86 OK**；实际证据在 `03-test-evidence.md`。
 没有 PostgreSQL、并发唯一约束、正式迁移、A/B 服务或 E1 验收。
+
+2026-10-15 补测：在 C 独立 SQLite 文件候选表上，两线程并发送同一业务消息但使用不同可信接收 ID，数据库锁导致的暂时失败用原封装重试后，最终只产生一条业务观测、一条评估任务，并保留两条接收证据。九项存储测试连续十轮通过，六组 C-only 合计 88/88 OK；只属于 SQLite 竞争回归，**PostgreSQL 并发唯一约束与正式应用入口仍待实测**。详情见 `03-test-evidence.md` 最新节。
 固定 JSON 和隔离纯处理测试不是本设计的持久化验收；早期记录的 60 项是当时快照。2026-10-15 新库 C 代码 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd` 在 Windows/Codex Python 3.13.9 五组 C-only 测试为 **76/76 OK**，接线说明受检提交为 `c08829be8cc4437a34e9f442bf606448b9cfa7ce`；完整证据见 `03-test-evidence.md` 顶部及[新 #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019)。本设计仍无正式 PostgreSQL 事务、迁移或 E1 结果。
 另用共同 main `0bf33f86c1fde9af1cb7e7e5a9a74d411b42f813` 的
 `iot/ingress.py` 与 C PR #11 的 `envelope_preview.py` 在隔离目录运行了

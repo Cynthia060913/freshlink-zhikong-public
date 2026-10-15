@@ -3,9 +3,11 @@
 import json
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 from uuid import UUID, uuid4
 
 from sqlalchemy import create_engine, event, func, select
@@ -214,6 +216,36 @@ class StorageCandidateTests(unittest.TestCase):
             ingest_observation(self.engine, receipt).status, "accepted_new"
         )
         self.assertEqual(len(self._rows(observations)), 1)
+
+    def test_concurrent_reception_of_one_message_never_double_writes(self) -> None:
+        first = _reception(_raw())
+        second = _reception(_raw(), received_at=TIME + timedelta(seconds=1))
+        barrier = Barrier(2)
+
+        def receive(receipt: Reception):
+            barrier.wait(timeout=5)
+            return ingest_observation(self.engine, receipt)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            pending = [pool.submit(receive, receipt) for receipt in (first, second)]
+            outcomes = [task.result(timeout=10) for task in pending]
+
+        # SQLite can report a write lock for a competing transaction. Replaying
+        # that same receipt after the lock clears must resolve to the first row.
+        for index, outcome in enumerate(outcomes):
+            if outcome.status == "retryable_failure":
+                outcomes[index] = ingest_observation(
+                    self.engine, (first, second)[index]
+                )
+
+        self.assertCountEqual(
+            [outcome.status for outcome in outcomes],
+            ["accepted_new", "accepted_duplicate"],
+        )
+        self.assertEqual(outcomes[0].observation_id, outcomes[1].observation_id)
+        self.assertEqual(len(self._rows(observations)), 1)
+        self.assertEqual(len(self._rows(receptions)), 2)
+        self.assertEqual(len(self._rows(evaluation_jobs)), 1)
 
 
 if __name__ == "__main__":
