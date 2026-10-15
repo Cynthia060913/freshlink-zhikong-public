@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
+from app.modules.telemetry.candidate_preview import build_candidate_preview
 from app.modules.telemetry.quality import process_batch
 
 _EXAMPLES = Path(__file__).resolve().parents[3] / "docs" / "modules" / "C" / "examples"
@@ -199,6 +200,87 @@ class CandidateContractProposalTests(unittest.TestCase):
         self.assertEqual(evidence["comparison"], rule["comparison"])
         self.assertEqual(evidence["threshold"], rule["threshold"])
         self.assertEqual(evidence["quality"], result["quality"])
+
+    def test_rc2_candidate_is_built_from_processed_row_and_explicit_ids(self) -> None:
+        source = deepcopy(self.rc2["source_observation"])
+        rule = deepcopy(self.rc2["rule_fixture"])
+        processed = process_batch([source], rule["threshold"])[0]
+        expected = self.rc2["candidate"]
+        built = build_candidate_preview(
+            processed,
+            observation_id=expected["observation_ids"][0],
+            source_event_id=expected["source_event_id"],
+            rule=rule,
+        )
+        self.assertEqual(built, expected)
+        self.assertEqual(processed["raw"], source)
+        self.assertEqual(rule, self.rc2["rule_fixture"])
+
+    def test_rc2_builder_refuses_unknown_replay_and_conflict(self) -> None:
+        source = deepcopy(self.rc2["source_observation"])
+        rule = self.rc2["rule_fixture"]
+        missing = deepcopy(source)
+        missing["metrics"][0]["value"] = None
+        wrong_unit = deepcopy(source)
+        wrong_unit["metrics"][0]["unit"] = "°F"
+        changed = deepcopy(source)
+        changed["metrics"][0]["value"] = 12
+        replay = process_batch([source, deepcopy(source)], 8)[1]
+        conflict = process_batch([source, changed], 8)[1]
+        rows = [
+            process_batch([missing], 8)[0],
+            process_batch([wrong_unit], 8)[0],
+            process_batch([source])[0],
+            replay,
+            conflict,
+        ]
+        for row in rows:
+            with self.subTest(reason=row["risk"]["reason"]):
+                self.assertIsNone(
+                    build_candidate_preview(
+                        row,
+                        observation_id=self.rc2["candidate"]["observation_ids"][0],
+                        source_event_id=self.rc2["candidate"]["source_event_id"],
+                        rule=rule,
+                    )
+                )
+        high = process_batch([source], 8)[0]
+        self.assertIsNone(
+            build_candidate_preview(
+                high,
+                observation_id=self.rc2["candidate"]["observation_ids"][0],
+                source_event_id=self.rc2["candidate"]["source_event_id"],
+                rule=None,
+            )
+        )
+
+    def test_rc2_builder_rejects_mismatched_rule_and_bad_source_id(self) -> None:
+        source = deepcopy(self.rc2["source_observation"])
+        rule = self.rc2["rule_fixture"]
+        row = process_batch([source], rule["threshold"])[0]
+        candidate = self.rc2["candidate"]
+        changes = (
+            {"warehouse_id": "99999999-9999-4999-8999-999999999999"},
+            {"effective_to": source["sampled_at"]},
+            {"unit": "%RH"},
+            {"threshold": 10},
+        )
+        for change in changes:
+            with self.subTest(change=change):
+                with self.assertRaises(ValueError):
+                    build_candidate_preview(
+                        row,
+                        observation_id=candidate["observation_ids"][0],
+                        source_event_id=candidate["source_event_id"],
+                        rule={**rule, **change},
+                    )
+        with self.assertRaises(ValueError):
+            build_candidate_preview(
+                row,
+                observation_id=candidate["observation_ids"][0],
+                source_event_id="not-a-uuid",
+                rule=rule,
+            )
 
     def test_rc2_failure_vectors_never_claim_low_risk_or_candidate(self) -> None:
         rc2 = self.rc2
