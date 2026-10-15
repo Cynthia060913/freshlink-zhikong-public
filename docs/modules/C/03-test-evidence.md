@@ -1,6 +1,23 @@
 # C 测试证据与后续复现清单
 
-状态：C4 的阶段性真实证据汇编；更新于 2026-10-15。当前实现含 C0 纯处理/A 接收封装投影，以及 C1 内存筛选、排序、样例续页与 CSV 字节预览；**没有**正式存储、数据库查询、权限、HTTP 导出、C2 告警交付或 E1 联调。以下较早章节保留其当时提交与运行记录，最新阶段见紧接的章节。
+状态：C4 的阶段性真实证据汇编；更新于 2026-10-15。当前实现含 C0 纯处理/A 接收封装投影，以及 C1 内存筛选、排序、样例续页与 CSV 字节预览；**没有**正式存储、数据库查询、权限、HTTP 导出、C2 告警交付或 E1 联调。以下“当前新库证据”是最新状态；更早章节按当时状态保留，其中“本机待上传”等描述已被最新远端提交覆盖，不能当作当前阻塞。
+
+## 当前新库证据与 M03 测试章节底稿（2026-10-15）
+
+- 对应 C 业务代码完整提交：`1ee909cf0efe9b29a540ba1e50c99d62285e18a0`，新库 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)，基线 main `f7fe62a95eceee75bebba3e135fc67d6c7728643`。本人分支已普通推送，本地/远端/PR HEAD 回读一致；工作树干净、相对 main 落后 0/领先 10。此文档的后续提交仅更新证据文字，不追溯改写已测代码版本。
+- 本机环境是 Windows 上的 Codex 工作区、Python 3.13.9；设置 `PYTHONPATH=backend`、`PYTHONDONTWRITEBYTECODE=1` 后，对 `test_telemetry_quality.py`、`test_telemetry_envelope_preview.py`、`test_telemetry_query_preview.py`、`test_telemetry_csv_preview.py`、`test_telemetry_candidate_contract_proposal.py` 分别运行 `python -X utf8 -m unittest discover -s backend/tests/modules -p <文件名> -q`，结果 **32+11+13+10+5=71/71 OK**。项目 Python 3.14 未在这台机器安装；`ruff` 本机不可用。`git diff --check` 通过。
+- 固定对象 ID：设备 `11111111-1111-4111-8111-111111111111`、仓库 `22222222-2222-4222-8222-222222222222`、正常消息 `33333333-3333-4333-8333-333333333333`、高温消息 `44444444-4444-4444-8444-444444444444`，均见 [telemetry-input.json](examples/telemetry-input.json)。它们是**合成样例**，不是真实冷库设备记录。
+
+| 本轮记录 | 输入、步骤与预期 | 实际结果与边界 | 可核证据/缺陷复测 |
+| --- | --- | --- | --- |
+| C0-RAW，2026-10-15 | 将正常、高温、缺测、错单位、重复、冲突及坏时间样例交给纯处理函数；原始值须保留，高温不删除，缺测和无规则保持 unknown | 五组 C 纯处理测试的相关用例通过；本机没有数据库写入或真实 MQTT | `test_telemetry_quality.py`、`test_telemetry_envelope_preview.py`、上述固定 JSON；[C #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019) |
+| C0-ENVELOPE，2026-10-15 | 固定可信封装中给出 exact `raw_text` 和 `raw_payload`；不一致、重复 JSON 成员、非法常量或坏原文须有界拒绝，原文不得在解析异常中泄露 | `test_telemetry_envelope_preview.py` **11/11 OK**；只测 C 自有封装结构，不证明 A 的生产接收 | 首轮 `9286e23906dc6571b591715091cf90bd452a746c` 的规范检查因 3 个 C 文件格式失败；按日志修复为 `1ee909cf0efe9b29a540ba1e50c99d62285e18a0` 并同版复测 |
+| C1-PREVIEW，2026-10-15 | 固定内存观测筛选/排序后生成 14 列 CSV；测试同筛选 ID、空结果、上限、危险文本与孤立代理项处理 | `test_telemetry_query_preview.py` **13/13 OK**，`test_telemetry_csv_preview.py` **10/10 OK**；这是内存预览，不代表正式 HTTP 导出、鉴权或表格软件复测 | 两测试模块和 [query-csv-acceptance.json](examples/query-csv-acceptance.json) |
+| C2-CONTRACT，2026-10-15 | 对待审 F03-RC2 的有效单批高温候选与缺温、错单位、无规则、重复、冲突不发向量做固定 JSON 核对 | `test_telemetry_candidate_contract_proposal.py` **5/5 OK**；B 实际 DTO/接收、来源 ID 跨重启未测，接口未冻结 | [候选样例](examples/candidate-f03-rc2-c-proposal.json)、[S0 C 答复](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6181720375) |
+
+同一业务代码 SHA 的远端 GitHub Actions：[后端](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38663735736)、[Compose](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38663735738)、[pre-commit](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38663735748)、[Zizmor](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38663735676)、[Playwright](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38663735705) 均 `completed/success`；PR 页面显示 13 项成功、2 项按配置跳过。Compose 和 Playwright 是共享工程检查，**没有**验证 C 的正式数据库、业务页面或 E1。没有手工重跑来掩盖首次 pre-commit 失败。
+
+M03 团队测试报告仍缺 A/B 本人提供的同版运行证据，入口分别为新库 [A #7](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/7)、[B #8](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/8)；C 不代填其通过结果。C 自己还须在已合并的唯一迁移链上实测 PostgreSQL 入库/并发幂等/重启、登录鉴权、历史查询/正式 CSV、B 候选接收与重试、E1、第二电脑复现。到这些真实运行前，M03 测试章节只是底稿，不是最终签收。
 
 ## A→C 原文与处理对象一致性（2026-10-15；本机待上传）
 
