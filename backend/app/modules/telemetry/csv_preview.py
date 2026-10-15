@@ -41,8 +41,11 @@ def _display_cell(value: object) -> str:
     starts_with_format = (
         bool(rendered) and category(rendered[0]) in _LEADING_UNSAFE_CATEGORIES
     )
+    visible_start = rendered.lstrip()
+    while visible_start and category(visible_start[0]) in _LEADING_UNSAFE_CATEGORIES:
+        visible_start = visible_start[1:].lstrip()
     if isinstance(value, str) and (
-        rendered.lstrip().startswith(("=", "+", "-", "@", "＝", "＋", "－", "＠"))
+        visible_start.startswith(("=", "+", "-", "@", "＝", "＋", "－", "＠"))
         or starts_with_format
     ):
         # Human spreadsheet preview only; this is not safe for arbitrary re-import.

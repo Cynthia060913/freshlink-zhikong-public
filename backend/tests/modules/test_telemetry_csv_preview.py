@@ -130,6 +130,9 @@ class TelemetryCsvPreviewTests(unittest.TestCase):
             "\ufeff=1+1",
             "\u200b=1+1",
             "\u202e=1+1",
+            " \u200b=1+1",
+            "\t\ufeff\u200b＝1+1",
+            " \u200e\t＠SUM(1)",
         ):
             with self.subTest(expression=expression):
                 raw = deepcopy(results[0]["raw"])
