@@ -13,6 +13,22 @@ import {
 
 const uuidPattern = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 
+function createCommandId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function")
+    return globalThis.crypto.randomUUID()
+  // randomUUID is secure-context-only, but getRandomValues also works on the
+  // isolated HTTP CI origin. Format CSPRNG bytes as UUIDv4; never use Math.random.
+  if (typeof globalThis.crypto?.getRandomValues !== "function")
+    throw new Error("Secure random source unavailable")
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (value) =>
+    value.toString(16).padStart(2, "0"),
+  ).join("")
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 // This is a per-tab, per-actor/device pending intent, not a token or authority.
 // Keep the exact ID/body across a closed dialog or reload after an uncertain POST.
 function restoreIntent(key: string): CommandInput | null {
@@ -59,6 +75,7 @@ export default function DeviceControlPanel({
   const [lifetime, setLifetime] = useState(pending?.lifetime_seconds ?? 60)
   const [confirming, setConfirming] = useState(false)
   const [storageError, setStorageError] = useState(false)
+  const [idError, setIdError] = useState(false)
   const listKey = ["device-commands", actorId, device.id]
   const history = useQuery({
     queryKey: listKey,
@@ -125,8 +142,17 @@ export default function DeviceControlPanel({
 
   function sendNewCommand() {
     if (!ready || pending || submission.isPending) return
+    setStorageError(false)
+    setIdError(false)
+    let commandId: string
+    try {
+      commandId = createCommandId()
+    } catch {
+      setIdError(true)
+      return
+    }
     const body: CommandInput = {
-      command_id: crypto.randomUUID(),
+      command_id: commandId,
       action: "set_cooling",
       enabled,
       lifetime_seconds: lifetime,
@@ -226,6 +252,11 @@ export default function DeviceControlPanel({
             </fieldset>
           )}
         </div>
+      )}
+      {idError && (
+        <p role="alert">
+          浏览器安全随机数不可用，本次没有发送；请使用受支持的浏览器。
+        </p>
       )}
       {storageError && (
         <p role="alert">

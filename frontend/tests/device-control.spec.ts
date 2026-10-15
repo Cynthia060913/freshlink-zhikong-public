@@ -470,3 +470,37 @@ test("Control UI mock: mobile confirmation stays inside viewport", async ({
     path: test.info().outputPath("control-confirmation-mobile.png"),
   })
 })
+
+test("Control UI mock: absent randomUUID uses secure random bytes for v4 ID", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(crypto, "randomUUID", { value: undefined }),
+  )
+  const state = await fixture(page)
+  const panel = await openPanel(page)
+  await submit(page)
+  await expect(panel.getByLabel("命令与回执详情")).toContainText(
+    "排队中（未执行）",
+  )
+  expect(state.requests).toHaveLength(1)
+  expect(state.requests[0].command_id).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  )
+})
+
+test("Control UI mock: absent secure random source fails closed before POST", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, "randomUUID", { value: undefined })
+    Object.defineProperty(crypto, "getRandomValues", { value: undefined })
+  })
+  const state = await fixture(page)
+  const panel = await openPanel(page)
+  await submit(page)
+  await expect(panel.getByRole("alert")).toContainText(
+    "安全随机数不可用，本次没有发送",
+  )
+  expect(state.requests).toHaveLength(0)
+})
