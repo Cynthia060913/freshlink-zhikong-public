@@ -13,7 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, RowMapping
 
 from app.modules.telemetry.storage_candidate import observations
 
@@ -79,6 +79,22 @@ def _conditions(filters: HistoryFiltersCandidate) -> list[Any]:
         if end is not None:
             clauses.append(column < end)
     return clauses
+
+
+def _project_row(row: RowMapping) -> dict[str, Any]:
+    metrics = row["normalized"].get("metrics", {})
+    return {
+        "observation_id": str(row["id"]),
+        "device_id": str(row["device_id"]),
+        "warehouse_id": str(row["warehouse_id"]),
+        "sampled_at": _display_time(row["sampled_at_utc"]),
+        "received_at": _display_time(row["first_received_at_utc"]),
+        "temperature_c": metrics.get("temperature"),
+        "humidity_percent": metrics.get("humidity"),
+        "quality": list(row["quality"]),
+        "risk_state": row["risk"]["state"],
+        "rule_version": None,
+    }
 
 
 def list_history_candidate(
@@ -154,23 +170,7 @@ def list_history_candidate(
         )
     has_next = len(selected) > limit
     page = selected[:limit]
-    items = []
-    for row in page:
-        metrics = row["normalized"].get("metrics", {})
-        items.append(
-            {
-                "observation_id": str(row["id"]),
-                "device_id": str(row["device_id"]),
-                "warehouse_id": str(row["warehouse_id"]),
-                "sampled_at": _display_time(row["sampled_at_utc"]),
-                "received_at": _display_time(row["first_received_at_utc"]),
-                "temperature_c": metrics.get("temperature"),
-                "humidity_percent": metrics.get("humidity"),
-                "quality": list(row["quality"]),
-                "risk_state": row["risk"]["state"],
-                "rule_version": None,
-            }
-        )
+    items = [_project_row(row) for row in page]
     return HistoryPageCandidate(
         items=items,
         next_after_observation_id=page[-1]["id"] if has_next else None,
