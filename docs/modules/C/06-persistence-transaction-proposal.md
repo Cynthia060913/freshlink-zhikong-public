@@ -117,6 +117,10 @@ FRESHLINK_C_TEST_POSTGRES=1 python -m unittest tests.modules.test_telemetry_stor
 
 目标检查 exact raw、高温/质量、同接收 ID 重试、跨接收重复与冲突、评估任务
 写入故障整事务回滚、两写者争同键、全新数据库连接回读 3/6/3 行及原文。
+新增一个**尚未在本人环境实际运行**的 PostgreSQL 两事务回归：T1 先写入
+较早采样/接收时刻的观测但不提交；另一连接固定旧快照后 T1 才提交，旧快照
+列表与 CSV 均排除该观测，新快照均包含它。直接 SQL 插入只用于构造这个
+未提交交错，不代表 A→C 应用接收已实现；同样只操作上述随机测试 schema。
 新连接回读不是 PostgreSQL 进程重启；正式重启保留仍需另测。C 当前 Windows
 执行环境无 Docker 可执行程序和 psycopg，本轮只完成模块导入/默认跳过、
 SQLite schema 翻译预检与 C-only 回归，**未实际运行此 PostgreSQL 测试**。

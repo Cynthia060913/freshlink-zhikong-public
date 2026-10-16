@@ -5,12 +5,14 @@ It creates a unique schema in that test database; production does not call
 ``create_all`` and the formal Alembic migration remains a separate task.
 """
 
+import csv
 import json
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from threading import Barrier
 from uuid import UUID, uuid4
 
@@ -19,6 +21,12 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.schema import CreateSchema, DropSchema
 
+from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
+from app.modules.telemetry.snapshot_candidate import (
+    create_snapshot_candidate,
+    read_snapshot_page_candidate,
+    render_snapshot_csv_candidate,
+)
 from app.modules.telemetry.storage_candidate import (
     evaluation_jobs,
     ingest_observation,
@@ -212,6 +220,88 @@ class PostgresStorageCandidateTests(unittest.TestCase):
             self.assertEqual(stored, first.raw_text)
         finally:
             fresh.dispose()
+
+    def test_uncommitted_older_record_does_not_join_existing_snapshot(self) -> None:
+        """Two real PG transactions expose a late commit with an older timestamp."""
+        baseline = ingest_observation(self.engine, _reception(uuid4(), seconds=10))
+        self.assertEqual(baseline.status, "accepted_new")
+        actor_id = uuid4()
+        filters = HistoryFiltersCandidate(device_id=_DEVICE_ID)
+        now = datetime(2026, 10, 16, tzinfo=UTC)
+        late_id = uuid4()
+        raw = _reception(uuid4(), temperature=7).raw_payload
+        raw["sampled_at"] = "2026-10-14T00:00:00Z"
+        writer = self.engine.connect()
+        transaction = writer.begin()
+        try:
+            # Direct test fixture insert remains uncommitted while another
+            # connection freezes its one committed SELECT result set.
+            writer.execute(
+                observations.insert().values(
+                    id=late_id,
+                    device_id=_DEVICE_ID,
+                    message_id=UUID(raw["message_id"]),
+                    warehouse_id=_WAREHOUSE_ID,
+                    content_sha256="0" * 64,
+                    raw_text=json.dumps(raw, ensure_ascii=False),
+                    raw_payload=raw,
+                    sampled_at_utc=datetime(2026, 10, 14, tzinfo=UTC),
+                    first_received_at_utc=datetime(2026, 10, 14, tzinfo=UTC),
+                    normalized={"metrics": {"temperature": 7, "humidity": 70}},
+                    quality=["ok"],
+                    risk={"state": "unknown", "reason": "no_threshold_rule"},
+                )
+            )
+            old = create_snapshot_candidate(
+                self.engine,
+                actor_id=actor_id,
+                filters=filters,
+                policy_version="active-user-read-v1",
+                now=now,
+            )
+            transaction.commit()
+        finally:
+            if transaction.is_active:
+                transaction.rollback()
+            writer.close()
+
+        def ids(snapshot_id: UUID) -> list[str]:
+            page = read_snapshot_page_candidate(
+                self.engine,
+                snapshot_id=snapshot_id,
+                actor_id=actor_id,
+                filters=filters,
+                policy_version="active-user-read-v1",
+                now=now,
+                limit=100,
+            )
+            self.assertIsNone(page.next_after_ordinal)
+            result = [item["observation_id"] for item in page.items]
+            csv_bytes = render_snapshot_csv_candidate(
+                self.engine,
+                snapshot_id=snapshot_id,
+                actor_id=actor_id,
+                filters=filters,
+                policy_version="active-user-read-v1",
+                now=now,
+            )
+            csv_ids = [
+                row["observation_id"]
+                for row in csv.DictReader(StringIO(csv_bytes.decode("utf-8-sig")))
+            ]
+            self.assertEqual(csv_ids, result)
+            self.assertEqual(len(result), page.total)
+            return result
+
+        self.assertNotIn(str(late_id), ids(old))
+        new = create_snapshot_candidate(
+            self.engine,
+            actor_id=actor_id,
+            filters=filters,
+            policy_version="active-user-read-v1",
+            now=now,
+        )
+        self.assertIn(str(late_id), ids(new))
 
 
 if __name__ == "__main__":
