@@ -73,6 +73,28 @@ receptions = Table(
     Column("reason", String(80), nullable=False),
 )
 
+reception_reuse_conflicts = Table(
+    "telemetry_reception_reuse_candidate",
+    metadata,
+    Column("id", Uuid(as_uuid=True), primary_key=True),
+    Column(
+        "claimed_reception_id",
+        Uuid(as_uuid=True),
+        ForeignKey(receptions.c.id),
+        nullable=False,
+    ),
+    Column("device_id", Uuid(as_uuid=True), nullable=False),
+    Column("warehouse_id", Uuid(as_uuid=True), nullable=False),
+    Column("received_at_utc", String(35), nullable=False),
+    Column("raw_text", String, nullable=False),
+    Column("receipt_sha256", String(64), nullable=False),
+    UniqueConstraint(
+        "claimed_reception_id",
+        "receipt_sha256",
+        name="uq_c_candidate_claimed_receipt_digest",
+    ),
+)
+
 evaluation_jobs = Table(
     "telemetry_evaluation_candidate",
     metadata,
@@ -161,9 +183,29 @@ def _ingest_once(engine: Engine, view: dict[str, Any]) -> IngestResult:
             .first()
         )
         if previous_receipt is not None:
-            if previous_receipt["receipt_sha256"] != _receipt_digest(view):
-                # The first receipt stays intact; a reused ID cannot create a
-                # second receipt or alter the original evidence.
+            digest = _receipt_digest(view)
+            if previous_receipt["receipt_sha256"] != digest:
+                # Preserve the rejected exact raw separately. A repeat of the
+                # same tampered attempt is idempotent by claimed ID + digest.
+                existing_attempt = connection.execute(
+                    select(reception_reuse_conflicts.c.id).where(
+                        reception_reuse_conflicts.c.claimed_reception_id
+                        == reception_id,
+                        reception_reuse_conflicts.c.receipt_sha256 == digest,
+                    )
+                ).scalar_one_or_none()
+                if existing_attempt is None:
+                    connection.execute(
+                        reception_reuse_conflicts.insert().values(
+                            id=uuid4(),
+                            claimed_reception_id=reception_id,
+                            device_id=UUID(trusted["authenticated_device_id"]),
+                            warehouse_id=UUID(trusted["warehouse_id"]),
+                            received_at_utc=trusted["received_at"],
+                            raw_text=view["raw_text"],
+                            receipt_sha256=digest,
+                        )
+                    )
                 return IngestResult(
                     "conflict", reception_id, reason="reception_id_reuse"
                 )

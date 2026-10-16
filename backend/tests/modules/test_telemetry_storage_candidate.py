@@ -18,6 +18,7 @@ from app.modules.telemetry.storage_candidate import (
     ingest_observation,
     metadata,
     observations,
+    reception_reuse_conflicts,
     receptions,
 )
 
@@ -134,12 +135,63 @@ class StorageCandidateTests(unittest.TestCase):
         original = _reception(_raw())
         ingest_observation(self.engine, original)
         changed = _raw(extra="changed")
-        result = ingest_observation(
-            self.engine, _reception(changed, reception_id=original.reception_id)
-        )
+        tampered = _reception(changed, reception_id=original.reception_id)
+        result = ingest_observation(self.engine, tampered)
         self.assertEqual(result.status, "conflict")
         self.assertEqual(result.reason, "reception_id_reuse")
         self.assertEqual(len(self._rows(receptions)), 1)
+        self.assertEqual(self._rows(receptions)[0]["raw_text"], original.raw_text)
+        attempt = self._rows(reception_reuse_conflicts)[0]
+        self.assertEqual(attempt["claimed_reception_id"], original.reception_id)
+        self.assertEqual(attempt["raw_text"], tampered.raw_text)
+        self.assertEqual(attempt["device_id"], DEVICE)
+        self.assertEqual(attempt["warehouse_id"], WAREHOUSE)
+
+        self.assertEqual(ingest_observation(self.engine, tampered), result)
+        self.assertEqual(len(self._rows(reception_reuse_conflicts)), 1)
+        second_attempt = _reception(
+            _raw(extra="another"), reception_id=original.reception_id
+        )
+        self.assertEqual(
+            ingest_observation(self.engine, second_attempt).status, "conflict"
+        )
+        self.assertEqual(
+            {row["raw_text"] for row in self._rows(reception_reuse_conflicts)},
+            {tampered.raw_text, second_attempt.raw_text},
+        )
+        self.engine.dispose()
+        self.engine = create_engine(f"sqlite:///{self.db_path}")
+        self.assertEqual(len(self._rows(reception_reuse_conflicts)), 2)
+        self.assertEqual(len(self._rows(observations)), 1)
+        self.assertEqual(len(self._rows(evaluation_jobs)), 1)
+
+    def test_reused_reception_audit_write_failure_returns_retryable(self) -> None:
+        original = _reception(_raw())
+        self.assertEqual(
+            ingest_observation(self.engine, original).status, "accepted_new"
+        )
+        tampered = _reception(_raw(extra="changed"), reception_id=original.reception_id)
+        broken = False
+
+        def fail_audit(_conn, _cursor, statement, _params, _context, _many):
+            nonlocal broken
+            if (
+                not broken
+                and "INSERT INTO telemetry_reception_reuse_candidate" in statement
+            ):
+                broken = True
+                raise OperationalError(statement, {}, RuntimeError("synthetic failure"))
+
+        event.listen(self.engine, "before_cursor_execute", fail_audit)
+        try:
+            failed = ingest_observation(self.engine, tampered)
+        finally:
+            event.remove(self.engine, "before_cursor_execute", fail_audit)
+        self.assertTrue(broken)
+        self.assertEqual(failed.status, "retryable_failure")
+        self.assertEqual(self._rows(reception_reuse_conflicts), [])
+        self.assertEqual(ingest_observation(self.engine, tampered).status, "conflict")
+        self.assertEqual(len(self._rows(reception_reuse_conflicts)), 1)
 
     def test_bad_time_and_unit_are_retained_as_unknown(self) -> None:
         for payload in (
