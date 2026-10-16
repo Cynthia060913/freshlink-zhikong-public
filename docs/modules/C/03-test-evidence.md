@@ -10,6 +10,16 @@
 - A 对较早 C 隔离事务版本做的[独立 PG18 与测试容器重启检查](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6195386092)是**A 的外部证据**，未覆盖本次新加的晚提交快照、拒绝审计，也不能代填成本人的 opt-in 测试执行。C 当前运行环境无 Docker/psycopg，本人尚未实跑 PostgreSQL 两项。
 - [M03 团队测试报告底稿](07-team-test-report-draft.md) 已按 A/B/C 版本和各自证据汇编；A/B 的完整同版结果仍由本人提供，C 不代填，**未签收最终报告**。正式 A→C 入库、重启、鉴权历史/CSV、B 候选可靠交付、E1、另一电脑复现和真实收件均未完成或未测。实时状态以 [#9 的 STATUS C](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019) 为准。
 
+## A 接收封装→C 隔离存储新增边界用例（待远端执行）
+
+`test_telemetry_a_storage_boundary.py` 增加两项 C 自有测试：实际调用 A
+`receive_telemetry` 生成可信封装，再写 C 的临时 SQLite 文件候选表；核对
+原文/可信接收时间、重投幂等、改正文冲突、重开库，以及坏采样时刻和错单位
+保留原文但不排队评估。A ingress 模块使用项目 Python 3.14 语法，本人机器只有
+3.13.9；**这两项在本机明确 skipped，尚不能报为通过**。待同提交的
+Python 3.14 CI 真正运行后，另记结果。它仍没有 MQTT broker、正式
+PostgreSQL 迁移、应用路由或 E1，不能代替 A→C 正式接线验收。
+
 ## C1 双接收并发回归（2026-10-15）
 
 在临时 SQLite 文件数据库，两个线程同时把同一设备/消息、不同可信 `reception_id` 送入 C 独立事务候选。若竞争事务返回 `retryable_failure`，待锁释放后用原接收封装重试；最终一条 `accepted_new`、一条 `accepted_duplicate`，两者引用同一 observation，库中只有一条 observation、两条 reception、一条 evaluation job。Windows/Codex Python 3.13.9 隔离 venv 首次九项存储候选测试 **9/9 OK**，连续执行该存储测试组十遍均通过；六组 C-only 合计 **88/88 OK**。修改的测试文件 Ruff lint/format 通过。此证据只证明隔离 SQLite 的双接收与可重试边界；不证明 PostgreSQL 唯一约束的并发隔离、正式 Alembic、生产 A 接收或应用重启。远端 CI 结果在推送并回读后另记。
