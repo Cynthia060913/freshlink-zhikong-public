@@ -294,6 +294,40 @@ def read_snapshot_page_candidate(
     )
 
 
+def prune_expired_snapshots_candidate(
+    engine: Engine, *, now: datetime, limit: int = 100
+) -> int:
+    """Bounded cleanup of expired test snapshots; never delete observations.
+
+    Production still needs a reviewed PostgreSQL reader/cleanup locking policy.
+    """
+    current = _now(now)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+        raise ValueError("limit must be an integer from 1 to 1000")
+    with engine.begin() as connection:
+        expired = (
+            connection.execute(
+                select(snapshots.c.id)
+                .where(snapshots.c.expires_at_utc <= current)
+                .order_by(snapshots.c.expires_at_utc.asc(), snapshots.c.id.asc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        if not expired:
+            return 0
+        connection.execute(
+            snapshot_members.delete().where(snapshot_members.c.snapshot_id.in_(expired))
+        )
+        deleted = connection.execute(
+            snapshots.delete().where(
+                snapshots.c.id.in_(expired), snapshots.c.expires_at_utc <= current
+            )
+        )
+        return max(0, deleted.rowcount)
+
+
 def render_snapshot_csv_candidate(
     engine: Engine,
     *,

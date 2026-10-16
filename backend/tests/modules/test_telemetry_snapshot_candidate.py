@@ -10,12 +10,14 @@ from io import StringIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
+from sqlalchemy.exc import OperationalError
 
 from app.modules.telemetry.csv_preview import PREVIEW_COLUMNS
 from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
+    prune_expired_snapshots_candidate,
     read_snapshot_page_candidate,
     render_snapshot_csv_candidate,
     snapshot_members,
@@ -24,7 +26,12 @@ from app.modules.telemetry.snapshot_candidate import (
 from app.modules.telemetry.snapshot_cursor_candidate import (
     read_signed_snapshot_page_candidate,
 )
-from app.modules.telemetry.storage_candidate import ingest_observation, metadata
+from app.modules.telemetry.storage_candidate import (
+    ingest_observation,
+    metadata,
+    observations,
+    receptions,
+)
 
 DEVICE = UUID("11111111-1111-4111-8111-111111111111")
 WAREHOUSE = UUID("22222222-2222-4222-8222-222222222222")
@@ -324,6 +331,90 @@ class SnapshotCandidateTests(unittest.TestCase):
         self.assertEqual(row["temperature_c"], "")
         self.assertEqual(row["risk_state"], "unknown")
         self.assertIn("invalid", row["quality"])
+
+    def test_expired_snapshot_cleanup_is_bounded_and_preserves_observations(
+        self,
+    ) -> None:
+        stored = ingest_observation(
+            self.engine,
+            reception("2026-10-16T00:01:00Z", 11, NOW - timedelta(minutes=4)),
+        )
+        self.assertEqual(stored.status, "accepted_new")
+        filters = HistoryFiltersCandidate(warehouse_id=WAREHOUSE)
+        snapshots_created = [
+            create_snapshot_candidate(
+                self.engine,
+                actor_id=ACTOR,
+                filters=filters,
+                policy_version="active-user-read-v1",
+                now=created,
+            )
+            for created in (
+                NOW - timedelta(minutes=20),
+                NOW - timedelta(minutes=16),
+                NOW,
+            )
+        ]
+        with self.assertRaisesRegex(ValueError, "aware"):
+            prune_expired_snapshots_candidate(self.engine, now=datetime(2026, 10, 16))
+        for invalid_limit in (0, True, 1001):
+            with (
+                self.subTest(limit=invalid_limit),
+                self.assertRaisesRegex(ValueError, "limit"),
+            ):
+                prune_expired_snapshots_candidate(
+                    self.engine, now=NOW, limit=invalid_limit
+                )
+
+        def fail_metadata_delete(_conn, _cursor, statement, _params, _context, _many):
+            if "DELETE FROM telemetry_snapshot_candidate" in statement:
+                raise OperationalError(statement, {}, RuntimeError("synthetic failure"))
+
+        event.listen(self.engine, "before_cursor_execute", fail_metadata_delete)
+        try:
+            with self.assertRaises(OperationalError):
+                prune_expired_snapshots_candidate(self.engine, now=NOW, limit=1)
+        finally:
+            event.remove(self.engine, "before_cursor_execute", fail_metadata_delete)
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(snapshots)), 3
+            )
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(snapshot_members)), 3
+            )
+
+        self.assertEqual(
+            prune_expired_snapshots_candidate(self.engine, now=NOW, limit=1), 1
+        )
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(snapshots)), 2
+            )
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(snapshot_members)), 2
+            )
+        self.assertEqual(
+            prune_expired_snapshots_candidate(self.engine, now=NOW, limit=1), 1
+        )
+        self.assertEqual(prune_expired_snapshots_candidate(self.engine, now=NOW), 0)
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(snapshots)), 1
+            )
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(snapshot_members)), 1
+            )
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(observations)), 1
+            )
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(receptions)), 1
+            )
+        for expired_id in snapshots_created[:2]:
+            with self.assertRaisesRegex(ValueError, "invalid_snapshot"):
+                self._read(expired_id)
+        self.assertEqual(self._read(snapshots_created[2]).total, 1)
 
     def test_signed_cursor_rejects_tamper_scope_rotation_and_expiry(self) -> None:
         first = ingest_observation(

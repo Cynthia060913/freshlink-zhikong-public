@@ -4,8 +4,8 @@
 
 ## 2026-10-16 当前接线快照
 
-- 当前共同 main `fb6de8408c860b277471cdf1697b72fd34162f38`；C 分支 `feature/c-data-quality-bootstrap` 已普通上传至 `bdab8a81a0b92bae4a3292585e329e4de66da598`，[PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 保持 draft。下方按旧日期记载的 main/HEAD 和未上传状态只供历史追溯。
-- C 的 `storage_candidate.py` 在**隔离候选 metadata** 中写 observation/reception/evaluation，以及复用同一 `reception_id` 但原文改变时的独立拒绝审计；`history_candidate.py` 持久读回，`snapshot_candidate.py` 固定有序成员与投影并渲染同快照 14 列 CSV。候选表仅供独立测试，不能在生产 `create_all`。传入 actor UUID 没有登录信任来源，内部序号不得对外当游标；还没有正式路由、权限、C 迁移、PG 快照并发实跑或页面。
+- 当前共同 main `fb6de8408c860b277471cdf1697b72fd34162f38`；C 分支 `feature/c-data-quality-bootstrap` 的实时版本以 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 为准，保持 draft。前一功能提交 `e3abb700174f437255bb54f76d07f52dc5c38126` 已普通推送；下方按旧日期记载的 main/HEAD 和未上传状态只供历史追溯。
+- C 的 `storage_candidate.py` 在**隔离候选 metadata** 中写 observation/reception/evaluation、持久质量 tag，以及复用同一 `reception_id` 但原文改变时的独立拒绝审计；`history_candidate.py` 做持久质量/时间筛选，`snapshot_candidate.py` 固定有序成员与投影并渲染同快照 14 列 CSV，`snapshot_cursor_candidate.py` 生成内部作用域签名续页标记。候选表仅供独立测试，不能在生产 `create_all`。传入 actor UUID 没有登录信任来源；签名密钥只由调用方注入，尚无正式权限、密钥轮换、路由、C 迁移、PG 快照并发实跑或页面。过期快照隔离清理已做有界单机测试，生产读写锁定与容量调度仍待。
 - A/集成方：待 B 正式迁移接唯一已合并 head 后，协调 C 正式表/迁移与可信 A ingress 的一次调用、成功/重复/冲突/临时故障回执、受权用户/权限政策、根路由和前端导航。A 入口须给出拒绝审计/重复恶意接收 ID 的大小、数量和保留期限制；C 候选拒绝尝试按所声称 ID+摘要去重，但不同恶意原文仍会占存储。
 - B：PR #10 仍在第三轮复审后的 `1e5e005970e5cdeca7fcf6a4210e0857787f85b1`，F02 批次临时读取故障、有界后继到期后旧规则复活、severity 三值共三项待修；正式 F03-RC2/数据恢复引用、唯一迁移 head 尚未共同冻结。C 不把固定候选 JSON 发送到旧 DTO，不凭当前 SQLite/CI 宣称 B 告警或 E1 已接通。共享问题详见 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5)。
 
