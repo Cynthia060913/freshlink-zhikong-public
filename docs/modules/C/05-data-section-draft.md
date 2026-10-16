@@ -2,6 +2,8 @@
 
 状态：2026-10-12 C4 模块素材，供团队 M03 软件设计文档选用；**不是**完整系统验收报告、真实采集统计或 M06 模型性能报告。正式发布时以同一实际发布 SHA 复核代码、截图、表格和本文。对应主任务 [#9](https://github.com/Cynthia060913/freshlink-zhikong/issues/9)、草稿 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong/pull/11)。
 
+2026-10-16 当前补注：新库 [C PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 已推进至 `bdab8a81a0b92bae4a3292585e329e4de66da598`。除下文历史纯预览外，C 自有**隔离候选表**已有事务写入、SQL 历史读回、固定成员快照和同快照 CSV 字节，真实接收 ID 复用的不同原文也另存拒绝证据；详见 [最新测试证据](03-test-evidence.md#当前可交接证据索引2026-10-16)。这仍不是正式 PostgreSQL 迁移、应用入口/权限、正式查询下载或 E1。下文早期各节的“没有跨重启事务幂等/数据库查询”等是当时纯函数版本，不能当作当前候选代码状态；最终 M03 须在合并后的真实发布 SHA 上重写实测段落。
+
 2026-10-15 新库续作注记：以上旧库链接只作历史证据；当前开发入口为 `Cynthia060913/freshlink-zhikong-public`。受检 C 代码提交 `e0f14c44c19597c925ca5e3ed387d8f01d1796cd` 已普通推送至[新 PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)，Windows/Codex Python 3.13.9 五组 C-only 测试 **76/76 OK**；该 SHA 的后端、Compose、pre-commit、Zizmor、Playwright 五个工作流均成功。接线说明提交 `c08829be8cc4437a34e9f442bf606448b9cfa7ce` 另刷新[接线边界](integration-notes.md)，是纯文档提交，其同 SHA 五个工作流也成功；没有新增正式 PostgreSQL、HTTP 或 E1 测试。完整运行条件与缺口见 `03-test-evidence.md` 顶部及[新 #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019)。下文较早测试数、旧私有链接和“本机未检查”叙述保留为当时记录，不代表当前状态。
 
 ## 数据对象与来源

@@ -1,6 +1,14 @@
 # C 测试证据与后续复现清单
 
-状态：C4 的阶段性真实证据汇编；更新于 2026-10-15。当前实现含 C0 纯处理/A 接收封装投影、C1 隔离数据库事务候选与内存筛选/CSV 字节预览，以及 C2 的固定 F03 候选纯投影；**没有**正式 PostgreSQL 迁移、应用持久化接线、数据库查询、权限、HTTP 导出、候选持久交付或 E1 联调。以下新库证据按明确代码 SHA 解释；更早章节按当时状态保留，其中“本机待上传”等描述已被后续远端提交覆盖，不能当作当前阻塞。
+状态：C4 的阶段性真实证据汇编；最新核对于 2026-10-16。以下较早章节按其各自 SHA 和当时状态保留；其中“本机待上传”或“没有数据库查询”不代表今天的隔离候选进度。
+
+## 当前可交接证据索引（2026-10-16）
+
+- 新库 C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 当前已上传代码 [`bdab8a81a0b92bae4a3292585e329e4de66da598`](https://github.com/Cynthia060913/freshlink-zhikong-public/commit/bdab8a81a0b92bae4a3292585e329e4de66da598)，基于 main `fb6de8408c860b277471cdf1697b72fd34162f38`。C 自有隔离表有事务入库、保留原文/质量、接收 ID 复用拒绝留证、SQL 历史读回、固定成员快照及同快照 14 列 CSV 字节；均**没有**正式 Alembic、生产路由、可信用户鉴权或页面。固定 F03 候选/恢复 JSON 仍是提案，尚未真正交给 B。
+- 本人 Windows/Codex Python 3.13.9 隔离环境，九组 C-only `unittest` 实跑 **94 passed / 2 skipped**；跳过的是必须显式启用且只允许 `test-db/freshlink_test/FreshLink-test` 的两项 PostgreSQL 回归。Ruff lint/format、C 存储模块 mypy strict/ty、暂存有限文本安全检查 436 文件零发现（9 个二进制未文本扫描）与安全脚本测试 10/10 通过。复现细节见 `06-persistence-transaction-proposal.md`；不要把默认跳过写成 PG 通过。
+- 同 SHA [Backend Actions](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38859414293) Ubuntu/Python 3.14.8 的整仓日志为 **297 passed / 2 skipped / 75 warnings**。该 SHA 的 [pre-commit](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38859414408)、[Compose](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38859414383)、[Zizmor](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38859414434)、[Playwright](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/38859414395) 均 completed/success；这些通用检查不验证 C 正式 PG、HTTP、页面或 E1。
+- A 对较早 C 隔离事务版本做的[独立 PG18 与测试容器重启检查](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6195386092)是**A 的外部证据**，未覆盖本次新加的晚提交快照、拒绝审计，也不能代填成本人的 opt-in 测试执行。C 当前运行环境无 Docker/psycopg，本人尚未实跑 PostgreSQL 两项。
+- M03 团队测试报告待正式发布 SHA 后汇编。A/B 的设备、告警和真实通知结果须各自提供同版证据；C 只记录本人已测的输入/实际输出。正式 A→C 入库、重启、鉴权历史/CSV、B 候选可靠交付、E1、另一电脑复现和真实收件均未完成或未测。实时状态以 [#9 的 STATUS C](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019) 为准。
 
 ## C1 双接收并发回归（2026-10-15）
 

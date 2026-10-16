@@ -2,6 +2,13 @@
 
 状态：接线提案，未实施。请指定集成 Agent 协调；C 不直接改根 API、公共导航、Compose、锁文件或迁移链。下文 2026-10-11 至 2026-10-13 的旧私有库 URL、PR 编号和 SHA 仅是历史证据；**当前协作、评论及代码交付均使用新公开仓库**。
 
+## 2026-10-16 当前接线快照
+
+- 当前共同 main `fb6de8408c860b277471cdf1697b72fd34162f38`；C 分支 `feature/c-data-quality-bootstrap` 已普通上传至 `bdab8a81a0b92bae4a3292585e329e4de66da598`，[PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 保持 draft。下方按旧日期记载的 main/HEAD 和未上传状态只供历史追溯。
+- C 的 `storage_candidate.py` 在**隔离候选 metadata** 中写 observation/reception/evaluation，以及复用同一 `reception_id` 但原文改变时的独立拒绝审计；`history_candidate.py` 持久读回，`snapshot_candidate.py` 固定有序成员与投影并渲染同快照 14 列 CSV。候选表仅供独立测试，不能在生产 `create_all`。传入 actor UUID 没有登录信任来源，内部序号不得对外当游标；还没有正式路由、权限、C 迁移、PG 快照并发实跑或页面。
+- A/集成方：待 B 正式迁移接唯一已合并 head 后，协调 C 正式表/迁移与可信 A ingress 的一次调用、成功/重复/冲突/临时故障回执、受权用户/权限政策、根路由和前端导航。A 入口须给出拒绝审计/重复恶意接收 ID 的大小、数量和保留期限制；C 候选拒绝尝试按所声称 ID+摘要去重，但不同恶意原文仍会占存储。
+- B：PR #10 仍在第三轮复审后的 `1e5e005970e5cdeca7fcf6a4210e0857787f85b1`，F02 批次临时读取故障、有界后继到期后旧规则复活、severity 三值共三项待修；正式 F03-RC2/数据恢复引用、唯一迁移 head 尚未共同冻结。C 不把固定候选 JSON 发送到旧 DTO，不凭当前 SQLite/CI 宣称 B 告警或 E1 已接通。共享问题详见 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5)。
+
 ## F03-RC2 四项 C 答复（2026-10-15）
 
 见[共同 #5 C 答复](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6194380612)：候选 `severity` 只复制有效规则的 `info|warning|critical`；C 负责原始观测、质量、阈值和 evidence 一致性，B 仅需有界 JSON 透传、全文摘要与回读；A 的可信 `received_at` 留在 C 接收证据，B 候选不接收；缺测、坏单位/时间、无规则、重复和冲突不投递。暂时性的规则读取故障必须保留待评估任务重试，不误作永久 `unknown_batch`。C 的固定候选投影新增枚举校验，但这不代表正式 F03-RC2 签收或真实投递；A 的 PR #10 复审和 B 的同版 DTO/F02 故障分类仍待确认。
