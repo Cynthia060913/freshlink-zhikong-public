@@ -18,6 +18,7 @@ from app.modules.telemetry.storage_candidate import (
     ingest_observation,
     metadata,
     observations,
+    quality_tags,
     reception_reuse_conflicts,
     receptions,
 )
@@ -92,6 +93,7 @@ class StorageCandidateTests(unittest.TestCase):
         self.assertEqual(stored["normalized"]["metrics"]["temperature"], 11)
         self.assertEqual(stored["risk"]["state"], "unknown")
         self.assertEqual(stored["risk"]["reason"], "no_threshold_rule")
+        self.assertEqual(self._rows(quality_tags)[0]["tag"], "ok")
         self.assertEqual(
             self._rows(receptions)[0]["received_at_utc"], "2026-10-15T00:00:00Z"
         )
@@ -259,7 +261,7 @@ class StorageCandidateTests(unittest.TestCase):
             event.remove(self.engine, "before_cursor_execute", fail_job_insert)
         self.assertEqual(failed.status, "retryable_failure")
         self.assertEqual(failed.reason, "storage_unavailable")
-        for table in (observations, receptions, evaluation_jobs):
+        for table in (observations, quality_tags, receptions, evaluation_jobs):
             with self.engine.connect() as connection:
                 self.assertEqual(
                     connection.scalar(select(func.count()).select_from(table)), 0

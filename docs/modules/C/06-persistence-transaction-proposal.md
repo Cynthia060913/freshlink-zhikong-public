@@ -120,7 +120,8 @@ FRESHLINK_C_TEST_POSTGRES=1 python -m unittest tests.modules.test_telemetry_stor
 ```
 
 目标检查 exact raw、高温/质量、同接收 ID 重试、跨接收重复与冲突、评估任务
-写入故障整事务回滚、两写者争同键、全新数据库连接回读 3/6/3 行及原文。
+写入故障整事务回滚、两写者争同键、全新数据库连接回读
+3 observation / 3 quality tag / 6 reception / 3 evaluation 行及原文。
 新增一个**尚未在本人环境实际运行**的 PostgreSQL 两事务回归：T1 先写入
 较早采样/接收时刻的观测但不提交；另一连接固定旧快照后 T1 才提交，旧快照
 列表与 CSV 均排除该观测，新快照均包含它。直接 SQL 插入只用于构造这个

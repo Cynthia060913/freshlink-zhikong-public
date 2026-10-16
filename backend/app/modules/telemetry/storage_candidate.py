@@ -52,6 +52,24 @@ observations = Table(
     UniqueConstraint("device_id", "message_id", name="uq_c_candidate_device_message"),
 )
 
+quality_tags = Table(
+    "telemetry_quality_tag_candidate",
+    metadata,
+    Column(
+        "observation_id",
+        Uuid(as_uuid=True),
+        ForeignKey(observations.c.id),
+        primary_key=True,
+    ),
+    Column("tag", String(128), primary_key=True),
+)
+
+Index(
+    "ix_c_candidate_quality_tag",
+    quality_tags.c.tag,
+    quality_tags.c.observation_id,
+)
+
 Index(
     "ix_c_candidate_history",
     observations.c.warehouse_id,
@@ -278,6 +296,14 @@ def _ingest_once(engine: Engine, view: dict[str, Any]) -> IngestResult:
                 risk=view["risk"],
             )
         )
+        if view["quality"]:
+            connection.execute(
+                quality_tags.insert(),
+                [
+                    {"observation_id": observation_id, "tag": tag}
+                    for tag in sorted(set(view["quality"]))
+                ],
+            )
         evaluation_state = (
             "pending"
             if "sampled_at" in normalized

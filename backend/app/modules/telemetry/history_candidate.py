@@ -12,10 +12,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.engine import Engine, RowMapping
 
-from app.modules.telemetry.storage_candidate import observations
+from app.modules.telemetry.storage_candidate import observations, quality_tags
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,7 @@ class HistoryFiltersCandidate:
     sampled_to: datetime | None = None
     received_from: datetime | None = None
     received_to: datetime | None = None
+    quality_in: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,19 @@ def _display_time(value: datetime | None) -> str | None:
     return aware.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _quality_values(value: object) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)) or not 1 <= len(value) <= 32:
+        raise ValueError("quality_in must contain 1-32 tags")
+    if any(
+        not isinstance(tag, str) or not 1 <= len(tag) <= 128 or not tag.strip()
+        for tag in value
+    ):
+        raise ValueError("quality_in tags must be nonempty text up to 128 characters")
+    return tuple(sorted(set(value)))
+
+
 def _conditions(filters: HistoryFiltersCandidate) -> list[Any]:
     if not isinstance(filters, HistoryFiltersCandidate):
         raise ValueError("filters must be HistoryFiltersCandidate")
@@ -78,6 +92,14 @@ def _conditions(filters: HistoryFiltersCandidate) -> list[Any]:
             clauses.append(column >= start)
         if end is not None:
             clauses.append(column < end)
+    quality_in = _quality_values(filters.quality_in)
+    if quality_in is not None:
+        clauses.append(
+            exists().where(
+                quality_tags.c.observation_id == observations.c.id,
+                quality_tags.c.tag.in_(quality_in),
+            )
+        )
     return clauses
 
 

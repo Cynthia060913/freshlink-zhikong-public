@@ -18,6 +18,7 @@ from app.modules.telemetry.storage_candidate import (
     ingest_observation,
     metadata,
     observations,
+    quality_tags,
 )
 
 DEVICE = UUID("11111111-1111-4111-8111-111111111111")
@@ -94,6 +95,17 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
         )
         self.assertEqual(duplicated.status, "accepted_duplicate")
         self.assertEqual(duplicated.observation_id, ids[0])
+        with self.engine.connect() as connection:
+            original_tags = (
+                connection.execute(
+                    select(quality_tags.c.tag).where(
+                        quality_tags.c.observation_id == ids[0]
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        self.assertEqual(original_tags, ["ok"])
 
         filters = HistoryFiltersCandidate(device_id=DEVICE, warehouse_id=WAREHOUSE)
         all_rows = list_history_candidate(self.engine, filters, limit=100)
@@ -208,6 +220,53 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
                     ).items[0]["observation_id"]
                 ),
             )
+
+    def test_quality_any_filter_uses_persisted_tags_with_time_intersection(
+        self,
+    ) -> None:
+        records, ids = self._fixture()
+        ok = list_history_candidate(
+            self.engine, HistoryFiltersCandidate(quality_in=("ok",))
+        )
+        self.assertEqual(
+            {row["observation_id"] for row in ok.items},
+            {str(item) for item in ids[:3]},
+        )
+        invalid = list_history_candidate(
+            self.engine,
+            HistoryFiltersCandidate(quality_in=("invalid_time:sampled_at",)),
+        )
+        self.assertEqual(
+            [row["observation_id"] for row in invalid.items], [str(ids[3])]
+        )
+        self.assertIsNone(invalid.items[0]["sampled_at"])
+        self.assertEqual(invalid.items[0]["risk_state"], "unknown")
+        combined = list_history_candidate(
+            self.engine,
+            HistoryFiltersCandidate(
+                quality_in=("invalid_time:sampled_at", "ok"),
+                sampled_from=BASE,
+                sampled_to=BASE + timedelta(minutes=1),
+            ),
+        )
+        self.assertEqual(
+            [row["observation_id"] for row in combined.items], [str(ids[1])]
+        )
+        with self.engine.connect() as connection:
+            tags = connection.execute(select(quality_tags)).mappings().all()
+        self.assertEqual(len(tags), 4)
+        self.assertEqual(
+            {row["tag"] for row in tags}, {"ok", "invalid_time:sampled_at"}
+        )
+        self.assertEqual(records[3].raw_payload["sampled_at"], "bad-time")
+        for bad in ((), ("",), ("ok",) * 33):
+            with (
+                self.subTest(bad=bad),
+                self.assertRaisesRegex(ValueError, "quality_in"),
+            ):
+                list_history_candidate(
+                    self.engine, HistoryFiltersCandidate(quality_in=bad)
+                )
 
 
 if __name__ == "__main__":

@@ -21,7 +21,10 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.schema import CreateSchema, DropSchema
 
-from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
+from app.modules.telemetry.history_candidate import (
+    HistoryFiltersCandidate,
+    list_history_candidate,
+)
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
     read_snapshot_page_candidate,
@@ -32,6 +35,7 @@ from app.modules.telemetry.storage_candidate import (
     ingest_observation,
     metadata,
     observations,
+    quality_tags,
     receptions,
 )
 
@@ -144,6 +148,16 @@ class PostgresStorageCandidateTests(unittest.TestCase):
         self.assertEqual(row["normalized"]["metrics"]["temperature"], 11)
         self.assertEqual(row["risk"]["state"], "unknown")
         self.assertEqual(row["quality"], ["ok"])
+        self.assertEqual(self._count(quality_tags), 1)
+        self.assertEqual(
+            [
+                row["observation_id"]
+                for row in list_history_candidate(
+                    self.engine, HistoryFiltersCandidate(quality_in=("ok",))
+                ).items
+            ],
+            [str(created.observation_id)],
+        )
         self.assertEqual((self._count(observations), self._count(receptions)), (1, 3))
 
         rollback_receipt = _reception(uuid4())
@@ -209,14 +223,19 @@ class PostgresStorageCandidateTests(unittest.TestCase):
             with fresh_view.connect() as connection:
                 counts = tuple(
                     int(connection.scalar(select(func.count()).select_from(table)))
-                    for table in (observations, receptions, evaluation_jobs)
+                    for table in (
+                        observations,
+                        quality_tags,
+                        receptions,
+                        evaluation_jobs,
+                    )
                 )
                 stored = connection.execute(
                     select(observations.c.raw_text).where(
                         observations.c.id == created.observation_id
                     )
                 ).scalar_one()
-            self.assertEqual(counts, (3, 6, 3))
+            self.assertEqual(counts, (3, 3, 6, 3))
             self.assertEqual(stored, first.raw_text)
         finally:
             fresh.dispose()
@@ -226,7 +245,7 @@ class PostgresStorageCandidateTests(unittest.TestCase):
         baseline = ingest_observation(self.engine, _reception(uuid4(), seconds=10))
         self.assertEqual(baseline.status, "accepted_new")
         actor_id = uuid4()
-        filters = HistoryFiltersCandidate(device_id=_DEVICE_ID)
+        filters = HistoryFiltersCandidate(device_id=_DEVICE_ID, quality_in=("ok",))
         now = datetime(2026, 10, 16, tzinfo=UTC)
         late_id = uuid4()
         raw = _reception(uuid4(), temperature=7).raw_payload
@@ -251,6 +270,9 @@ class PostgresStorageCandidateTests(unittest.TestCase):
                     quality=["ok"],
                     risk={"state": "unknown", "reason": "no_threshold_rule"},
                 )
+            )
+            writer.execute(
+                quality_tags.insert().values(observation_id=late_id, tag="ok")
             )
             old = create_snapshot_candidate(
                 self.engine,

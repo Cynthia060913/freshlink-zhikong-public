@@ -268,6 +268,39 @@ class SnapshotCandidateTests(unittest.TestCase):
         )
         self.assertEqual(self._read(matching, filters=same_filters).total, 1)
 
+        quality_filters = HistoryFiltersCandidate(
+            quality_in=("ok", "invalid_time:sampled_at")
+        )
+        quality_snapshot = create_snapshot_candidate(
+            self.engine,
+            actor_id=ACTOR,
+            filters=quality_filters,
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
+        reversed_tags = HistoryFiltersCandidate(
+            quality_in=("invalid_time:sampled_at", "ok")
+        )
+        self.assertEqual(self._read(quality_snapshot, filters=reversed_tags).total, 2)
+        self.assertEqual(len(self._csv(quality_snapshot, filters=reversed_tags)), 2)
+        with self.assertRaisesRegex(ValueError, "invalid_snapshot"):
+            self._csv(
+                quality_snapshot,
+                filters=HistoryFiltersCandidate(quality_in=("ok",)),
+            )
+        invalid_only = HistoryFiltersCandidate(quality_in=("invalid_time:sampled_at",))
+        invalid_snapshot = create_snapshot_candidate(
+            self.engine,
+            actor_id=ACTOR,
+            filters=invalid_only,
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
+        invalid_rows = self._csv(invalid_snapshot, filters=invalid_only)
+        self.assertEqual(len(invalid_rows), 1)
+        self.assertEqual(invalid_rows[0]["sampled_at"], "")
+        self.assertEqual(invalid_rows[0]["risk_state"], "unknown")
+
     def test_csv_formula_text_uses_fixed_projection_and_handles_missing_data(
         self,
     ) -> None:

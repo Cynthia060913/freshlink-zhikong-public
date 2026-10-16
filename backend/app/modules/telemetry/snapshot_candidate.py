@@ -39,6 +39,7 @@ from app.modules.telemetry.history_candidate import (
     _conditions,
     _display_time,
     _project_row,
+    _quality_values,
     _utc_bound,
 )
 from app.modules.telemetry.storage_candidate import metadata, observations
@@ -82,7 +83,7 @@ class SnapshotPageCandidate:
 
 def _filters_digest(filters: HistoryFiltersCandidate) -> str:
     # Normalize equivalent timezone offsets before binding filter identity.
-    fields: dict[str, str | None] = {}
+    fields: dict[str, str | list[str] | None] = {}
     for name in (
         "device_id",
         "warehouse_id",
@@ -96,6 +97,8 @@ def _filters_digest(filters: HistoryFiltersCandidate) -> str:
             fields[name] = _display_time(_utc_bound(value, name))
         else:
             fields[name] = str(value) if value is not None else None
+    quality = _quality_values(filters.quality_in)
+    fields["quality_in"] = list(quality) if quality is not None else None
     canonical = json.dumps(fields, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
