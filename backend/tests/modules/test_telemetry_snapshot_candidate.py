@@ -1,19 +1,23 @@
 """Test-only fixed history members; not an authenticated F06 HTTP service."""
 
+import csv
 import json
 import tempfile
 import unittest
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
+from io import StringIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from sqlalchemy import create_engine, func, select
 
+from app.modules.telemetry.csv_preview import PREVIEW_COLUMNS
 from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
     read_snapshot_page_candidate,
+    render_snapshot_csv_candidate,
     snapshot_members,
     snapshots,
 )
@@ -79,6 +83,25 @@ class SnapshotCandidateTests(unittest.TestCase):
         options.update(overrides)
         return read_snapshot_page_candidate(self.engine, **options)
 
+    def _csv(self, snapshot_id: UUID, **overrides):
+        options = {
+            "snapshot_id": snapshot_id,
+            "actor_id": ACTOR,
+            "filters": HistoryFiltersCandidate(warehouse_id=WAREHOUSE),
+            "policy_version": "active-user-read-v1",
+            "now": NOW,
+        }
+        options.update(overrides)
+        return list(
+            csv.DictReader(
+                StringIO(
+                    render_snapshot_csv_candidate(self.engine, **options).decode(
+                        "utf-8-sig"
+                    )
+                )
+            )
+        )
+
     def test_later_insert_with_earlier_time_cannot_enter_old_pages(self) -> None:
         first = ingest_observation(
             self.engine,
@@ -123,6 +146,33 @@ class SnapshotCandidateTests(unittest.TestCase):
         self.assertIsNone(old_second_page.items[0]["sampled_at"])
         self.assertEqual(old_second_page.items[0]["risk_state"], "unknown")
         self.assertIsNone(old_second_page.next_after_ordinal)
+        old_csv = self._csv(fixed)
+        self.assertEqual(len(old_csv), first_page.total)
+        self.assertEqual(
+            [row["observation_id"] for row in old_csv],
+            [
+                first_page.items[0]["observation_id"],
+                old_second_page.items[0]["observation_id"],
+            ],
+        )
+        self.assertEqual(old_csv[0]["raw_temperature_value"], "11")
+        self.assertEqual(old_csv[0]["raw_temperature_unit"], "°C")
+        self.assertEqual(old_csv[0]["temperature_c"], "11.0")
+        self.assertEqual(old_csv[1]["risk_state"], "unknown")
+        self.assertEqual(old_csv[1]["sampled_at"], "")
+        csv_bytes = render_snapshot_csv_candidate(
+            self.engine,
+            snapshot_id=fixed,
+            actor_id=ACTOR,
+            filters=filters,
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
+        self.assertTrue(csv_bytes.startswith(b"\xef\xbb\xbf"))
+        self.assertEqual(
+            next(csv.reader(StringIO(csv_bytes.decode("utf-8-sig")))),
+            list(PREVIEW_COLUMNS),
+        )
 
         new = create_snapshot_candidate(
             self.engine,
@@ -134,6 +184,7 @@ class SnapshotCandidateTests(unittest.TestCase):
         new_page = self._read(new, now=NOW + timedelta(seconds=1))
         self.assertEqual(new_page.total, 3)
         self.assertEqual(new_page.items[0]["observation_id"], str(late.observation_id))
+        self.assertEqual(len(self._csv(new, now=NOW + timedelta(seconds=1))), 3)
 
         self.engine.dispose()
         self.engine = create_engine(f"sqlite:///{self.path}")
@@ -167,6 +218,8 @@ class SnapshotCandidateTests(unittest.TestCase):
             with self.subTest(override=override):
                 with self.assertRaisesRegex(ValueError, "invalid_snapshot"):
                     self._read(fixed, **override)
+                with self.assertRaisesRegex(ValueError, "invalid_snapshot"):
+                    self._csv(fixed, **override)
         with self.assertRaisesRegex(ValueError, "invalid_snapshot_cursor"):
             self._read(fixed, after_ordinal=1)
         ingest_observation(
@@ -199,6 +252,7 @@ class SnapshotCandidateTests(unittest.TestCase):
         self.assertEqual(empty_page.total, 0)
         self.assertEqual(empty_page.items, [])
         self.assertIsNone(empty_page.next_after_ordinal)
+        self.assertEqual(self._csv(empty, filters=empty_filters), [])
 
         local_time = NOW.astimezone(timezone(timedelta(hours=8)))
         utc_filters = HistoryFiltersCandidate(sampled_from=NOW - timedelta(minutes=5))
@@ -213,6 +267,27 @@ class SnapshotCandidateTests(unittest.TestCase):
             now=NOW,
         )
         self.assertEqual(self._read(matching, filters=same_filters).total, 1)
+
+    def test_csv_formula_text_uses_fixed_projection_and_handles_missing_data(
+        self,
+    ) -> None:
+        bad = ingest_observation(
+            self.engine,
+            reception("2026-10-16T00:01:00Z", "=1+1", NOW - timedelta(minutes=4)),
+        )
+        self.assertEqual(bad.status, "accepted_new")
+        fixed = create_snapshot_candidate(
+            self.engine,
+            actor_id=ACTOR,
+            filters=HistoryFiltersCandidate(warehouse_id=WAREHOUSE),
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
+        row = self._csv(fixed)[0]
+        self.assertEqual(row["raw_temperature_value"], "'=1+1")
+        self.assertEqual(row["temperature_c"], "")
+        self.assertEqual(row["risk_state"], "unknown")
+        self.assertIn("invalid", row["quality"])
 
 
 if __name__ == "__main__":

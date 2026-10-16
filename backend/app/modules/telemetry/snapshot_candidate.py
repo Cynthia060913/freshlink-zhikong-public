@@ -1,15 +1,18 @@
 """Internal fixed-membership history snapshot over C's isolated test tables.
 
 No public route or trusted actor is supplied here. Production F06 still needs
-the reviewed migration, actual auth, signed cursors, capacity control and CSV.
+the reviewed migration, actual auth, signed cursors, capacity control and
+an authenticated CSV download route.
 """
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -24,8 +27,13 @@ from sqlalchemy import (
     Uuid,
     select,
 )
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
+from app.modules.telemetry.csv_preview import (
+    PREVIEW_COLUMNS,
+    _display_cell,
+    _raw_metric,
+)
 from app.modules.telemetry.history_candidate import (
     HistoryFiltersCandidate,
     _conditions,
@@ -111,6 +119,47 @@ def _from_db(value: datetime) -> datetime:
     )
 
 
+def _snapshot_record(
+    connection: Connection,
+    *,
+    snapshot_id: UUID,
+    actor_id: UUID,
+    filters: HistoryFiltersCandidate,
+    policy_version: str,
+    now: datetime,
+) -> Any:
+    if not isinstance(snapshot_id, UUID) or not isinstance(actor_id, UUID):
+        raise ValueError("invalid_snapshot")
+    _conditions(filters)
+    fingerprint = _filters_digest(filters)
+    policy = _policy(policy_version)
+    current = _now(now)
+    snapshot = (
+        connection.execute(select(snapshots).where(snapshots.c.id == snapshot_id))
+        .mappings()
+        .one_or_none()
+    )
+    if (
+        snapshot is None
+        or snapshot["actor_id"] != actor_id
+        or snapshot["filters_sha256"] != fingerprint
+        or snapshot["policy_version"] != policy
+        or _from_db(snapshot["expires_at_utc"]) <= current
+    ):
+        raise ValueError("invalid_snapshot")
+    return snapshot
+
+
+def _snapshot_projection(row: Any) -> dict[str, Any]:
+    projection = _project_row(row)
+    raw = row["raw_payload"]
+    for key in ("temperature", "humidity"):
+        value, unit = _raw_metric(raw, key)
+        projection[f"raw_{key}_value"] = value
+        projection[f"raw_{key}_unit"] = unit
+    return projection
+
+
 def create_snapshot_candidate(
     engine: Engine,
     *,
@@ -148,6 +197,7 @@ def create_snapshot_candidate(
                     observations.c.normalized,
                     observations.c.quality,
                     observations.c.risk,
+                    observations.c.raw_payload,
                 )
                 .where(*clauses)
                 .order_by(
@@ -180,7 +230,7 @@ def create_snapshot_candidate(
                         "snapshot_id": snapshot_id,
                         "ordinal": ordinal,
                         "observation_id": row["id"],
-                        "projection": _project_row(row),
+                        "projection": _snapshot_projection(row),
                     }
                     for ordinal, row in enumerate(selected)
                 ],
@@ -200,32 +250,21 @@ def read_snapshot_page_candidate(
     after_ordinal: int = -1,
 ) -> SnapshotPageCandidate:
     """Read an immutable page; caller-supplied actor is not authentication."""
-    if not isinstance(snapshot_id, UUID) or not isinstance(actor_id, UUID):
-        raise ValueError("invalid_snapshot")
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
         raise ValueError("limit must be an integer from 1 to 100")
     if isinstance(after_ordinal, bool) or not isinstance(after_ordinal, int):
         raise ValueError("after_ordinal must be an integer")
     if after_ordinal < -1:
         raise ValueError("after_ordinal must be at least -1")
-    _conditions(filters)
-    fingerprint = _filters_digest(filters)
-    policy = _policy(policy_version)
-    current = _now(now)
     with engine.connect() as connection:
-        snapshot = (
-            connection.execute(select(snapshots).where(snapshots.c.id == snapshot_id))
-            .mappings()
-            .one_or_none()
+        snapshot = _snapshot_record(
+            connection,
+            snapshot_id=snapshot_id,
+            actor_id=actor_id,
+            filters=filters,
+            policy_version=policy_version,
+            now=now,
         )
-        if (
-            snapshot is None
-            or snapshot["actor_id"] != actor_id
-            or snapshot["filters_sha256"] != fingerprint
-            or snapshot["policy_version"] != policy
-            or _from_db(snapshot["expires_at_utc"]) <= current
-        ):
-            raise ValueError("invalid_snapshot")
         total = snapshot["member_count"]
         if after_ordinal >= total and after_ordinal != -1:
             raise ValueError("invalid_snapshot_cursor")
@@ -250,3 +289,46 @@ def read_snapshot_page_candidate(
         total=total,
         next_after_ordinal=page[-1]["ordinal"] if has_next else None,
     )
+
+
+def render_snapshot_csv_candidate(
+    engine: Engine,
+    *,
+    snapshot_id: UUID,
+    actor_id: UUID,
+    filters: HistoryFiltersCandidate,
+    policy_version: str,
+    now: datetime,
+) -> bytes:
+    """Render the same fixed test members; not an authenticated CSV endpoint."""
+    with engine.connect() as connection:
+        snapshot = _snapshot_record(
+            connection,
+            snapshot_id=snapshot_id,
+            actor_id=actor_id,
+            filters=filters,
+            policy_version=policy_version,
+            now=now,
+        )
+        members = (
+            connection.execute(
+                select(snapshot_members.c.projection)
+                .where(snapshot_members.c.snapshot_id == snapshot_id)
+                .order_by(snapshot_members.c.ordinal.asc())
+                .limit(10001)
+            )
+            .scalars()
+            .all()
+        )
+    if len(members) != snapshot["member_count"] or len(members) > 10000:
+        raise ValueError("invalid_snapshot_members")
+    output = StringIO(newline="")
+    writer = csv.writer(output, quoting=csv.QUOTE_ALL)
+    writer.writerow(PREVIEW_COLUMNS)
+    for member in members:
+        cells = [
+            "|".join(member["quality"]) if column == "quality" else member.get(column)
+            for column in PREVIEW_COLUMNS
+        ]
+        writer.writerow([_display_cell(cell) for cell in cells])
+    return ("\ufeff" + output.getvalue()).encode("utf-8")
