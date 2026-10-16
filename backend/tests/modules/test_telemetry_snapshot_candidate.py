@@ -21,6 +21,9 @@ from app.modules.telemetry.snapshot_candidate import (
     snapshot_members,
     snapshots,
 )
+from app.modules.telemetry.snapshot_cursor_candidate import (
+    read_signed_snapshot_page_candidate,
+)
 from app.modules.telemetry.storage_candidate import ingest_observation, metadata
 
 DEVICE = UUID("11111111-1111-4111-8111-111111111111")
@@ -321,6 +324,88 @@ class SnapshotCandidateTests(unittest.TestCase):
         self.assertEqual(row["temperature_c"], "")
         self.assertEqual(row["risk_state"], "unknown")
         self.assertIn("invalid", row["quality"])
+
+    def test_signed_cursor_rejects_tamper_scope_rotation_and_expiry(self) -> None:
+        first = ingest_observation(
+            self.engine,
+            reception("2026-10-16T00:01:00Z", 11, NOW - timedelta(minutes=4)),
+        )
+        second = ingest_observation(
+            self.engine,
+            reception("2026-10-16T00:02:00Z", 7, NOW - timedelta(minutes=3)),
+        )
+        self.assertEqual(
+            (first.status, second.status), ("accepted_new", "accepted_new")
+        )
+        filters = HistoryFiltersCandidate(quality_in=("ok", "invalid_time:sampled_at"))
+        fixed = create_snapshot_candidate(
+            self.engine,
+            actor_id=ACTOR,
+            filters=filters,
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
+        options = {
+            "actor_id": ACTOR,
+            "filters": filters,
+            "policy_version": "active-user-read-v1",
+            "now": NOW,
+            "signing_key": b"k" * 32,
+            "key_id": "cursor-v1",
+            "limit": 1,
+        }
+        with self.assertRaisesRegex(ValueError, "snapshot_required"):
+            read_signed_snapshot_page_candidate(self.engine, **options)
+        page1 = read_signed_snapshot_page_candidate(
+            self.engine, snapshot_id=fixed, **options
+        )
+        self.assertEqual(page1.total, 2)
+        self.assertEqual(page1.items[0]["observation_id"], str(first.observation_id))
+        self.assertIsNotNone(page1.next_cursor)
+        token = page1.next_cursor
+        page2 = read_signed_snapshot_page_candidate(
+            self.engine,
+            cursor=token,
+            **{
+                **options,
+                "filters": HistoryFiltersCandidate(
+                    quality_in=("invalid_time:sampled_at", "ok")
+                ),
+            },
+        )
+        self.assertEqual(page2.items[0]["observation_id"], str(second.observation_id))
+        self.assertIsNone(page2.next_cursor)
+
+        failures = (
+            {"cursor": ("A" if token[0] != "A" else "B") + token[1:]},
+            {"cursor": ""},
+            {"cursor": "bad.cursor.extra"},
+            {"cursor": "A" * 2049},
+            {"cursor": token, "actor_id": uuid4()},
+            {"cursor": token, "filters": HistoryFiltersCandidate(quality_in=("ok",))},
+            {"cursor": token, "policy_version": "changed"},
+            {"cursor": token, "signing_key": b"z" * 32},
+            {"cursor": token, "key_id": "rotated"},
+            {"cursor": token, "snapshot_id": uuid4()},
+        )
+        for override in failures:
+            with (
+                self.subTest(override=override),
+                self.assertRaisesRegex(ValueError, "invalid_snapshot_cursor"),
+            ):
+                read_signed_snapshot_page_candidate(
+                    self.engine, **{**options, **override}
+                )
+        with self.assertRaisesRegex(ValueError, "invalid_snapshot"):
+            read_signed_snapshot_page_candidate(
+                self.engine,
+                cursor=token,
+                **{**options, "now": NOW + timedelta(seconds=900)},
+            )
+        with self.assertRaisesRegex(ValueError, "at least 32 bytes"):
+            read_signed_snapshot_page_candidate(
+                self.engine, snapshot_id=fixed, **{**options, "signing_key": b"weak"}
+            )
 
 
 if __name__ == "__main__":
