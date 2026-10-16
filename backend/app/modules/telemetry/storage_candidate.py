@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
     Column,
+    DateTime,
     ForeignKey,
+    Index,
     MetaData,
     String,
     Table,
@@ -41,10 +44,19 @@ observations = Table(
     Column("content_sha256", String(64), nullable=False),
     Column("raw_text", String, nullable=False),
     Column("raw_payload", JSON, nullable=False),
+    Column("sampled_at_utc", DateTime(timezone=True), nullable=True),
+    Column("first_received_at_utc", DateTime(timezone=True), nullable=False),
     Column("normalized", JSON, nullable=False),
     Column("quality", JSON, nullable=False),
     Column("risk", JSON, nullable=False),
     UniqueConstraint("device_id", "message_id", name="uq_c_candidate_device_message"),
+)
+
+Index(
+    "ix_c_candidate_history",
+    observations.c.warehouse_id,
+    observations.c.sampled_at_utc,
+    observations.c.id,
 )
 
 receptions = Table(
@@ -209,6 +221,16 @@ def _ingest_once(engine: Engine, view: dict[str, Any]) -> IngestResult:
                 content_sha256=_content_digest(view),
                 raw_text=view["raw_text"],
                 raw_payload=view["raw_payload"],
+                sampled_at_utc=(
+                    datetime.fromisoformat(
+                        normalized["sampled_at"].replace("Z", "+00:00")
+                    )
+                    if "sampled_at" in normalized
+                    else None
+                ),
+                first_received_at_utc=datetime.fromisoformat(
+                    trusted["received_at"].replace("Z", "+00:00")
+                ),
                 normalized=normalized,
                 quality=view["quality"],
                 risk=view["risk"],

@@ -2,6 +2,25 @@
 
 状态：待确认的验收向量，不是查询接口、CSV 服务、数据库结果或权限验收。基于 C 的 `telemetry-contract-proposal.json` 七条固定观测，见 `examples/query-csv-acceptance.json`。其中 `observation_id` 只是样例分配的 UUID；正式 ID 需入库后产生。
 
+## C1 隔离候选表的持久历史读取（2026-10-16）
+
+`storage_candidate.py` 的 C 自有候选 observation 新增有时区的可查询
+`sampled_at_utc`（非法采样时刻为 NULL）和 `first_received_at_utc`（A 可信
+首次接收时刻），不从设备伪造的接收字段取值；重发不改首次观测。
+`history_candidate.py::list_history_candidate` 对该**隔离候选表**做设备、
+仓库、采样/接收时间半开区间 SQL 筛选，按采样 UTC、同刻 observation UUID、
+无效采样时刻末尾排序，每次最多读 100 条。无效时刻若没设置采样区间仍可
+以 quality/risk unknown 出现在结果里；列表不输出无界 raw，原文仍在表中。
+测试先真实写 SQLite 文件候选表再查询、逐页遍历和重新打开数据库，覆盖
+乱序接收、同刻稳定排序、时间边界、非法采样、同键重发不改首次接收时间。
+
+这个读取器没有 actor/权限、质量标签 SQL 筛选、同事务固定成员快照、签名游标、
+跨请求水位或 CSV，因此**不得挂成 HTTP 路由或作为 F06 正式验收**。
+`after_observation_id` 只是内部测试标记，并发晚提交可能改变后续页；正式
+F06 要按共同确认的 `snapshot_id` 在短事务固定成员和投影版本，并让列表、
+详情、CSV 每次重新鉴权且使用同一筛选。新列只在 C 独立测试 metadata 中；
+正式表/迁移仍等 B 已合并的唯一迁移头，不用生产 `create_all`。
+
 2026-10-15 同版目标补充：A 提出的 F06 固定服务端结果快照已被 C 接受为**候选约定**，尚未作为已实现的公共 API 签收。正式首次查询应在短事务中固定有序观测及其不可变投影版本，返回 `snapshot_id`、`received_watermark` 和 `total`；后续页的签名游标绑定同一快照，CSV 必须带同一 `snapshot_id`、水位、规范筛选和登录身份。每次请求重新鉴权，权限变化或快照过期显式失败。仅凭接收时间水位不能排除首次查询时尚未提交的旧时间观测，不能保证页面与 CSV 属于同一集合。可读的非空、缺快照、失效、超限和晚提交向量见 `examples/query-snapshot-rc1-proposal.json`；这份 JSON 不是数据库或 HTTP 测试结果。
 
 ## 可复核的预期
