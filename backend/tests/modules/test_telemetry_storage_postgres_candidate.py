@@ -1,0 +1,218 @@
+"""Opt-in PostgreSQL transaction check for C's isolated candidate tables.
+
+Only a disposable ``test-db/freshlink_test/FreshLink-test`` may run this test.
+It creates a unique schema in that test database; production does not call
+``create_all`` and the formal Alembic migration remains a separate task.
+"""
+
+import json
+import os
+import unittest
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from threading import Barrier
+from uuid import UUID, uuid4
+
+from sqlalchemy import create_engine, event, func, select
+from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.schema import CreateSchema, DropSchema
+
+from app.modules.telemetry.storage_candidate import (
+    evaluation_jobs,
+    ingest_observation,
+    metadata,
+    observations,
+    receptions,
+)
+
+_ENABLED = os.getenv("FRESHLINK_C_TEST_POSTGRES") == "1"
+_DEVICE_ID = UUID("11111111-1111-4111-8111-111111111111")
+_WAREHOUSE_ID = UUID("22222222-2222-4222-8222-222222222222")
+_SAMPLED_AT = "2026-10-15T00:00:00Z"
+_RECEIVED_AT = datetime(2026, 10, 15, 0, 0, tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class _Reception:
+    raw_text: str
+    reception_id: UUID
+    received_at: datetime
+    authenticated_device_id: UUID = _DEVICE_ID
+    warehouse_id: UUID = _WAREHOUSE_ID
+
+    @property
+    def raw_payload(self) -> dict:
+        return json.loads(self.raw_text)
+
+
+def _reception(
+    message_id: UUID, *, temperature: int = 11, seconds: int = 0
+) -> _Reception:
+    raw = {
+        "schema_version": "1.0",
+        "device_id": str(_DEVICE_ID),
+        "message_id": str(message_id),
+        "sampled_at": _SAMPLED_AT,
+        "metrics": [
+            {"key": "temperature", "value": temperature, "unit": "°C"},
+            {"key": "humidity", "value": 70, "unit": "%RH"},
+        ],
+    }
+    return _Reception(
+        raw_text=json.dumps(raw, ensure_ascii=False, separators=(",", ":")),
+        reception_id=uuid4(),
+        received_at=_RECEIVED_AT + timedelta(seconds=seconds),
+    )
+
+
+@unittest.skipUnless(_ENABLED, "requires FRESHLINK_C_TEST_POSTGRES=1")
+class PostgresStorageCandidateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Refuse to connect until the exact disposable project/database/host
+        # guard passes. The DSN is never printed or committed.
+        from app.core.config import settings
+
+        url = make_url(str(settings.DATABASE_URL))
+        if (
+            url.get_backend_name() != "postgresql"
+            or url.host != "test-db"
+            or url.database != "freshlink_test"
+            or settings.PROJECT_NAME != "FreshLink-test"
+        ):
+            raise AssertionError("C PG test requires disposable test-db only")
+        cls.url = url.set(drivername="postgresql+psycopg")
+        cls.schema = "c_test_" + uuid4().hex
+        cls.base_engine = create_engine(cls.url, pool_pre_ping=True)
+        with cls.base_engine.begin() as connection:
+            connection.execute(CreateSchema(cls.schema))
+        cls.engine = cls.base_engine.execution_options(
+            schema_translate_map={None: cls.schema}
+        )
+        # Test schema only. Production must use the reviewed Alembic chain.
+        metadata.create_all(cls.engine)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        try:
+            metadata.drop_all(cls.engine)
+            with cls.base_engine.begin() as connection:
+                # No CASCADE: refuse removal if unexpected objects appeared.
+                connection.execute(DropSchema(cls.schema))
+        finally:
+            cls.base_engine.dispose()
+
+    def _count(self, table) -> int:
+        with self.engine.connect() as connection:
+            return int(connection.scalar(select(func.count()).select_from(table)))
+
+    def test_raw_idempotency_rollback_concurrency_and_new_connection(self) -> None:
+        message_id = uuid4()
+        first = _reception(message_id)
+        created = ingest_observation(self.engine, first)
+        self.assertEqual(created.status, "accepted_new")
+        self.assertEqual(ingest_observation(self.engine, first), created)
+
+        redelivery = ingest_observation(self.engine, _reception(message_id, seconds=1))
+        self.assertEqual(redelivery.status, "accepted_duplicate")
+        self.assertEqual(redelivery.observation_id, created.observation_id)
+        changed = ingest_observation(
+            self.engine, _reception(message_id, temperature=12, seconds=2)
+        )
+        self.assertEqual(changed.status, "conflict")
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    select(observations).where(
+                        observations.c.id == created.observation_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        self.assertEqual(row["raw_text"], first.raw_text)
+        self.assertEqual(row["normalized"]["metrics"]["temperature"], 11)
+        self.assertEqual(row["risk"]["state"], "unknown")
+        self.assertEqual(row["quality"], ["ok"])
+        self.assertEqual((self._count(observations), self._count(receptions)), (1, 3))
+
+        rollback_receipt = _reception(uuid4())
+        injected = False
+
+        def fail_job_insert(_conn, _cursor, statement, _params, _context, _many):
+            nonlocal injected
+            if (
+                not injected
+                and "INSERT INTO" in statement
+                and "telemetry_evaluation_candidate" in statement
+            ):
+                injected = True
+                raise OperationalError(statement, {}, RuntimeError("synthetic failure"))
+
+        event.listen(self.base_engine, "before_cursor_execute", fail_job_insert)
+        try:
+            failed = ingest_observation(self.engine, rollback_receipt)
+        finally:
+            event.remove(self.base_engine, "before_cursor_execute", fail_job_insert)
+        self.assertTrue(injected)
+        self.assertEqual(failed.status, "retryable_failure")
+        self.assertEqual(failed.reason, "storage_unavailable")
+        self.assertEqual(
+            (
+                self._count(observations),
+                self._count(receptions),
+                self._count(evaluation_jobs),
+            ),
+            (1, 3, 1),
+        )
+        self.assertEqual(
+            ingest_observation(self.engine, rollback_receipt).status, "accepted_new"
+        )
+
+        racing_id = uuid4()
+        racers = (_reception(racing_id, seconds=3), _reception(racing_id, seconds=4))
+        gate = Barrier(2)
+
+        def receive(receipt: _Reception):
+            gate.wait(timeout=10)
+            return ingest_observation(self.engine, receipt)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(receive, receipt) for receipt in racers]
+            results = [future.result(timeout=20) for future in futures]
+        for index, result in enumerate(results):
+            if result.status == "retryable_failure":
+                results[index] = ingest_observation(self.engine, racers[index])
+        self.assertCountEqual(
+            [result.status for result in results],
+            ["accepted_new", "accepted_duplicate"],
+        )
+        self.assertEqual(results[0].observation_id, results[1].observation_id)
+
+        # A fresh engine/connection checks committed rows, not a cached ORM
+        # session. This is not a PostgreSQL process/container restart test.
+        fresh = create_engine(self.url, pool_pre_ping=True)
+        fresh_view: Engine = fresh.execution_options(
+            schema_translate_map={None: self.schema}
+        )
+        try:
+            with fresh_view.connect() as connection:
+                counts = tuple(
+                    int(connection.scalar(select(func.count()).select_from(table)))
+                    for table in (observations, receptions, evaluation_jobs)
+                )
+                stored = connection.execute(
+                    select(observations.c.raw_text).where(
+                        observations.c.id == created.observation_id
+                    )
+                ).scalar_one()
+            self.assertEqual(counts, (3, 6, 3))
+            self.assertEqual(stored, first.raw_text)
+        finally:
+            fresh.dispose()
+
+
+if __name__ == "__main__":
+    unittest.main()

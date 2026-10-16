@@ -81,7 +81,8 @@ Windows/Codex Python 3.13.9 的临时 SQLite 文件数据库执行了 8 个事�
 | 查询/CSV | 复用同一 actor、筛选和服务端固定结果快照，缺测不展示为正常 |
 
 验收还需空库按 A01→B→C 单迁移 head 升级、真实 PostgreSQL、应用重启、
-权限拒绝和 E1 一间冷库链路。以上目前**全部未执行**。
+权限拒绝和 E1 一间冷库链路。上表是正式验收目标；下面独立测试专用
+PostgreSQL 检查不构成正式迁移、应用接线或 E1。
 
 ## 需 A/B/集成方确认
 
@@ -96,3 +97,28 @@ Windows/Codex Python 3.13.9 的临时 SQLite 文件数据库执行了 8 个事�
   `examples/candidate-f03-rc1-proposal.json`。接收成功不等于通知实收。
 - 集成方：B 的唯一迁移 head、C 记录命名/索引、根 API 和权限接线，以及 F06
   固定快照/CSV 的资源容量。C 不单独改共享根路由、导航、Compose 或他人迁移。
+
+## C 自有测试专用 PostgreSQL 回归（2026-10-16）
+
+`backend/tests/modules/test_telemetry_storage_postgres_candidate.py` 是显式开启
+的 C 候选事务检查。默认跳过；只有环境变量
+`FRESHLINK_C_TEST_POSTGRES=1` 且现有隔离测试运行器已提供
+`DATABASE_URL` 指向 `test-db/freshlink_test`、`PROJECT_NAME=FreshLink-test`
+时才连接。三项 guard 在连接前执行；绝不能改成宽松的“任意 PostgreSQL”。
+测试在该测试数据库创建随机 `c_test_<uuid>` schema，仅在其内用 C 独立
+metadata 建候选表，结束按受限名称删除自建表与空 schema，不用 `CASCADE`。
+这**不是**项目启动时 `create_all`、正式迁移或共享业务表。
+
+在已启动的测试专用 PostgreSQL 容器内、从 `backend` 运行：
+
+```text
+FRESHLINK_C_TEST_POSTGRES=1 python -m unittest tests.modules.test_telemetry_storage_postgres_candidate -v
+```
+
+目标检查 exact raw、高温/质量、同接收 ID 重试、跨接收重复与冲突、评估任务
+写入故障整事务回滚、两写者争同键、全新数据库连接回读 3/6/3 行及原文。
+新连接回读不是 PostgreSQL 进程重启；正式重启保留仍需另测。C 当前 Windows
+执行环境无 Docker 可执行程序和 psycopg，本轮只完成模块导入/默认跳过、
+SQLite schema 翻译预检与 C-only 回归，**未实际运行此 PostgreSQL 测试**。
+A 在 [#9 独立报告](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6195386092)
+的测试专用 PG18/重启结果是外部证据，不能代填成 C 此测试的实跑结果。
