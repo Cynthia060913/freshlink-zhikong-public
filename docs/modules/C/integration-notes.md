@@ -146,3 +146,28 @@ DTO 投递此样例，也不擅自改共同 contracts 或迁移链。
 
 2026-10-15 C 内部补充：`backend/app/modules/telemetry/candidate_preview.py::build_candidate_preview(processed, *, observation_id, source_event_id, rule)`
 现将固定高温处理结果与合成历史规则投影成上述 RC2 JSON。观测和来源 ID 均须由未来的持久事务提供；函数不创建 ID、不读 B 规则、不发送事件。它对缺规则或非候选返回空结果，对规则归属、采样时刻有效区间、单位、阈值或 ID 不一致显式拒绝。该纯投影只让样例映射可执行，**不构成 F03 正式签收或 C→B 实际交付**；B PR #10 同版 DTO/摘要及唯一迁移 head 仍是正式接线前置条件。
+
+## F03-RC2 数据异常恢复的 C 提案（2026-10-16，待 A/B 确认）
+
+`examples/recovery-f03-rc2-c-proposal.json` 给出合成高温
+`77777777-7777-4777-8777-777777777777` 与三次有效回落后的**新**恢复来源 ID
+`99999999-9999-4999-8999-999999999999`。恢复候选通过
+`related_source_event_id` 引用原高温，且原始高温观测、原异常事件均不删除。
+同一恢复 ID 与同一不可变正文重送只能去重；改正文应冲突，不能再关闭一次。
+示例中的 `<=8 °C`、连续 3 次、原异常规则快照与恢复 severity 均为待确认
+规则样例，并非 C 已实现的生产判定。`received_at` 属 A→C 可信接收记录，
+不进入 C→B 候选。
+
+目前 B PR #10 `CandidateKind` 尚无 `temperature_recovered`，`CandidateCreate`
+尚无 `related_source_event_id`。A 的 `DeviceEventCreate(kind=recovered)` 是设备
+生命周期事件，不能替代 C 的温度恢复；若向当前 B DTO 发送新增字段，可能被
+忽略而不参与正文摘要。**C 不发送本提案到当前 B 端点。** 请 B 在 F03 同版
+DTO/摘要/持久行/by-source 回读中增加恢复类型与关联字段，并说明由哪层将
+原告警从 open/acknowledged 变为 resolved、重复恢复如何保持一次状态转换。
+
+待共同决定：恢复规则用原异常快照还是恢复采样时刻的新快照；乱序晚到样本
+何时封窗及是否允许补证；中间缺测/无效/冲突/重复消息是否重置连续计数。
+在决定前 C 的安全默认是**不生成恢复**，保持原异常可追溯、当前风险未知，
+不把缺测或无规则显示为 normal。原异常未送达时，C outbox 应先交原事件，
+恢复留待投递；超时且 by-source 未找到时用同一恢复 ID/正文有界重试。
+永久拒绝/内容冲突留失败证据，不能静默丢弃。
