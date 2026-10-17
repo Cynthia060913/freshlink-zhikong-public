@@ -1,5 +1,8 @@
 # 迁移候选优先入口
 
+2026-10-15 本人最新截止：**10月30日及之前实际提交**，不使用31日缓冲。
+先读 docs/team/DELIVERY-CHECKPOINTS.md；下层旧日期/旧库/旧阻塞是历史。
+
 先完整读取 docs/team/PUBLIC-MIGRATION.md；STATE 尚未 ACTIVE 时，
 不要依据下层旧仓库链接发布、发帖或宣称三方已经迁移。
 准备保存代码前同时读取 docs/team/v4/10-凭据安全与公开前检查.md。
