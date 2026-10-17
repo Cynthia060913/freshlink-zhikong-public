@@ -1,0 +1,35 @@
+name: Test A C Telemetry Integration
+
+on:
+  pull_request:
+    paths:
+      - backend/app/modules/iot/**
+      - backend/scripts/check-telemetry-mqtt.py
+      - scripts/windows/check-telemetry-mqtt.ps1
+      - scripts/mqtt-runtime/**
+      - compose.telemetry-integration-tests.yml
+      - .github/workflows/test-telemetry-integration.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a-c-telemetry-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  a-c-telemetry-mqtt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout public candidate and pinned source objects
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build disposable application image
+        run: docker build --tag freshlink-app:p0 .
+      - name: Run private-network MQTT A registry C transaction proof
+        shell: pwsh
+        run: ./scripts/windows/check-telemetry-mqtt.ps1
