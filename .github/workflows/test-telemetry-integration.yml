@@ -33,6 +33,10 @@ jobs:
           persist-credentials: false
       - name: Build disposable application image
         run: docker build --file backend/Dockerfile --tag freshlink-app:p0 .
+      - name: Prepare test-only service images on disposable runner
+        run: |
+          docker pull postgres:18
+          docker pull eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408
       - name: Run private-network MQTT A registry C transaction proof
         shell: pwsh
         run: ./scripts/windows/check-telemetry-mqtt.ps1
