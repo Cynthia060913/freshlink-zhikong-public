@@ -2,6 +2,16 @@
 
 状态：接线提案，未实施。请指定集成 Agent 协调；C 不直接改根 API、公共导航、Compose、锁文件或迁移链。下文 2026-10-11 至 2026-10-13 的旧私有库 URL、PR 编号和 SHA 仅是历史证据；**当前协作、评论及代码交付均使用新公开仓库**。
 
+## 2026-10-17 C 出站队列隔离候选
+
+`backend/app/modules/telemetry/outbox_candidate.py` 已在 C 自有隔离 metadata 中
+试验固定 `source_event_id`/不可变正文、重复与改正文冲突留证、持久租约认领、
+超时/可重试回队和永久拒绝。它需要调用方提供已持久的观测 ID 和事件 ID，
+本身不生成业务候选，也不调用 B；本机临时 SQLite 重开库测试不是正式 PG
+worker、真实 by-source 查询或 E1。B 同版 F03/RULE 签收后，C 须把 B 回执
+与超时查源映射到此状态机，并给租约并发/重试次数上限/错误分类、生产配置
+和拒绝证据保留上限；正式迁移仍接唯一已合并 head，不复制测试 `create_all`。
+
 ## 2026-10-16 当前接线快照
 
 - 当前共同 main `fb6de8408c860b277471cdf1697b72fd34162f38`；C 分支 `feature/c-data-quality-bootstrap` 的实时版本以 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 为准，保持 draft。前一功能提交 `e3abb700174f437255bb54f76d07f52dc5c38126` 已普通推送；下方按旧日期记载的 main/HEAD 和未上传状态只供历史追溯。

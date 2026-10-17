@@ -2,6 +2,12 @@
 
 状态：**C 内部设计草案，已有隔离 SQLite 事务候选，未接正式 PostgreSQL、未建迁移、未开放 API**。本文件供
 S0/F01—F03 审核；正式表和字段只在 B 的唯一迁移 head 合入、共同契约确认后落地。
+
+2026-10-17 增加 `outbox_candidate.py` 作为**另一项隔离候选**：固定正文与
+`source_event_id`、冲突留证、持久租约/重试状态，本机 5 项 SQLite 文件测试
+通过。无 B 调用、真实 PostgreSQL、正式迁移或投递 worker；同版 F03 与
+历史规则、by-source 回查及生产重试上限仍待确认。
+
 候选实现在 `backend/app/modules/telemetry/storage_candidate.py`，独立
 SQLAlchemy `MetaData` 只供隔离测试建表；生产不得 `create_all`。它把原始观测、
 每次接收与待评估任务放进单事务，含设备/消息唯一约束和接收 ID 主键。

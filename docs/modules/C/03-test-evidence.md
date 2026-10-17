@@ -10,6 +10,28 @@
 - A 对较早 C 隔离事务版本做的[独立 PG18 与测试容器重启检查](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6195386092)是**A 的外部证据**，未覆盖本次新加的晚提交快照、拒绝审计，也不能代填成本人的 opt-in 测试执行。C 当前运行环境无 Docker/psycopg，本人尚未实跑 PostgreSQL 两项。
 - [M03 团队测试报告底稿](07-team-test-report-draft.md) 已按 A/B/C 版本和各自证据汇编；A/B 的完整同版结果仍由本人提供，C 不代填，**未签收最终报告**。正式 A→C 入库、重启、鉴权历史/CSV、B 候选可靠交付、E1、另一电脑复现和真实收件均未完成或未测。实时状态以 [#9 的 STATUS C](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019) 为准。
 
+## C→B 候选正文冻结与持久重试的隔离测试（2026-10-17）
+
+`backend/app/modules/telemetry/outbox_candidate.py` 只在 C 独立候选 metadata 中
+增添出站表和冲突证据表；测试用临时 SQLite 文件，不建正式迁移、不调用 B。
+`source_event_id`、关联观测 ID 与规范 JSON 正文在入队时冻结；同 ID/同正文
+返回重复，改正文返回冲突并单独保留拒绝正文，同一冲突重放不增第二条证据。
+到期任务用持久租约标记认领，租约过期或显式可重试失败后仍使用同一来源 ID
+与正文；旧租约不能覆盖新认领者的完成状态。永久拒绝留下有限错误码且不再
+认领。正文上限 64 KiB 和 30 秒默认租约只是本隔离候选的保护值，未获公共
+契约签收。
+
+本机 Windows/Codex Python 3.13.9 的五项新测试实跑通过；连同此前明确的
+十组 C-only 清单合计 **106 项：102 passed / 4 skipped**。新增还注入冲突
+审计写失败，确认不会伪报成功，原候选仍保持不变。四个 skip 是两项
+精确测试库 PostgreSQL opt-in、两项 A ingress 需要 Python 3.14。另一次
+通配收集把 `test_telemetry_a_ingress_boundary.py` 直接导入，在本机 3.13
+因 A 模块采用项目 3.14 语法而于收集阶段报错；这不是测试通过，随后按明确
+的 11 组清单重跑得到上述结果。新文件 Ruff、mypy strict 和指定隔离解释器
+的 ty 均通过。**尚无**真实 B 收件、超时后 by-source 回查、PostgreSQL 并发
+租约、正式 outbox 迁移/worker、重试次数上限或 E1。不同正文冲突证据的
+生产保留期限/容量也待确认。
+
 ## A 接收封装→C 隔离存储新增边界用例（远端已执行）
 
 `test_telemetry_a_storage_boundary.py` 增加两项 C 自有测试：实际调用 A
