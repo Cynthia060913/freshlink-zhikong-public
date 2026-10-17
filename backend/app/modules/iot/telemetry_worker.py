@@ -1,0 +1,195 @@
+"""Bounded MQTT admission and independent durable C delivery.
+
+The receiver never calls C inside a broker callback. Its QoS1 ACK means only
+that A committed the exact trusted envelope, not C storage/business success.
+The integration owner must supply B's real lookup and C's actual durable port.
+No schema creation, public endpoint, implicit adapter or application startup.
+"""
+
+import logging
+import math
+import threading
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
+
+import paho.mqtt.client as mqtt
+from paho.mqtt.packettypes import PacketTypes
+from paho.mqtt.properties import Properties
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+from sqlmodel import Session
+
+from app.modules.iot.heartbeat_worker import HeartbeatWorker, HeartbeatWorkerSettings
+from app.modules.iot.ingress import MAX_PAYLOAD_BYTES, IngressRejected
+from app.modules.iot.registry import WarehouseExists, receive_registered_telemetry
+from app.modules.iot.telemetry_inbox import (
+    InboxResult,
+    QueueLimits,
+    StoreSink,
+    claim_next,
+    deliver_claim,
+    enqueue,
+    record_rejection,
+)
+
+logger = logging.getLogger(__name__)
+WarehouseLookupFactory = Callable[[Session], WarehouseExists]
+
+
+class TelemetryReceiver(HeartbeatWorker):
+    def __init__(
+        self,
+        settings: HeartbeatWorkerSettings,
+        *,
+        password: str,
+        warehouse_lookup_factory: WarehouseLookupFactory,
+        limits: QueueLimits = QueueLimits(),
+    ) -> None:
+        super().__init__(settings, password=password)
+        self.warehouse_lookup_factory = warehouse_lookup_factory
+        self.limits = limits
+        self.topics = {
+            f"freshlink/v1/devices/{identity}/telemetry": identity
+            for identity in settings.device_ids
+        }
+
+    def _connect(self) -> int:
+        properties = Properties(PacketTypes.CONNECT)  # type: ignore[no-untyped-call]
+        # A stable, dedicated client_id is mandatory for broker-owned redelivery.
+        # Broker limits/disk durability must be verified separately by operators.
+        properties.SessionExpiryInterval = 86400
+        properties.ReceiveMaximum = 14
+        properties.MaximumPacketSize = MAX_PAYLOAD_BYTES + 1024
+        return self.client.connect(
+            self.settings.host,
+            self.settings.port,
+            keepalive=30,
+            clean_start=False,
+            properties=properties,
+        )
+
+    def _on_message(
+        self, client: mqtt.Client, _data: Any, message: mqtt.MQTTMessage
+    ) -> None:
+        if self.stop_requested.is_set():
+            return
+        received_at = datetime.now(UTC)
+        identity = self.topics.get(message.topic)
+        try:
+            if identity is None:
+                raise IngressRejected("topic_outside_verified_scope", message.payload)
+            if message.retain:
+                raise IngressRejected("retained_telemetry", message.payload)
+            if message.qos != 1:
+                raise IngressRejected("unexpected_qos", message.payload)
+            with Session(self.engine) as session:
+                session.connection().execute(
+                    text("SET LOCAL statement_timeout = '5000ms'")
+                )
+                envelope = receive_registered_telemetry(
+                    session,
+                    authenticated_device_id=identity,
+                    credential_enabled=True,
+                    warehouse_exists=self.warehouse_lookup_factory(session),
+                    topic=message.topic,
+                    payload=message.payload,
+                    received_at=received_at,
+                )
+            # Close the registration read before admission starts its transaction.
+            result = enqueue(self.engine, envelope, now=received_at, limits=self.limits)
+            if result.status not in {
+                "queued",
+                "already_queued",
+                "already_processed",
+                "invalid",
+                "conflict",
+            }:
+                self._fail("telemetry_admission_unavailable")
+                return
+            if result.status in {"invalid", "conflict"}:
+                self.rejections += 1
+            else:
+                self.committed += 1
+        except IngressRejected as rejection:
+            if not record_rejection(
+                self.engine,
+                rejection,
+                device_id=identity,
+                now=received_at,
+                limits=self.limits,
+            ):
+                self._fail("telemetry_audit_unavailable")
+                return
+            self.rejections += 1
+            logger.warning("Telemetry rejected: %s", rejection.reason_code)
+        except Exception:
+            self._fail("telemetry_admission_unavailable")
+            return
+        if (
+            message.qos > 0
+            and client.ack(message.mid, message.qos) != mqtt.MQTT_ERR_SUCCESS
+        ):
+            self._fail("telemetry_broker_ack_failed")
+
+    def scan(self) -> None:
+        # Deliberately no C processing or heartbeat writes on the MQTT loop.
+        return
+
+
+class TelemetryDeliveryWorker:
+    """One claim per tick, no in-memory payload queue; caller owns the engine.
+
+    The injected C adapter must impose its own finite query/network timeouts.
+    It must return only after its durable commit; arbitrary callables are not
+    cancellable safely. A lease expiry prevents stale A checkpoint writes but
+    does not kill a hung C call. C's stable reception ID must be idempotent.
+    """
+
+    def __init__(
+        self,
+        engine: Engine,
+        sink: StoreSink,
+        *,
+        poll_seconds: float = 0.5,
+        limits: QueueLimits = QueueLimits(),
+    ) -> None:
+        if not math.isfinite(poll_seconds) or not 0.1 <= poll_seconds <= 10:
+            raise ValueError("poll period must be between 0.1 and 10 seconds")
+        self.engine, self.sink = engine, sink
+        self.poll_seconds, self.limits = poll_seconds, limits
+        self.stop_requested = threading.Event()
+        self.completed = 0
+        self.failures = 0
+        self.last_status = "idle"
+
+    def run_once(self) -> InboxResult | None:
+        claim = claim_next(self.engine)
+        if claim is None:
+            self.last_status = "idle"
+            return None
+        result = deliver_claim(self.engine, claim, self.sink, limits=self.limits)
+        self.last_status = result.status
+        if result.status == "delivered":
+            self.completed += 1
+        return result
+
+    def run(self, *, max_seconds: float | None = None) -> None:
+        if max_seconds is not None and (
+            not math.isfinite(max_seconds) or max_seconds <= 0
+        ):
+            raise ValueError("max_seconds must be finite and positive")
+        start = time.monotonic()
+        while not self.stop_requested.is_set():
+            if max_seconds is not None and time.monotonic() - start >= max_seconds:
+                break
+            try:
+                self.run_once()
+            except Exception:
+                # DB failure retains durable leases/raw. Never print exception
+                # text, bypass C, reset budgets or report a successful delivery.
+                self.failures += 1
+                self.last_status = "storage_unavailable"
+                logger.warning("Telemetry delivery temporarily unavailable")
+            self.stop_requested.wait(self.poll_seconds)
