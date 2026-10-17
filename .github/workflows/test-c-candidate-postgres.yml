@@ -1,0 +1,79 @@
+name: Test C Candidate PostgreSQL
+
+on:
+  pull_request:
+    paths:
+      - backend/**
+      - contracts/**
+      - docs/modules/C/**
+      - uv.lock
+      - pyproject.toml
+      - .github/workflows/test-c-candidate-postgres.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c-candidate-pg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  c-candidate-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container: python:3.14
+    services:
+      test-db:
+        image: postgres:18
+        env:
+          POSTGRES_USER: freshlink_test
+          POSTGRES_PASSWORD: a01_disposable_only
+          POSTGRES_DB: freshlink_test
+        options: >-
+          --health-cmd "pg_isready -U freshlink_test -d freshlink_test"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      PROJECT_NAME: FreshLink-test
+      FASTAPI_ENV: development
+      SECRET_KEY: a01-disposable-test-key-only-32-characters
+      FIRST_SUPERUSER: admin@example.com
+      FIRST_SUPERUSER_PASSWORD: a01-disposable-admin-only
+      DATABASE_URL: postgresql://freshlink_test:a01_disposable_only@test-db:5432/freshlink_test
+      SMTP_HOST: ""
+      EMAILS_FROM_EMAIL: ""
+      SENTRY_DSN: ""
+      FRESHLINK_C_TEST_POSTGRES: "1"
+      PYTHONPATH: backend
+      PYTHONDONTWRITEBYTECODE: "1"
+      UV_PROJECT_ENVIRONMENT: /tmp/freshlink-c-ci-venv
+    steps:
+      - name: Checkout candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Detect opt-in candidate tests
+        id: source
+        shell: bash
+        run: |
+          if test -f backend/tests/modules/test_telemetry_storage_postgres_candidate.py; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            echo 'C candidate test source absent; no C PostgreSQL acceptance claimed.'
+          fi
+      - name: Install locked dependencies in disposable CI environment only
+        if: steps.source.outputs.present == 'true'
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.9.26"
+          enable-cache: false
+      - name: Sync disposable CI environment
+        if: steps.source.outputs.present == 'true'
+        run: uv sync --locked --all-packages
+      - name: Run guarded C transaction and fixed-snapshot PostgreSQL tests
+        if: steps.source.outputs.present == 'true'
+        run: >-
+          uv run --locked python -m unittest discover
+          -s backend/tests/modules
+          -p test_telemetry_storage_postgres_candidate.py -v
