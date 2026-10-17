@@ -4,7 +4,10 @@ on:
   pull_request:
     paths:
       - backend/app/modules/iot/**
+      - backend/Dockerfile
+      - backend/pyproject.toml
       - backend/scripts/check-telemetry-mqtt.py
+      - uv.lock
       - scripts/windows/check-telemetry-mqtt.ps1
       - scripts/mqtt-runtime/**
       - compose.telemetry-integration-tests.yml
@@ -29,7 +32,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Build disposable application image
-        run: docker build --tag freshlink-app:p0 .
+        run: docker build --file backend/Dockerfile --tag freshlink-app:p0 .
       - name: Run private-network MQTT A registry C transaction proof
         shell: pwsh
         run: ./scripts/windows/check-telemetry-mqtt.ps1
