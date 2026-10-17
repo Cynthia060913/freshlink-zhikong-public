@@ -1,0 +1,300 @@
+"""C-only durable candidate handoff experiment on isolated test metadata.
+
+This does not call B, install a migration, or expose a public API. A production
+worker must resolve ambiguous B timeouts by source ID before re-sending.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Literal
+from uuid import UUID, uuid4
+
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    UniqueConstraint,
+    Uuid,
+    and_,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
+
+from app.modules.telemetry.history_candidate import _utc_bound
+from app.modules.telemetry.storage_candidate import metadata, observations
+
+outbox = Table(
+    "telemetry_candidate_outbox_candidate",
+    metadata,
+    Column("source_event_id", Uuid(as_uuid=True), primary_key=True),
+    Column(
+        "observation_id",
+        Uuid(as_uuid=True),
+        ForeignKey(observations.c.id),
+        nullable=False,
+    ),
+    Column("body_sha256", String(64), nullable=False),
+    Column("body", JSON, nullable=False),
+    Column("state", String(24), nullable=False),
+    Column("attempt_count", Integer, nullable=False),
+    Column("next_attempt_at_utc", DateTime(timezone=True), nullable=False),
+    Column("lease_token", Uuid(as_uuid=True)),
+    Column("lease_until_utc", DateTime(timezone=True)),
+    Column("last_error_code", String(80)),
+)
+
+outbox_conflicts = Table(
+    "telemetry_candidate_outbox_conflict_candidate",
+    metadata,
+    Column("id", Uuid(as_uuid=True), primary_key=True),
+    Column(
+        "source_event_id",
+        Uuid(as_uuid=True),
+        ForeignKey(outbox.c.source_event_id),
+        nullable=False,
+    ),
+    Column("observation_id", Uuid(as_uuid=True), nullable=False),
+    Column("body_sha256", String(64), nullable=False),
+    Column("body", JSON, nullable=False),
+    Column("first_detected_at_utc", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "source_event_id",
+        "observation_id",
+        "body_sha256",
+        name="uq_c_candidate_outbox_conflict",
+    ),
+)
+
+StageStatus = Literal["staged", "duplicate", "conflict"]
+FinishDisposition = Literal["delivered", "retry", "rejected"]
+
+
+@dataclass(frozen=True)
+class DeliveryClaimCandidate:
+    source_event_id: UUID
+    lease_token: UUID
+    body: dict[str, Any]
+    attempt_count: int
+
+
+def _aware_now(value: datetime) -> datetime:
+    result = _utc_bound(value, "now")
+    if result is None:
+        raise ValueError("now must be an aware datetime")
+    return result
+
+
+def _frozen_body(
+    body: dict[str, Any], source_event_id: UUID, observation_id: UUID
+) -> tuple[dict[str, Any], str]:
+    if not isinstance(body, dict):
+        raise ValueError("candidate body must be a JSON object")
+    if body.get("source_event_id") != str(source_event_id):
+        raise ValueError("candidate source_event_id mismatch")
+    linked = body.get("observation_ids")
+    if not isinstance(linked, list) or str(observation_id) not in linked:
+        raise ValueError("candidate must reference its observation")
+    try:
+        canonical = json.dumps(
+            body,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("candidate body must contain finite JSON values") from exc
+    if len(canonical.encode("utf-8")) > 65536:
+        raise ValueError("candidate body exceeds isolated 64 KiB limit")
+    return json.loads(canonical), hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def stage_candidate(
+    engine: Engine,
+    *,
+    source_event_id: UUID,
+    observation_id: UUID,
+    body: dict[str, Any],
+    now: datetime,
+) -> StageStatus:
+    """Freeze one event ID and its exact canonical body before any B call."""
+    if not isinstance(source_event_id, UUID) or not isinstance(observation_id, UUID):
+        raise ValueError("source_event_id and observation_id must be UUIDs")
+    current = _aware_now(now)
+    frozen, digest = _frozen_body(body, source_event_id, observation_id)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                outbox.insert().values(
+                    source_event_id=source_event_id,
+                    observation_id=observation_id,
+                    body_sha256=digest,
+                    body=frozen,
+                    state="pending",
+                    attempt_count=0,
+                    next_attempt_at_utc=current,
+                )
+            )
+        return "staged"
+    except IntegrityError:
+        # Resolve a concurrent identical insert only after the losing
+        # transaction has rolled back. Other FK/constraint faults propagate.
+        with engine.connect() as connection:
+            previous = (
+                connection.execute(
+                    select(outbox.c.observation_id, outbox.c.body_sha256).where(
+                        outbox.c.source_event_id == source_event_id
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if previous is None:
+            raise
+        if (
+            previous["observation_id"] == observation_id
+            and previous["body_sha256"] == digest
+        ):
+            return "duplicate"
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    outbox_conflicts.insert().values(
+                        id=uuid4(),
+                        source_event_id=source_event_id,
+                        observation_id=observation_id,
+                        body_sha256=digest,
+                        body=frozen,
+                        first_detected_at_utc=current,
+                    )
+                )
+        except IntegrityError:
+            # Repeating the same rejected attempt is also idempotent.
+            with engine.connect() as connection:
+                recorded = connection.execute(
+                    select(outbox_conflicts.c.id).where(
+                        outbox_conflicts.c.source_event_id == source_event_id,
+                        outbox_conflicts.c.observation_id == observation_id,
+                        outbox_conflicts.c.body_sha256 == digest,
+                    )
+                ).scalar_one_or_none()
+            if recorded is None:
+                raise
+        return "conflict"
+
+
+def claim_candidate(
+    engine: Engine,
+    *,
+    source_event_id: UUID,
+    now: datetime,
+    lease_seconds: int = 30,
+) -> DeliveryClaimCandidate | None:
+    """Claim due work with a compare-and-set update; expired claims can retry."""
+    if not isinstance(source_event_id, UUID):
+        raise ValueError("source_event_id must be a UUID")
+    if (
+        isinstance(lease_seconds, bool)
+        or not isinstance(lease_seconds, int)
+        or not 1 <= lease_seconds <= 300
+    ):
+        raise ValueError("lease_seconds must be 1-300")
+    current = _aware_now(now)
+    token = uuid4()
+    with engine.begin() as connection:
+        changed = connection.execute(
+            update(outbox)
+            .where(
+                outbox.c.source_event_id == source_event_id,
+                or_(
+                    and_(
+                        outbox.c.state == "pending",
+                        outbox.c.next_attempt_at_utc <= current,
+                    ),
+                    and_(
+                        outbox.c.state == "leased",
+                        outbox.c.lease_until_utc <= current,
+                    ),
+                ),
+            )
+            .values(
+                state="leased",
+                lease_token=token,
+                lease_until_utc=current + timedelta(seconds=lease_seconds),
+                attempt_count=outbox.c.attempt_count + 1,
+            )
+        )
+        if changed.rowcount != 1:
+            return None
+        row = (
+            connection.execute(
+                select(outbox).where(outbox.c.source_event_id == source_event_id)
+            )
+            .mappings()
+            .one()
+        )
+    return DeliveryClaimCandidate(
+        source_event_id=source_event_id,
+        lease_token=token,
+        body=dict(row["body"]),
+        attempt_count=row["attempt_count"],
+    )
+
+
+def finish_candidate(
+    engine: Engine,
+    *,
+    claim: DeliveryClaimCandidate,
+    disposition: FinishDisposition,
+    now: datetime,
+    error_code: str = "",
+    retry_after_seconds: int = 0,
+) -> bool:
+    """Only the current lease holder may finish; retry keeps body and ID."""
+    if not isinstance(claim, DeliveryClaimCandidate):
+        raise ValueError("claim must be DeliveryClaimCandidate")
+    if disposition not in ("delivered", "retry", "rejected"):
+        raise ValueError("invalid disposition")
+    if not isinstance(error_code, str) or len(error_code) > 80:
+        raise ValueError("error_code must be at most 80 characters")
+    if disposition != "delivered" and not error_code:
+        raise ValueError("failed delivery requires error_code")
+    if (
+        isinstance(retry_after_seconds, bool)
+        or not isinstance(retry_after_seconds, int)
+        or not 0 <= retry_after_seconds <= 3600
+    ):
+        raise ValueError("retry_after_seconds must be 0-3600")
+    current = _aware_now(now)
+    next_state = {"delivered": "delivered", "retry": "pending", "rejected": "rejected"}[
+        disposition
+    ]
+    next_due = current + timedelta(seconds=retry_after_seconds)
+    with engine.begin() as connection:
+        result = connection.execute(
+            update(outbox)
+            .where(
+                outbox.c.source_event_id == claim.source_event_id,
+                outbox.c.state == "leased",
+                outbox.c.lease_token == claim.lease_token,
+            )
+            .values(
+                state=next_state,
+                next_attempt_at_utc=next_due,
+                lease_token=None,
+                lease_until_utc=None,
+                last_error_code=error_code or None,
+            )
+        )
+    return result.rowcount == 1
