@@ -1,0 +1,72 @@
+{
+  "contract_version": "0.2.0-rc3",
+  "status": "proposed_not_three_party_signed",
+  "repository": "Cynthia060913/freshlink-zhikong-public",
+  "normative_document": "contracts/S0-SIGNOFF.md",
+  "common_baseline": "637574acdebdfa0d2041b49e5f974b6286f6e7fe",
+  "sources": [
+    {
+      "id": "F01",
+      "revision": "63b1f354ccecd534d98d716e11b49496c7f6025a",
+      "paths": [
+        "docs/modules/A/01-contract-proposal.md",
+        "backend/tests/api/routes/fixtures/s0-telemetry-rc1.json"
+      ]
+    },
+    {
+      "id": "F02",
+      "revision": "1e5e005970e5cdeca7fcf6a4210e0857787f85b1",
+      "paths": [
+        "backend/app/modules/alerts/services/rules.py",
+        "backend/app/modules/alerts/models/rule.py",
+        "docs/modules/B/integration-notes.md"
+      ]
+    },
+    {
+      "id": "F03",
+      "revision": "63b1f354ccecd534d98d716e11b49496c7f6025a",
+      "paths": [
+        "contracts/F03-RC2.md",
+        "contracts/examples/candidate-f03-rc2.json"
+      ]
+    },
+    {
+      "id": "F04",
+      "revision": "63b1f354ccecd534d98d716e11b49496c7f6025a",
+      "paths": [
+        "contracts/examples/a-device-event-delivery-rc2.json",
+        "docs/modules/A/14-device-event-delivery.md"
+      ]
+    },
+    {
+      "id": "F05",
+      "revision": "63b1f354ccecd534d98d716e11b49496c7f6025a",
+      "paths": [
+        "contracts/examples/a-control-rc1.json",
+        "docs/modules/A/10-control-storage.md"
+      ]
+    },
+    {
+      "id": "F06",
+      "revision": "6d05d75d58dc23de48872ba2985a8f129c35ae49",
+      "paths": [
+        "docs/modules/C/02-query-csv-acceptance.md",
+        "docs/modules/C/examples/query-snapshot-rc1-proposal.json"
+      ]
+    },
+    {
+      "id": "F03-recovery",
+      "revision": "6d05d75d58dc23de48872ba2985a8f129c35ae49",
+      "paths": [
+        "docs/modules/C/examples/recovery-f03-rc2-c-proposal.json"
+      ]
+    }
+  ],
+  "not_proof_of": [
+    "merged_business_modules",
+    "formal_B_C_migrations",
+    "three_party_acceptance",
+    "real_notification_receipts",
+    "E1_or_contest_completion"
+  ]
+}
