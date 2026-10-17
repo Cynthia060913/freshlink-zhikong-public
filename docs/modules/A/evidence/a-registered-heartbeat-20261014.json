@@ -1,0 +1,11 @@
+{
+  "evidence_type": "executed_disposable_PostgreSQL_tests_not_persistent_heartbeat",
+  "date": "2026-10-14",
+  "base_main": "0bf33f86c1fde9af1cb7e7e5a9a74d411b42f813",
+  "component": "receive_registered_heartbeat read-only identity adapter",
+  "tests": {"full_backend_passed": 206, "failed": 0, "warnings": 1, "coverage_percent_rounded": 95},
+  "private_evidence": "work/a01-tests-20261014025054-46484/pytest.xml and htmlcov",
+  "frontend_assets": "Cached application assets only to satisfy backend startup; not a new frontend build/browser test",
+  "cleanup": "Unique disposable PostgreSQL project removed; existing application database untouched",
+  "not_tested": ["production MQTT auth", "last_seen state commit", "event outbox delivery", "B/C E1", "remote CI"]
+}

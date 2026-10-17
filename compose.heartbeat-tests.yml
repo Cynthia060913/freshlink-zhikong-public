@@ -1,0 +1,42 @@
+# Owned disposable database volume, solely for actual container-restart tests.
+services:
+  test-db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: freshlink_test
+      POSTGRES_PASSWORD: a01_disposable_only
+      POSTGRES_DB: freshlink_test
+    volumes:
+      - heartbeat-test-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freshlink_test -d freshlink_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  test-runner:
+    image: ${HB_APP_IMAGE:-freshlink-app:p0}
+    working_dir: /app/backend
+    environment:
+      PROJECT_NAME: FreshLink-test
+      FASTAPI_ENV: development
+      SECRET_KEY: a01-disposable-test-key-only-32-characters
+      FIRST_SUPERUSER: admin@example.com
+      FIRST_SUPERUSER_PASSWORD: a01-disposable-admin-only
+      DATABASE_URL: postgresql://freshlink_test:a01_disposable_only@test-db:5432/freshlink_test
+      SMTP_HOST: ""
+      EMAILS_FROM_EMAIL: ""
+      SENTRY_DSN: ""
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /app/backend
+    volumes:
+      - ./backend:/app/backend:ro
+      - ${HB_RESULT_DIR:?Use check-heartbeat-storage.ps1}:/results
+    depends_on:
+      test-db:
+        condition: service_healthy
+    entrypoint: ["python"]
+volumes:
+  heartbeat-test-db:
+networks:
+  default:
+    internal: true

@@ -1,5 +1,6 @@
 import { isAxiosError } from "axios"
 import { client } from "@/client/client.gen"
+import { formatDeviceTime } from "./connection"
 
 export type DeviceKind = "temperature_sensor" | "cooling_actuator"
 export interface Device {
@@ -11,7 +12,7 @@ export interface Device {
   is_simulated: boolean
   created_at: string
   last_seen_at: string | null
-  connectivity: "unknown"
+  connectivity: "unknown" | "online" | "offline"
 }
 export interface DeviceInput {
   code: string
@@ -20,6 +21,20 @@ export interface DeviceInput {
 }
 export interface DevicePage {
   data: Device[]
+  count: number
+}
+
+export interface ConnectivityEvent {
+  source_event_id: string
+  device_id: string
+  occurred_at: string
+  kind: "offline" | "recovered"
+  reason: string
+  related_source_event_id: string | null
+  delivery_state: "pending" | "held_unbound" | "delivered" | "failed"
+}
+export interface ConnectivityEventPage {
+  data: ConnectivityEvent[]
   count: number
 }
 
@@ -47,6 +62,21 @@ export const devicesApi = {
     >({
       url: "/api/v1/devices/{device_id}",
       path: { device_id: id },
+      responseType: "json",
+      security: [{ scheme: "bearer", type: "http" }],
+      throwOnError: true,
+    })
+    return response.data
+  },
+  async events(id: string): Promise<ConnectivityEventPage> {
+    const response = await client.get<
+      { 200: ConnectivityEventPage },
+      { 404: unknown; 422: unknown },
+      true
+    >({
+      url: "/api/v1/devices/{device_id}/connectivity-events",
+      path: { device_id: id },
+      query: { limit: 5 },
       responseType: "json",
       security: [{ scheme: "bearer", type: "http" }],
       throwOnError: true,
@@ -83,10 +113,5 @@ export function deviceError(error: unknown): string {
 }
 
 export function deviceTime(value: string | null): string {
-  if (!value) return "尚无记录"
-  return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
-    dateStyle: "medium",
-    timeStyle: "medium",
-  }).format(new Date(value))
+  return formatDeviceTime(value)
 }
