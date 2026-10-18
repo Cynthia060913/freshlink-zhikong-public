@@ -1,6 +1,22 @@
 # 跨模块公共约定草案 v0.1
 
-## 2026-10-14 接续入口：RC2 待签收，不提前冻结
+## 2026-10-19 已发布入口（优先于全部历史）
+
+PR23经C同头审查与适用检查通过，已正常合入共同main
+`46fa463d6ca4f71965b8db74b08a41f352b05cfb`。三方接受的固定包为
+`f98e65b4717334bae34f7495181c320ae5061860`，正文与manifest字节不变，见
+[S0-SIGNOFF](S0-SIGNOFF.md)及[实际签收/发布记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5)。
+固定包中的PROPOSED是生成日快照，不改包字节来改写过去；当前规范目标按其
+F01—F06及恢复决议执行，未实现业务不伪称完成。S0仍待B/C取得/本人接入记录，
+完整E1/两通知/14设备不是额外S0前置。唯一已发布迁移源码head仍为a03。
+
+### 2026-10-17 统一包生成时的入口（历史）
+
+当时请签收S0-SIGNOFF与固定manifest的同一完整提交，逐项确认六接口和恢复；
+当前签收/发布状态以上段和#5为准。截止和阶段目标见
+[DELIVERY-CHECKPOINTS](../docs/team/DELIVERY-CHECKPOINTS.md)。
+
+## 2026-10-14 RC2 接续说明（历史，保留权限与前缀约束）
 
 共同 main 已核实为 `0bf33f86c1fde9af1cb7e7e5a9a74d411b42f813`；B 为
 `58546e9993381b92d158cb437a31d61b95dfb1c1`，C 为
