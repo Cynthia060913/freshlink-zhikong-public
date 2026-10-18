@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'common.ps1')
 $savedLocation = Get-Location
 $reportPath = $null
-$result = [ordered]@{ stage = 'A01 frontend SDK/lint/build'; status = 'checking'; image = 'oven/bun:1.3.12'; registry = 'https://registry.npmjs.org'; dependency_storage = 'disposable Linux volume'; schema_sha256 = $null; bundle_directory = $null; error = $null }
+$result = [ordered]@{ stage = 'A01 frontend SDK/lint/build'; status = 'checking'; image = 'oven/bun:1.3.12'; registry = 'https://registry.npmjs.org'; dependency_storage = 'disposable Linux volume'; api_origin = 'same-origin (VITE_API_URL empty)'; schema_sha256 = $null; bundle_directory = $null; error = $null }
 try {
     $projectRoot = Get-FreshLinkRoot
     Set-Location -LiteralPath $projectRoot
@@ -51,6 +51,7 @@ try {
     Write-Output 'Dependencies use a temporary Linux volume, official npm registry and 4 concurrent downloads.'
     Write-Output 'Lockfile and package integrity checks remain enabled. Existing Windows dependencies are left untouched.'
     $argsForDocker = @('run', '--rm', '--pull', 'never',
+        '--env', 'VITE_API_URL=',
         '--mount', ('type=bind,source=' + (Join-Path $projectRoot 'frontend') + ',target=/workspace/frontend'),
         '--mount', ('type=bind,source=' + $bundleDirectory + ',target=/workspace/backend/app/frontend'),
         '--mount', 'type=volume,target=/workspace/frontend/node_modules',

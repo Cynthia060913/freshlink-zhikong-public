@@ -1,0 +1,294 @@
+"""Opt-in disposable real HTTP/MQTT/browser harness, never an app entrypoint."""
+
+import json
+import os
+import re
+import threading
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+from urllib.parse import urlparse
+from uuid import UUID
+
+
+def preflight() -> str:
+    source = os.environ.get("CONTROL_BROWSER_SOURCE", "")
+    database = urlparse(os.environ.get("DATABASE_URL", ""))
+    if (
+        not Path("/.dockerenv").is_file()
+        or database.hostname != "test-db"
+        or database.path != "/freshlink_test"
+        or database.username != "freshlink_test"
+        or os.environ.get("PROJECT_NAME") != "FreshLink-test"
+        or os.environ.get("FASTAPI_ENV") != "development"
+        or os.environ.get("SMTP_HOST") != ""
+        or os.environ.get("SENTRY_DSN") != ""
+        or not re.fullmatch(r"[0-9a-f]{40}", source)
+    ):
+        raise RuntimeError("Refusing non-disposable browser control environment")
+    return source
+
+
+def run() -> None:
+    source = preflight()
+    # Import DB/application code only AFTER the exact disposable guards.
+    import httpx
+    import paho.mqtt.client as mqtt
+    import uvicorn
+    from paho.mqtt.enums import CallbackAPIVersion
+    from sqlmodel import Session, SQLModel, select
+
+    from app.core.db import engine
+    from app.main import app
+    from app.modules.iot.control_models import DeviceCommand
+    from app.modules.iot.control_routes import control_warehouse_lookup
+    from app.modules.iot.control_worker import ControlWorker, ControlWorkerSettings
+    from app.modules.iot.heartbeat_worker import (
+        HeartbeatWorker,
+        HeartbeatWorkerSettings,
+    )
+    from app.modules.iot.models import Device
+    from app.modules.iot.simulator_runtime import DeviceRuntime, RuntimeSettings
+    from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
+
+    sensor = UUID("11111111-1111-4111-8111-111111111111")
+    actuator = UUID("66666666-6666-4666-8666-666666666666")
+    results = Path("/results")
+    for name in ("ready.json", "browser.json", "server.json", "browser-device.db"):
+        if (results / name).exists():
+            raise RuntimeError("Refusing to overwrite browser control evidence")
+    if control_warehouse_lookup in app.dependency_overrides:
+        raise RuntimeError("Refusing fake warehouse lookup")
+    # Only this B candidate table in the guarded disposable DB, NOT B Alembic.
+    SQLModel.metadata.tables["alerts_warehouse"].create(engine, checkfirst=False)
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning")
+    )
+    threads = []
+    workers = []
+    failures = []
+    samples = []
+    sample_lock = threading.Lock()
+    subscribed = threading.Event()
+
+    def launch(target):
+        def execute():
+            try:
+                target()
+            except Exception as error:
+                failures.append(type(error).__name__)
+
+        thread = threading.Thread(target=execute, daemon=True)
+        threads.append(thread)
+        thread.start()
+
+    def wait_until(predicate, timeout=20):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if failures:
+                raise RuntimeError("Owned browser harness worker failed")
+            if predicate():
+                return
+            time.sleep(0.1)
+        raise RuntimeError("Browser control checkpoint timed out")
+
+    observer = mqtt.Client(
+        CallbackAPIVersion.VERSION2,
+        client_id="browser-control-observer",
+        protocol=mqtt.MQTTv5,
+    )
+    observer.username_pw_set("test-controller", "fixture-controller-only")
+
+    def on_connect(client, _userdata, _flags, reason, _properties):
+        if not reason.is_failure:
+            client.subscribe(f"freshlink/v1/devices/{sensor}/telemetry", qos=1)
+
+    def on_subscribe(_client, _userdata, _mid, reasons, _properties):
+        if all(not reason.is_failure for reason in reasons):
+            subscribed.set()
+
+    def on_message(_client, _userdata, message):
+        value = json.loads(message.payload)["metrics"][0]["value"]
+        with sample_lock:
+            if len(samples) >= 500:
+                failures.append("sample_capacity")
+            else:
+                samples.append(value)
+
+    observer.on_connect = on_connect
+    observer.on_subscribe = on_subscribe
+    observer.on_message = on_message
+    try:
+        launch(server.run)
+        wait_until(lambda: server.started)
+        with httpx.Client(base_url="http://127.0.0.1:8000", timeout=5) as api:
+            login = api.post(
+                "/api/v1/login/access-token",
+                data={
+                    "username": "admin@example.com",
+                    "password": "a01-disposable-admin-only",
+                },
+            )
+            login.raise_for_status()
+            headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+            warehouse = api.post(
+                "/api/v1/warehouses/",
+                headers=headers,
+                json={"code": "browser-proof", "name": "Isolated browser warehouse"},
+            )
+            assert warehouse.status_code == 201
+            warehouse_id = UUID(warehouse.json()["id"])
+            with Session(engine) as session:
+                for identity, kind in (
+                    (sensor, "temperature_sensor"),
+                    (actuator, "cooling_actuator"),
+                ):
+                    session.add(
+                        Device(
+                            id=identity,
+                            code="browser-" + kind,
+                            name="Browser proof " + kind,
+                            kind=kind,
+                        )
+                    )
+                session.commit()
+            for identity in (sensor, actuator):
+                bound = api.post(
+                    f"/api/v1/devices/{identity}/binding",
+                    headers=headers,
+                    json={"warehouse_id": str(warehouse_id)},
+                )
+                assert bound.status_code == 200
+            common = {
+                "host": "broker",
+                "port": 1883,
+                "tls": False,
+                "isolated_test_plaintext": True,
+                "username": "test-controller",
+                "acl_confirmed": True,
+                "scan_period_seconds": 0.1,
+            }
+            heartbeat = HeartbeatWorker(
+                HeartbeatWorkerSettings.model_validate(
+                    {
+                        **common,
+                        "client_id": "browser-control-hb",
+                        "device_ids": [sensor, actuator],
+                    }
+                ),
+                password="fixture-controller-only",
+            )
+            control = ControlWorker(
+                ControlWorkerSettings.model_validate(
+                    {
+                        **common,
+                        "client_id": "browser-control-worker",
+                        "device_ids": [actuator],
+                    }
+                ),
+                password="fixture-controller-only",
+                warehouse_lookup_factory=warehouse_lookup_for_session,
+            )
+            device = DeviceRuntime(
+                RuntimeSettings.model_validate(
+                    {
+                        "host": "broker",
+                        "port": 1883,
+                        "tls": False,
+                        "isolated_test_plaintext": True,
+                        "sensor_username": "test-sensor",
+                        "actuator_username": "test-actuator",
+                        "sensor_id": sensor,
+                        "actuator_id": actuator,
+                        "warehouse_id": warehouse_id,
+                        "state_file": results / "browser-device.db",
+                        "sample_period_seconds": 0.5,
+                        "heartbeat_period_seconds": 0.5,
+                        "resend_period_seconds": 1,
+                    }
+                ),
+                sensor_password="fixture-sensor-only",
+                actuator_password="fixture-actuator-only",
+            )
+            observer.connect("broker", 1883)
+            observer.loop_start()
+            for worker in (heartbeat, control, device):
+                workers.append(worker)
+                launch(lambda worker=worker: worker.run(max_seconds=180))
+            wait_until(
+                lambda: (
+                    heartbeat.ready.is_set()
+                    and control.ready.is_set()
+                    and subscribed.is_set()
+                    and bool(samples)
+                    and api.get(f"/api/v1/devices/{actuator}", headers=headers).json()[
+                        "connectivity"
+                    ]
+                    == "online"
+                )
+            )
+            with sample_lock:
+                before = samples[-1]
+            with (results / "ready.json").open("x", encoding="utf-8") as output:
+                json.dump({"source": source, "actuator_id": str(actuator)}, output)
+            wait_until(lambda: (results / "browser.json").is_file(), timeout=120)
+            browser = json.loads((results / "browser.json").read_text(encoding="utf-8"))
+            assert browser["phase"] == "real_browser_http_mqtt_control_passed"
+            command_id = UUID(browser["command_id"])
+            prefix = f"/api/v1/devices/{actuator}/commands"
+            detail = api.get(f"{prefix}/{command_id}", headers=headers).json()
+            assert detail["status"] == "acknowledged"
+            assert detail["enabled"] is True
+            assert len(detail["receipts"]) == 1
+            assert detail["receipts"][0]["outcome"] == "accepted"
+            assert device.plant.state()["execution_count"] == 1
+            with Session(engine) as session:
+                assert len(session.exec(select(DeviceCommand)).all()) == 1
+            wait_until(lambda: bool(samples) and samples[-1] < before - 0.05)
+            with sample_lock:
+                after = samples[-1]
+            result = {
+                "phase": "browser_to_real_http_pg_mqtt_device_ack_passed",
+                "source": source,
+                "checked_at": datetime.now(UTC).isoformat(),
+                "command": detail,
+                "execution_count": 1,
+                "temperature_before": before,
+                "temperature_after": after,
+                "warehouse_lookup": "actual B HTTP/service; no dependency override",
+                "ddl_scope": "test-only B alerts_warehouse, NOT formal B migration",
+                "not_tested": [
+                    "C persistence/history/CSV",
+                    "real notifications",
+                    "formal B/C migrations",
+                    "full E1",
+                    "production deployment or TLS provisioning",
+                ],
+            }
+    finally:
+        server.should_exit = True
+        observer.disconnect()
+        observer.loop_stop()
+        for worker in workers:
+            worker.stop_requested.set()
+        for thread in threads:
+            thread.join(timeout=10)
+            if thread.is_alive():
+                failures.append("owned_thread_did_not_stop")
+        engine.dispose()
+    if failures:
+        raise RuntimeError("Browser control harness did not stop cleanly")
+    with (results / "server.json").open("x", encoding="utf-8") as output:
+        json.dump(result, output, indent=2, ensure_ascii=False)
+
+
+if __name__ == "__main__":
+    import sys
+
+    if sys.argv[1:] == ["--preflight"]:
+        preflight()
+        sys.stdout.write("PASS disposable browser environment before migrations\n")
+    elif not sys.argv[1:]:
+        run()
+    else:
+        raise SystemExit("Unsupported browser harness arguments")
