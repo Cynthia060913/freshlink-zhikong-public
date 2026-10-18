@@ -85,6 +85,7 @@ class DeliveryClaimCandidate:
     source_event_id: UUID
     lease_token: UUID
     body: dict[str, Any]
+    body_sha256: str
     attempt_count: int
 
 
@@ -248,6 +249,7 @@ def claim_candidate(
         source_event_id=source_event_id,
         lease_token=token,
         body=dict(row["body"]),
+        body_sha256=row["body_sha256"],
         attempt_count=row["attempt_count"],
     )
 
