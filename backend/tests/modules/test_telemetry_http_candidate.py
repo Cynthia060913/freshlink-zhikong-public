@@ -60,7 +60,15 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         app.include_router(router, prefix="/api/v1")
 
         def test_db():
-            with Session(self.engine) as session:
+            # Production PostgreSQL accepts the template JWT's UUID text in
+            # Session.get(User, sub); SQLite's UUID binder requires UUID.
+            class SQLiteAuthSession(Session):
+                def get(self, entity, ident, **kwargs):
+                    if entity is User and isinstance(ident, str):
+                        ident = UUID(ident)
+                    return super().get(entity, ident, **kwargs)
+
+            with SQLiteAuthSession(self.engine) as session:
                 yield session
 
         app.dependency_overrides[get_db] = test_db
