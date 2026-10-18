@@ -13,6 +13,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 
 from app.modules.telemetry.outbox_candidate import (
+    _frozen_body,
     claim_candidate,
     finish_candidate,
     outbox,
@@ -40,6 +41,34 @@ class Reception:
 
 
 class CandidateOutboxTests(unittest.TestCase):
+    def test_b_f03_rc2_canonical_digest_vector(self) -> None:
+        """B's 7b1cf26 CandidateCreate vector must match C's frozen bytes."""
+        source_id = UUID("77777777-7777-4777-8777-777777777777")
+        observation_id = UUID("00000000-0000-4000-8000-000000000004")
+        body = {
+            "schema_version": "1.0",
+            "source_event_id": str(source_id),
+            "warehouse_id": str(WAREHOUSE),
+            "batch_id": "55555555-5555-4555-8555-555555555555",
+            "observation_ids": [str(observation_id)],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-14T00:01:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "warning",
+            "rule_snapshot_id": "88888888-8888-4888-8888-888888888888",
+            "rule_version": "v1",
+            "algorithm_version": "threshold-rule/0.2.0-rc2",
+            "evidence": {"comparison": ">", "threshold": 8.0, "quality": ["ok"]},
+        }
+        frozen, digest = _frozen_body(body, source_id, observation_id)
+        self.assertEqual(frozen, body)
+        self.assertEqual(
+            f"sha256:{digest}",
+            "sha256:20789a39ec33eba8c25651c3f41c5c077c466c852ff58a11532cb211ca5aa234",
+        )
+
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.path = Path(self.directory.name) / "outbox.db"
