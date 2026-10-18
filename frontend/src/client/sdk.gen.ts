@@ -2,7 +2,7 @@
 
 import { type Client, type Options as Options2, type TDataShape, urlSearchParamsBodySerializer } from './client';
 import { client } from './client.gen';
-import type { devicesListDevicesData, devicesListDevicesErrors, devicesListDevicesResponses, devicesReadDeviceData, devicesReadDeviceErrors, devicesReadDeviceResponses, devicesRegisterDeviceData, devicesRegisterDeviceErrors, devicesRegisterDeviceResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
+import type { deviceControlListCommandsData, deviceControlListCommandsErrors, deviceControlListCommandsResponses, deviceControlQueueCommandData, deviceControlQueueCommandErrors, deviceControlQueueCommandResponses, deviceControlReadCommandData, deviceControlReadCommandErrors, deviceControlReadCommandResponses, devicesListDevicesData, devicesListDevicesErrors, devicesListDevicesResponses, devicesReadConnectivityEventsData, devicesReadConnectivityEventsErrors, devicesReadConnectivityEventsResponses, devicesReadDeviceData, devicesReadDeviceErrors, devicesReadDeviceResponses, devicesRegisterDeviceData, devicesRegisterDeviceErrors, devicesRegisterDeviceResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -405,6 +405,60 @@ export class DevicesService {
             responseType: 'json',
             security: [{ scheme: 'bearer', type: 'http' }],
             url: '/api/v1/devices/{device_id}',
+            ...options
+        });
+    }
+
+    /**
+     * Read Connectivity Events
+     */
+    public static readConnectivityEvents<ThrowOnError extends boolean = true>(options: Options<devicesReadConnectivityEventsData, ThrowOnError>) {
+        return (options.client ?? client).get<devicesReadConnectivityEventsResponses, devicesReadConnectivityEventsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/devices/{device_id}/connectivity-events',
+            ...options
+        });
+    }
+}
+
+export class DeviceControlService {
+    /**
+     * List Commands
+     */
+    public static controlListCommands<ThrowOnError extends boolean = true>(options: Options<deviceControlListCommandsData, ThrowOnError>) {
+        return (options.client ?? client).get<deviceControlListCommandsResponses, deviceControlListCommandsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/devices/{device_id}/commands',
+            ...options
+        });
+    }
+
+    /**
+     * Queue Command
+     */
+    public static controlQueueCommand<ThrowOnError extends boolean = true>(options: Options<deviceControlQueueCommandData, ThrowOnError>) {
+        return (options.client ?? client).post<deviceControlQueueCommandResponses, deviceControlQueueCommandErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/devices/{device_id}/commands',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+
+    /**
+     * Read Command
+     */
+    public static controlReadCommand<ThrowOnError extends boolean = true>(options: Options<deviceControlReadCommandData, ThrowOnError>) {
+        return (options.client ?? client).get<deviceControlReadCommandResponses, deviceControlReadCommandErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/devices/{device_id}/commands/{command_id}',
             ...options
         });
     }

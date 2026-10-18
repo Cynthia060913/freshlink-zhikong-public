@@ -21,6 +21,7 @@ fileConfig(config.config_file_name)
 
 from app.models import SQLModel  # noqa
 from app.modules.iot.models import Device  # noqa: F401
+from app.modules.iot.control_models import DeviceCommand, CommandAttempt, CommandReceipt  # noqa: F401
 from app.core.config import settings # noqa
 
 target_metadata = SQLModel.metadata
