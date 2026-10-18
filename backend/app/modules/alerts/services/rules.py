@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
@@ -38,7 +38,7 @@ from app.modules.alerts.models import (
     compute_snapshot_signature,
 )
 from app.modules.alerts.models.rule import _METRIC_CODE_RE
-from app.modules.alerts.services.batches import get_batch
+from app.modules.alerts.services.batches import BatchNotFound, get_batch
 from app.modules.alerts.services.warehouses import WarehouseNotFound, get_warehouse
 
 
@@ -115,10 +115,19 @@ def _successor_starts_by_predecessor(
     of the rows that name it.
     """
 
-    successors: dict[uuid.UUID, list[datetime]] = {}
-    for row in session.exec(
+    rows = session.exec(
         select(BatchRuleSnapshot).where(BatchRuleSnapshot.batch_id == batch_id)
-    ).all():
+    ).all()
+    return _successor_starts(rows)
+
+
+def _successor_starts(
+    rows: Iterable[BatchRuleSnapshot],
+) -> dict[uuid.UUID, list[datetime]]:
+    """Supersede-link map over an already-fetched row set (any batches)."""
+
+    successors: dict[uuid.UUID, list[datetime]] = {}
+    for row in rows:
         for pred_id in load_supersedes(row):
             successors.setdefault(pred_id, []).append(_as_utc(row.effective_start_at))
     return successors
@@ -476,42 +485,44 @@ def select_rules_for_observation(
     except WarehouseNotFound:
         return _invalid("unknown_warehouse")
 
-    # Validate every batch exists and belongs to the warehouse.
+    # Validate every batch exists and belongs to the warehouse. ONLY
+    # BatchNotFound is a permanent invalid input: a transient storage
+    # failure (OperationalError etc.) must PROPAGATE as SQLAlchemyError
+    # so the caller (C) keeps its evaluation work and retries — it must
+    # never be reclassified as a permanent unknown_batch (S0 F02,
+    # PR #10 round-3 review item 1).
     for bid in batch_ids:
         try:
             batch = get_batch(session, bid)
-        except Exception:  # noqa: BLE001 - BatchNotFound
+        except BatchNotFound:
             return _invalid("unknown_batch")
         if batch.warehouse_id != warehouse_id:
             return _invalid("unknown_batch")
 
-    rows = session.exec(
+    # Read/write use the SAME supersedes permanent closed-window rule:
+    # a predecessor's window closes at the earliest start of ANY
+    # successor that supersedes it — permanently, even after that
+    # successor's own stored interval has expired. Filtering to only
+    # "currently covering" rows first (the old query) dropped an
+    # expired bounded successor and silently revived its closed
+    # predecessor (S0 F02, PR #10 round-3 review item 2). Fetch all
+    # rows for the batches and derive each window with _derived_end,
+    # exactly like the writer's overlap check.
+    all_rows = session.exec(
         select(BatchRuleSnapshot)
-        .where(
-            col(BatchRuleSnapshot.batch_id).in_(list(batch_ids)),
-            col(BatchRuleSnapshot.effective_start_at) <= sampled_utc,
-            or_(
-                col(BatchRuleSnapshot.effective_end_at).is_(None),
-                col(BatchRuleSnapshot.effective_end_at) > sampled_utc,
-            ),
-        )
+        .where(col(BatchRuleSnapshot.batch_id).in_(list(batch_ids)))
         .order_by(col(BatchRuleSnapshot.created_at), col(BatchRuleSnapshot.id))
     ).all()
-
-    # Supersedes closure: a row whose id appears in a covering
-    # successor's supersedes list is considered closed from that
-    # successor's start. The link lives on the SUCCESSOR row
-    # (append-only); this closure is a pure read-side computation.
-    row_by_id = {row.id: row for row in rows}
-    excluded: set[uuid.UUID] = set()
-    for row in rows:
-        for pred_id in load_supersedes(row):
-            if pred_id in row_by_id and _as_utc(row.effective_start_at) <= sampled_utc:
-                excluded.add(pred_id)
+    successor_starts = _successor_starts(all_rows)
 
     entries: list[RuleSelectionEntry] = []
-    for row in rows:
-        if row.id in excluded:
+    for row in all_rows:
+        if not _as_utc(row.effective_start_at) <= sampled_utc:
+            continue
+        derived_end = _derived_end(row, successor_starts)
+        if derived_end is not None and derived_end <= sampled_utc:
+            # Window permanently closed by a successor (or its stored
+            # end) at or before sampled_utc — this rule never revives.
             continue
         for rule in parse_rules(row):
             if str(rule.get("metric_code")) != metric:
