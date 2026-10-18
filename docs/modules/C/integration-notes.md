@@ -1,5 +1,24 @@
 # C 共享接线请求
 
+## 2026-10-18 鉴权 HTTP 候选接线
+
+`backend/app/modules/telemetry/http_candidate.py` 新增相对 router
+`/telemetry/observations`，列表、详情和固定快照 CSV 均通过现有 `CurrentUser`
+核验活跃账号，不自行添加 `/api/v1`。列表首次创建成员/投影固定的 900 秒
+snapshot；后续分页用同 actor/筛选/策略绑定的签名游标，CSV 使用同 snapshot。
+详情提供 exact raw 与每次接收结果。快照每 actor 最多 4 个、全局最多 64 个
+有效项，满额 429 `snapshot_capacity` + `Retry-After: 30`；跨人/筛选不符/失效
+422，存储异常 503。当前首版没有逐仓 ACL，任何活跃账号可读取全库范围，
+与 S0 签收包一致，页面和材料需如实说明。
+
+**此 router 未挂共享根路由**，只基于 C 独立 candidate metadata 和测试库。
+集成 Agent 在 B 唯一迁移正式合入、C 迁移审查后，需将候选表接正式 schema，
+再在 `backend/app/api/main.py` 挂一次相对 router；绝不可在生产启动调用
+`metadata.create_all`。当前没有正式 app DB/PG HTTP 测试、生产游标签名密钥轮换、
+页面/导航或 E1。测试中的真实 JWT、快照容量、跨人/筛选拒绝、CSV 同集合，
+只证明可执行的 HTTP 适配边界；本机无 Python3.14/FastAPI 环境，远端 CI
+和正式迁移需分别记录。
+
 状态：接线提案，未实施。请指定集成 Agent 协调；C 不直接改根 API、公共导航、Compose、锁文件或迁移链。下文 2026-10-11 至 2026-10-13 的旧私有库 URL、PR 编号和 SHA 仅是历史证据；**当前协作、评论及代码交付均使用新公开仓库**。
 
 ## 2026-10-17 C 出站队列隔离候选

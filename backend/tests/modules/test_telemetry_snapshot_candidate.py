@@ -299,14 +299,29 @@ class SnapshotCandidateTests(unittest.TestCase):
                 filters=HistoryFiltersCandidate(quality_in=("ok",)),
             )
         invalid_only = HistoryFiltersCandidate(quality_in=("invalid_time:sampled_at",))
+        # The previous four live snapshots exhaust this actor's F06 quota.
+        other_actor = uuid4()
         invalid_snapshot = create_snapshot_candidate(
             self.engine,
-            actor_id=ACTOR,
+            actor_id=other_actor,
             filters=invalid_only,
             policy_version="active-user-read-v1",
             now=NOW,
         )
-        invalid_rows = self._csv(invalid_snapshot, filters=invalid_only)
+        invalid_rows = list(
+            csv.DictReader(
+                StringIO(
+                    render_snapshot_csv_candidate(
+                        self.engine,
+                        snapshot_id=invalid_snapshot,
+                        actor_id=other_actor,
+                        filters=invalid_only,
+                        policy_version="active-user-read-v1",
+                        now=NOW,
+                    ).decode("utf-8-sig")
+                )
+            )
+        )
         self.assertEqual(len(invalid_rows), 1)
         self.assertEqual(invalid_rows[0]["sampled_at"], "")
         self.assertEqual(invalid_rows[0]["risk_state"], "unknown")

@@ -25,6 +25,7 @@ from sqlalchemy import (
     String,
     Table,
     Uuid,
+    func,
     select,
 )
 from sqlalchemy.engine import Connection, Engine
@@ -189,6 +190,21 @@ def create_snapshot_candidate(
     created = _now(now)
     snapshot_id = uuid4()
     with engine.begin() as connection:
+        # Serialize admission across workers before counting active snapshots.
+        # SQLite's single writer transaction provides the test equivalent.
+        if connection.dialect.name == "postgresql":
+            connection.exec_driver_sql("SELECT pg_advisory_xact_lock(730112, 6)")
+        active = snapshots.c.expires_at_utc > created
+        actor_count = connection.execute(
+            select(func.count())
+            .select_from(snapshots)
+            .where(active, snapshots.c.actor_id == actor_id)
+        ).scalar_one()
+        global_count = connection.execute(
+            select(func.count()).select_from(snapshots).where(active)
+        ).scalar_one()
+        if actor_count >= 4 or global_count >= 64:
+            raise ValueError("snapshot_capacity")
         selected = (
             connection.execute(
                 select(
