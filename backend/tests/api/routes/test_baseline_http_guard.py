@@ -94,7 +94,14 @@ proof = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(proof)
 output = Path({str(tmp_path)!r})
 def mapped_path(value):
+    if value == '/.dockerenv':
+        return SimpleNamespace(is_file=lambda: True)
     return output / Path(value).name if str(value).startswith('/results/') else Path(value)
+settings = SimpleNamespace(
+    DATABASE_URL='postgresql://example:unused@test-db/freshlink_test',
+    PROJECT_NAME='FreshLink-test', API_V1_STR='/api/v1',
+    FIRST_SUPERUSER='admin@example.com', FIRST_SUPERUSER_PASSWORD='test-only',
+)
 connection = MagicMock()
 connection.exec_driver_sql.side_effect = [
     SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: ['a03_control_storage'])),
@@ -118,6 +125,7 @@ responses = [
 ]
 responses[{bad_index}] = (503, {{}})
 with patch.object(proof, 'Path', mapped_path), patch('app.core.db.engine', engine), \\
+     patch('app.core.config.settings', settings), \\
      patch.object(proof.subprocess, 'Popen', return_value=process), \\
      patch.object(proof, 'request', side_effect=responses):
     proof.main()
