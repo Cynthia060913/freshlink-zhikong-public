@@ -83,3 +83,9 @@ PG 与 API 终态通过，包含重放、拒绝伪 ACK、超时与晚 ACK。
 以上仍是待审集成候选。B 表的 DDL 是**隔离测试专用**，不是正式 Alembic
 迁移；发布链仍只有 `a03_control_storage`。未合入 main、未部署、未完成
 C 正式接线／浏览器／真实两通知或 E1；各自按 #5／#6／#7／#12 继续验收。
+
+同日补齐生成客户端：用上述603项通过时导出的同版OpenAPI，在缓存Bun 1.3.12
+隔离容器重新生成SDK、Biome检查81文件、Vite及TypeScript构建通过。实际生成差异
+只有CandidateCreate.severity从string收窄为info/warning/critical，与B7b契约一致；
+未改依赖锁或放宽生成文件门禁。原同步头的云端规范失败与新头结果分开记录，
+修复后的远端CI仍须按新提交回读，不以本地构建代替。
