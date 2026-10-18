@@ -17,6 +17,7 @@ from sqlalchemy.engine import Engine
 from app.modules.telemetry.outbox_candidate import (
     DeliveryClaimCandidate,
     claim_candidate,
+    due_source_ids_candidate,
     finish_candidate,
 )
 
@@ -145,3 +146,39 @@ def deliver_once_candidate(
     return _finish(
         engine, claim, _decision(receipt, claim), now=now, max_attempts=max_attempts
     )
+
+
+def deliver_due_batch_candidate(
+    engine: Engine,
+    *,
+    now: datetime,
+    port: CandidateDeliveryPort,
+    limit: int = 100,
+    max_attempts: int = 10,
+) -> list[tuple[UUID, DeliveryOutcome]]:
+    """Process one bounded due page without marking discovery as a claim.
+
+    Another worker may win between discovery and claim; such an item reports
+    ``not_due``. A later invocation discovers the next page. The caller owns
+    scheduling and must not treat this helper as an installed service.
+    """
+    if (
+        isinstance(max_attempts, bool)
+        or not isinstance(max_attempts, int)
+        or not 1 <= max_attempts <= 100
+    ):
+        raise ValueError("max_attempts must be 1-100")
+    due = due_source_ids_candidate(engine, now=now, limit=limit)
+    return [
+        (
+            source_id,
+            deliver_once_candidate(
+                engine,
+                source_event_id=source_id,
+                now=now,
+                port=port,
+                max_attempts=max_attempts,
+            ),
+        )
+        for source_id in due
+    ]

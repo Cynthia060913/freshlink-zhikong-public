@@ -14,9 +14,16 @@ from sqlalchemy.engine import Engine
 
 from app.modules.telemetry.delivery_candidate import (
     RemoteCandidateReceipt,
+    deliver_due_batch_candidate,
     deliver_once_candidate,
 )
-from app.modules.telemetry.outbox_candidate import outbox, stage_candidate
+from app.modules.telemetry.outbox_candidate import (
+    claim_candidate,
+    due_source_ids_candidate,
+    finish_candidate,
+    outbox,
+    stage_candidate,
+)
 from app.modules.telemetry.storage_candidate import ingest_observation, metadata
 
 DEVICE = UUID("11111111-1111-4111-8111-111111111111")
@@ -103,7 +110,13 @@ class CandidateDeliveryTests(unittest.TestCase):
 
     def _row(self):
         with self.engine.connect() as connection:
-            return connection.execute(select(outbox)).mappings().one()
+            return (
+                connection.execute(
+                    select(outbox).where(outbox.c.source_event_id == self.source_id)
+                )
+                .mappings()
+                .one()
+            )
 
     def _receipt(self, status="accepted_new", *, digest: str | None = None):
         return RemoteCandidateReceipt(
@@ -208,6 +221,92 @@ class CandidateDeliveryTests(unittest.TestCase):
     def test_bad_budget_is_rejected_before_claim(self) -> None:
         with self.assertRaisesRegex(ValueError, "max_attempts"):
             self._run(FakePort(), max_attempts=0)
+        self.assertEqual(self._row()["attempt_count"], 0)
+
+    def test_bounded_due_discovery_and_batch_do_not_resend_delivered(self) -> None:
+        second_id = uuid4()
+        second_body = {**self.body, "source_event_id": str(second_id)}
+        self.assertEqual(
+            stage_candidate(
+                self.engine,
+                source_event_id=second_id,
+                observation_id=UUID(self.body["observation_ids"][0]),
+                body=second_body,
+                now=NOW + timedelta(seconds=1),
+            ),
+            "staged",
+        )
+        self.assertEqual(
+            due_source_ids_candidate(self.engine, now=NOW), [self.source_id]
+        )
+        self.assertEqual(
+            deliver_due_batch_candidate(
+                self.engine,
+                now=NOW,
+                port=FakePort(send_results=[self._receipt()]),
+                limit=1,
+            ),
+            [(self.source_id, "delivered")],
+        )
+        self.assertEqual(
+            due_source_ids_candidate(self.engine, now=NOW + timedelta(seconds=1)),
+            [second_id],
+        )
+        with self.engine.connect() as connection:
+            digest = connection.execute(
+                select(outbox.c.body_sha256).where(
+                    outbox.c.source_event_id == second_id
+                )
+            ).scalar_one()
+        self.assertEqual(
+            deliver_due_batch_candidate(
+                self.engine,
+                now=NOW + timedelta(seconds=1),
+                port=FakePort(
+                    send_results=[
+                        RemoteCandidateReceipt(second_id, "accepted_new", digest)
+                    ]
+                ),
+                limit=1,
+            ),
+            [(second_id, "delivered")],
+        )
+        self.assertEqual(
+            due_source_ids_candidate(self.engine, now=NOW + timedelta(days=1)), []
+        )
+
+    def test_expired_lease_is_discovered_and_old_owner_cannot_finish(self) -> None:
+        claim = claim_candidate(self.engine, source_event_id=self.source_id, now=NOW)
+        assert claim is not None
+        self.assertEqual(
+            due_source_ids_candidate(self.engine, now=NOW + timedelta(seconds=29)), []
+        )
+        self.assertEqual(
+            due_source_ids_candidate(self.engine, now=NOW + timedelta(seconds=30)),
+            [self.source_id],
+        )
+        self.assertEqual(
+            deliver_due_batch_candidate(
+                self.engine,
+                now=NOW + timedelta(seconds=30),
+                port=FakePort(lookup_results=[self._receipt("accepted_duplicate")]),
+            ),
+            [(self.source_id, "delivered")],
+        )
+        self.assertFalse(
+            finish_candidate(self.engine, claim=claim, disposition="delivered", now=NOW)
+        )
+
+    def test_due_page_rejects_unbounded_or_naive_requests(self) -> None:
+        for limit in (0, 1001, True):
+            with self.assertRaisesRegex(ValueError, "limit"):
+                due_source_ids_candidate(self.engine, now=NOW, limit=limit)
+        with self.assertRaisesRegex(ValueError, "aware"):
+            due_source_ids_candidate(self.engine, now=NOW.replace(tzinfo=None))
+        with self.assertRaisesRegex(ValueError, "max_attempts"):
+            deliver_due_batch_candidate(
+                self.engine, now=NOW, port=FakePort(), max_attempts=0
+            )
         self.assertEqual(self._row()["attempt_count"], 0)
 
 

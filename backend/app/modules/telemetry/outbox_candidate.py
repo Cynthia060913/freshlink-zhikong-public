@@ -24,6 +24,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     and_,
+    case,
     or_,
     select,
     update,
@@ -252,6 +253,39 @@ def claim_candidate(
         body_sha256=row["body_sha256"],
         attempt_count=row["attempt_count"],
     )
+
+
+def due_source_ids_candidate(
+    engine: Engine, *, now: datetime, limit: int = 100
+) -> list[UUID]:
+    """Discover bounded, due work; each worker still needs a CAS claim."""
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+        raise ValueError("limit must be 1-1000")
+    current = _aware_now(now)
+    due_at = case(
+        (outbox.c.state == "leased", outbox.c.lease_until_utc),
+        else_=outbox.c.next_attempt_at_utc,
+    )
+    with engine.connect() as connection:
+        return list(
+            connection.scalars(
+                select(outbox.c.source_event_id)
+                .where(
+                    or_(
+                        and_(
+                            outbox.c.state == "pending",
+                            outbox.c.next_attempt_at_utc <= current,
+                        ),
+                        and_(
+                            outbox.c.state == "leased",
+                            outbox.c.lease_until_utc <= current,
+                        ),
+                    )
+                )
+                .order_by(due_at, outbox.c.source_event_id)
+                .limit(limit)
+            )
+        )
 
 
 def finish_candidate(
