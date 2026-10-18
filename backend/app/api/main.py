@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.routes import items, login, private, users, utils
 from app.core.config import settings
+from app.modules.iot.control_routes import router as device_control_router
 from app.modules.iot.routes import router as devices_router
 
 api_router = APIRouter()
@@ -10,6 +11,7 @@ api_router.include_router(users.router)
 api_router.include_router(utils.router)
 api_router.include_router(items.router)
 api_router.include_router(devices_router)
+api_router.include_router(device_control_router)
 
 
 if settings.FASTAPI_ENV == "development":
