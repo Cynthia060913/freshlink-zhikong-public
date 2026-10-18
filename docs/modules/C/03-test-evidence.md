@@ -1,6 +1,37 @@
 # C 测试证据与后续复现清单
 
-状态：C4 的阶段性真实证据汇编；最新核对于 2026-10-17。以下较早章节按其各自 SHA 和当时状态保留；其中“本机待上传”或“没有数据库查询”不代表今天的隔离候选进度。
+## 2026-10-18 最新 C 证据索引（M03 底稿，未签收）
+
+- **版本**：共同 main `095c3a7b34ceacd4b9d52cbea180d77de596f2dc` 已正常合入
+  C 分支；[PR11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  当前已上传 HEAD `032c2cc700b76902e50502020164b1d9490c6209`。
+  本机下一提交 `5b9fa2acfb529f479fe5c94374c4e8cb71be6d2f` 的 B HTTP 适配
+  因 GitHub 443 连接重置/超时**尚未上传**；没有把该源码称为团队可获取的远端交付。
+- **C 本机模块实跑**：Windows 隔离 Python3.13.9；F03 正文规范化固定普通与
+  恢复摘要及 outbox 重开、恢复依赖/投递、合成 B HTTP 回执映射和认证失败，
+  相关 34/34 OK。C-only 可运行子集实跑 136 项：131 passed、5 skipped。
+  更广的 138 项 telemetry 收集有 2 个导入错误：A ingress 使用项目 Python3.14
+  语法，本机只有 3.13；隔离 venv 未装 FastAPI，C HTTP TestClient 无法本机导入。
+  这些错误未计入通过；本机 `docker` 命令未找到，未起完整服务/登录/设备页。
+- **远端同头工程检查**：已上传 `032c2cc7` 的 Backend、pre-commit、Compose、
+  Playwright、Zizmor 五项 Actions 均 completed/success。该通用浏览器检查未
+  实际点击未挂载的 C 页面；默认 PG opt-in 不据此声称实跑。后端具体计数以
+  [同头工作流](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11/checks)
+  日志为准，不把整仓数写作 C 专项数。
+- **受控 PostgreSQL 独立证据**：A 用 Python3.14.8/PG18.6/A24 对合并前 C
+  准确 `a97b9c04ff9cb3cd32872e87335b11bfadf677e1` 运行三项 PG opt-in，
+  **3 passed / 0 failed / 0 skipped**，含 JWT/详情/固定快照CSV、幂等回滚并发重连、
+  晚提交隔离，见 [A 在 #9 的证据](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6250624268)。
+  旧 `66b9b54` 的 2过1失败是夹具污染历史，不能覆写；新 `032c`/本机 `5b9`
+  未跑同头 PG，也未证明正式 C Alembic/应用共享根路由。
+- **失败与待证**：B PR10 的新恢复 `9cf9a5d…` 已有 B 模块测试，但 C 在
+  [跨模块审查](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5563695226)
+  指出非温度原事件可能被恢复的边界，待 B 修复；C 没有实际把候选发到 B。
+  正式持久表与迁移、真实 A→C 运行、已挂载鉴权 HTTP/页面、CSV 浏览器下载、
+  B 候选投递/恢复、两通知终端实收、E1、第二电脑复现及14设备完整场景均未验收。
+  A/B 自己的证据仍按其本人 #7/#8/#12 和精确 SHA 引用，不能由 C 填成全系统通过。
+
+以下为 2026-10-17 及更早阶段的真实证据，按其各自 SHA 和当时状态保留；其中“本机待上传”或“没有数据库查询”不代表上方 2026-10-18 的隔离候选进度。
 
 ## 当前可交接证据索引（2026-10-17）
 
