@@ -155,8 +155,10 @@ class CandidateContractProposalTests(unittest.TestCase):
                 "rule_version",
                 "algorithm_version",
                 "evidence",
+                "related_source_event_id",
             },
         )
+        self.assertIsNone(candidate["related_source_event_id"])
         self.assertEqual(candidate["schema_version"], "1.0")
         self.assertEqual(
             candidate["warehouse_id"], result["normalized"]["warehouse_id"]

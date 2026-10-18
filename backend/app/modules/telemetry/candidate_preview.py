@@ -11,6 +11,7 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
+from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
 from app.modules.telemetry.quality import _number, _utc, _uuid, process_batch
 
 ALGORITHM_VERSION = "threshold-rule/0.2.0-rc2"
@@ -149,30 +150,32 @@ def build_candidate_preview(
     ):
         raise ValueError("processed evidence differs from raw observation")
 
-    return {
-        "schema_version": "1.0",
-        "source_event_id": _required_uuid(source_event_id, "source_event_id"),
-        "warehouse_id": warehouse_id,
-        "batch_id": batch_id,
-        "observation_ids": [_required_uuid(observation_id, "observation_id")],
-        "metric_code": "temperature",
-        "sampled_at": _utc(normalized["sampled_at"]),
-        "value": numeric_value,
-        "unit": "°C",
-        "kind": "temperature_high",
-        "severity": severity,
-        "rule_snapshot_id": snapshot_id,
-        "rule_version": _required_text(rule.get("rule_version"), "rule_version"),
-        "algorithm_version": ALGORITHM_VERSION,
-        "evidence": {
-            "device_id": device_id,
-            "message_id": message_id,
-            "raw_value": deepcopy(matching[0].get("value")),
-            "raw_unit": matching[0]["unit"],
-            "normalized_value": numeric_value,
-            "normalized_unit": "°C",
-            "comparison": ">",
-            "threshold": threshold,
-            "quality": deepcopy(quality),
-        },
-    }
+    return normalize_f03_body_candidate(
+        {
+            "schema_version": "1.0",
+            "source_event_id": _required_uuid(source_event_id, "source_event_id"),
+            "warehouse_id": warehouse_id,
+            "batch_id": batch_id,
+            "observation_ids": [_required_uuid(observation_id, "observation_id")],
+            "metric_code": "temperature",
+            "sampled_at": _utc(normalized["sampled_at"]),
+            "value": numeric_value,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": severity,
+            "rule_snapshot_id": snapshot_id,
+            "rule_version": _required_text(rule.get("rule_version"), "rule_version"),
+            "algorithm_version": ALGORITHM_VERSION,
+            "evidence": {
+                "device_id": device_id,
+                "message_id": message_id,
+                "raw_value": deepcopy(matching[0].get("value")),
+                "raw_unit": matching[0]["unit"],
+                "normalized_value": numeric_value,
+                "normalized_unit": "°C",
+                "comparison": ">",
+                "threshold": threshold,
+                "quality": deepcopy(quality),
+            },
+        }
+    )

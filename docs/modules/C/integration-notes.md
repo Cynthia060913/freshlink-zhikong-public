@@ -251,5 +251,29 @@ B 在 S0 #5 的 2026-10-18 回复给出固定 `CandidateCreate` 规范化样例�
 C 的固定正文以同样的键排序、紧凑 JSON、UTF-8/非 ASCII 原文计算，新增单测
 逐字对拍此摘要。此对拍仅覆盖该已规范化向量；真实适配器发送前仍须确保
 UUID、UTC、数值、severity 和全部可空字段与 B `CandidateCreate` 规范化结果
-一致，否则 B 的摘要可能不同，C 不能把回复误判为 delivered。B 当前路由尚未
-挂主应用，恢复候选增量也未实现；实际跨模块投递待后续同版验证。
+一致，否则 B 的摘要可能不同，C 不能把回复误判为 delivered。此段是
+7b1cf26 时的版本记录；恢复候选增量的更新见下节。实际跨模块投递仍待验证。
+
+### 2026-10-18 B 恢复增量后的正文版本边界
+
+B PR #10 当前 `9cf9a5de55d48bf0761655b6f2cda844ec5975f6` 已新增
+`CandidateCreate.related_source_event_id`（非恢复候选也由 `model_dump(mode="json")`
+输出 `null`），恢复 `temperature_recovered` 以新 ID 引用原异常；B 已在 #5
+给出恢复固定摘要 `sha256:d6d1ef23731e60bdcdee94f36c7b271952d071ce7d4d53841cb4dd7cee301c0c`。
+上段 `20789…` 是 **7b1cf26 旧 DTO 的历史向量**；相同普通高温正文在新增
+`related_source_event_id:null` 后按 B 规范变为
+`sha256:f862dc326de9146c30723cb636cdd8e7fbb99cea3eb464ee09fd2d40cdc9f36c`。
+不得拿旧摘要核对新 B 版本。
+
+C 新 `f03_body_candidate.py::normalize_f03_body_candidate` 固定 16 字段、UUID、
+UTC、温度 °C、有限数值、质量证据和 32768 字节上限，拒绝未知字段；
+`outbox_candidate.py::stage_f03_candidate` 必须先规范化再持久冻结，避免 B
+默认字段在发送后改变摘要。固定普通/恢复向量及 SQLite 重开后的 outbox
+摘要测试已加入。此文件仍是**隔离候选**，没有 B HTTP 调用、真实服务凭据、
+正式 C 迁移或 E1 证据。
+
+恢复投递前须先通过 B `by-source` 回读确认原异常已接收且摘要对应 C 冻结
+正文。B 新实现对未知原事件返回 422 `invalid/unknown_related_event`；C 不能把
+它作为一般可重试 503，也不能抢发恢复。原异常未确认时恢复保持待处理；
+同仓/批/指标不匹配仍是永久拒绝。B 当前模块 router 尚未挂主 app，真实
+JWT/HTTP 与 PG 跨模块试验待共享接线和独立环境验证。

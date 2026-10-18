@@ -32,6 +32,7 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
+from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
 from app.modules.telemetry.history_candidate import _utc_bound
 from app.modules.telemetry.storage_candidate import metadata, observations
 
@@ -194,6 +195,29 @@ def stage_candidate(
             if recorded is None:
                 raise
         return "conflict"
+
+
+def stage_f03_candidate(
+    engine: Engine,
+    *,
+    source_event_id: UUID,
+    observation_id: UUID,
+    body: dict[str, Any],
+    now: datetime,
+) -> StageStatus:
+    """Stage the complete B-compatible body before an eventual HTTP send.
+
+    The old generic staging primitive remains for isolated outbox mechanics;
+    integration callers must use this wrapper so B's DTO defaults (including
+    a null recovery link on anomalies) cannot change the stored digest later.
+    """
+    return stage_candidate(
+        engine,
+        source_event_id=source_event_id,
+        observation_id=observation_id,
+        body=normalize_f03_body_candidate(body),
+        now=now,
+    )
 
 
 def claim_candidate(
