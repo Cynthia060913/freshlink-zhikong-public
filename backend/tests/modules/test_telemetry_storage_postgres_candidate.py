@@ -120,6 +120,116 @@ class PostgresStorageCandidateTests(unittest.TestCase):
         with self.engine.connect() as connection:
             return int(connection.scalar(select(func.count()).select_from(table)))
 
+    def test_authenticated_http_snapshot_csv_on_disposable_postgres(self) -> None:
+        """Real PG UUID auth, fixed CSV membership and scoped errors.
+
+        This is still a candidate schema and a module-only router, never the
+        shared application migration or root HTTP mount.
+        """
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from sqlmodel import Session
+
+        from app.api.deps import get_db
+        from app.core.security import create_access_token
+        from app.models import User
+        from app.modules.telemetry.http_candidate import router
+
+        User.__table__.create(self.engine)
+        try:
+            reader = User(
+                email=f"c-pg-reader-{uuid4().hex}@example.test", hashed_password="test"
+            )
+            other = User(
+                email=f"c-pg-other-{uuid4().hex}@example.test", hashed_password="test"
+            )
+            disabled = User(
+                email=f"c-pg-disabled-{uuid4().hex}@example.test",
+                hashed_password="test",
+                is_active=False,
+            )
+            with Session(self.engine) as session:
+                session.add_all([reader, other, disabled])
+                session.commit()
+                for user in (reader, other, disabled):
+                    session.refresh(user)
+
+            def test_db():
+                with Session(self.engine) as session:
+                    yield session
+
+            def headers(user):
+                token = create_access_token(str(user.id), timedelta(minutes=10))
+                return {"Authorization": f"Bearer {token}"}
+
+            app = FastAPI()
+            app.include_router(router, prefix="/api/v1")
+            app.dependency_overrides[get_db] = test_db
+            receipt = _reception(uuid4(), seconds=30)
+            ingested = ingest_observation(self.engine, receipt)
+            self.assertEqual(ingested.status, "accepted_new")
+            assert ingested.observation_id is not None
+            path = "/api/v1/telemetry/observations"
+            params = {"warehouse_id": str(_WAREHOUSE_ID)}
+            with TestClient(app) as client:
+                self.assertEqual(client.get(path + "/").status_code, 401)
+                self.assertEqual(
+                    client.get(path + "/", headers=headers(disabled)).status_code,
+                    400,
+                )
+                page = client.get(path + "/", params=params, headers=headers(reader))
+                self.assertEqual(page.status_code, 200, page.text)
+                data = page.json()
+                self.assertGreaterEqual(data["total"], 1)
+                self.assertIn(
+                    str(ingested.observation_id),
+                    [item["observation_id"] for item in data["items"]],
+                )
+                export = client.get(
+                    path + "/export.csv",
+                    params={**params, "snapshot_id": data["snapshot_id"]},
+                    headers=headers(reader),
+                )
+                self.assertEqual(export.status_code, 200, export.text)
+                exported = list(
+                    csv.DictReader(StringIO(export.content.decode("utf-8-sig")))
+                )
+                self.assertEqual(
+                    [row["observation_id"] for row in exported],
+                    [item["observation_id"] for item in data["items"]],
+                )
+                detail = client.get(
+                    path + f"/{ingested.observation_id}", headers=headers(reader)
+                )
+                self.assertEqual(detail.status_code, 200, detail.text)
+                self.assertEqual(detail.json()["raw_text"], receipt.raw_text)
+                self.assertEqual(
+                    client.get(
+                        path + "/export.csv",
+                        params={**params, "snapshot_id": data["snapshot_id"]},
+                        headers=headers(other),
+                    ).status_code,
+                    422,
+                )
+
+                def fail_snapshot(_conn, _cursor, statement, _params, _context, _many):
+                    if "telemetry_snapshot_candidate" in statement:
+                        raise OperationalError(
+                            statement, {}, RuntimeError("synthetic PG read fault")
+                        )
+
+                event.listen(self.base_engine, "before_cursor_execute", fail_snapshot)
+                try:
+                    unavailable = client.get(path + "/", headers=headers(reader))
+                finally:
+                    event.remove(
+                        self.base_engine, "before_cursor_execute", fail_snapshot
+                    )
+                self.assertEqual(unavailable.status_code, 503, unavailable.text)
+                self.assertEqual(unavailable.headers["Retry-After"], "30")
+        finally:
+            User.__table__.drop(self.engine)
+
     def test_raw_idempotency_rollback_concurrency_and_new_connection(self) -> None:
         message_id = uuid4()
         first = _reception(message_id)

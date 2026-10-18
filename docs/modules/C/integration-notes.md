@@ -19,6 +19,12 @@ snapshot；后续分页用同 actor/筛选/策略绑定的签名游标，CSV 使
 只证明可执行的 HTTP 适配边界；本机无 Python3.14/FastAPI 环境，远端 CI
 和正式迁移需分别记录。
 
+`test_telemetry_storage_postgres_candidate.py` 另加真实 PostgreSQL 下的模块
+HTTP/JWT/CSV/故障测试，仍沿既有 `FRESHLINK_C_TEST_POSTGRES=1` 和
+`test-db/freshlink_test/FreshLink-test` 精确守卫，在随机 C schema 内建测试用户
+表并清理。默认本机无此环境会明确 skip；只有实际隔离 PG job 跑到该新用例
+才可称它通过，旧 2/2 证据不能代替新用例。
+
 状态：接线提案，未实施。请指定集成 Agent 协调；C 不直接改根 API、公共导航、Compose、锁文件或迁移链。下文 2026-10-11 至 2026-10-13 的旧私有库 URL、PR 编号和 SHA 仅是历史证据；**当前协作、评论及代码交付均使用新公开仓库**。
 
 ## 2026-10-17 C 出站队列隔离候选
