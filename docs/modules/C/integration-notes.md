@@ -284,3 +284,13 @@ C 隔离 outbox 现存 `related_source_event_id`，到期扫描及原子抢租�
 `unknown_related_event`。这只保证本地投递顺序；没有正式 C 迁移、调度器、
 B HTTP 适配或实际 B 回读。原异常永久拒绝时，恢复 pending 需人工审查，
 不能自动显示为 resolved/normal。
+
+C 另提供未挂载的 `b_http_candidate.py`：按 B 给定的
+`GET /api/v1/candidates/by-source/{source_event_id}` / `POST /api/v1/candidates`
+映射 404、201/200/409/422/503 与规范摘要；200 必须有可核对来源 ID 和
+`sha256:<hex>`，不全时不标送达。真实网络传输由调用方注入短期 bearer，
+禁止 URL 内嵌凭据、重定向转发及非 loopback 明文 HTTP；没有在源码放入真实
+凭据或自动启动 worker。401/403/禁用用户等认证失败保留有界重试记录，
+不误作候选已收。B 目前尚未挂共享根，也未确认服务间身份签发/刷新；
+在 A/B 接线及独立 PG/HTTP 验证前，此适配器测试只用本机合成 HTTP 回应，
+不能报告为 B 实际接收。

@@ -187,6 +187,21 @@ class CandidateDeliveryTests(unittest.TestCase):
         self.assertEqual(self._row()["last_error_code"], "retry_budget_exhausted")
         self.assertEqual(self._row()["state"], "rejected")
 
+    def test_authorization_failure_keeps_bounded_failure_evidence(self) -> None:
+        port = FakePort(lookup_results=[PermissionError("synthetic auth failure")])
+        self.assertEqual(self._run(port, max_attempts=2), "retry")
+        self.assertEqual(port.sent_bodies, [])
+        self.assertEqual(self._row()["last_error_code"], "b_auth_unavailable")
+        second = FakePort(
+            lookup_results=[None],
+            send_results=[PermissionError("synthetic send auth failure")],
+        )
+        self.assertEqual(
+            self._run(second, now=NOW + timedelta(seconds=30), max_attempts=2),
+            "rejected",
+        )
+        self.assertEqual(self._row()["last_error_code"], "retry_budget_exhausted")
+
     def test_rejection_and_unverifiable_receipt_never_mark_delivered(self) -> None:
         wrong = FakePort(send_results=[self._receipt(digest="0" * 64)])
         self.assertEqual(self._run(wrong), "retry")

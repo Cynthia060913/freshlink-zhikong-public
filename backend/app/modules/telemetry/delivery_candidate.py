@@ -97,9 +97,10 @@ def deliver_once_candidate(
 ) -> DeliveryOutcome:
     """Claim one durable event and resolve uncertain delivery before re-sending.
 
-    The transport adapter must convert its own timeouts/connectivity failures
-    into TimeoutError/ConnectionError. All other exceptions propagate, leaving
-    the lease to expire for a later worker; they never fabricate an acceptance.
+    The transport adapter converts timeouts/connectivity failures into
+    TimeoutError/ConnectionError and authorization failures into
+    PermissionError. These retain bounded durable retry evidence; they never
+    fabricate an acceptance. Unexpected exceptions leave the lease to expire.
     """
     if (
         isinstance(max_attempts, bool)
@@ -113,6 +114,14 @@ def deliver_once_candidate(
 
     try:
         prior = port.lookup(claim.source_event_id)
+    except PermissionError:
+        return _finish(
+            engine,
+            claim,
+            ("retry", "b_auth_unavailable"),
+            now=now,
+            max_attempts=max_attempts,
+        )
     except (TimeoutError, ConnectionError):  # fmt: skip
         return _finish(
             engine,
@@ -129,6 +138,14 @@ def deliver_once_candidate(
     receipt: RemoteCandidateReceipt | None
     try:
         receipt = port.send(claim.body)
+    except PermissionError:
+        return _finish(
+            engine,
+            claim,
+            ("retry", "b_auth_unavailable"),
+            now=now,
+            max_attempts=max_attempts,
+        )
     except (TimeoutError, ConnectionError):  # fmt: skip
         # The send may have committed at B. Read by source before any retry.
         try:
