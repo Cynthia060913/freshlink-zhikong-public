@@ -2,6 +2,8 @@
 
 import importlib.util
 import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -70,6 +72,26 @@ class BrowserGuardTests(unittest.TestCase):
         for value in ("", "main", "a" * 39, "g" * 40, "a" * 41):
             with self.subTest(value=value):
                 self.check(False, CONTROL_BROWSER_SOURCE=value)
+
+    def test_explicit_failure_gate(self):
+        with self.assertRaisesRegex(RuntimeError, "verification failed"):
+            guard.require(False, "injected wrong ACK")
+
+    def test_optimized_python_does_not_remove_failure_gate(self):
+        code = (
+            "import runpy; "
+            f"module=runpy.run_path({str(spec.origin)!r}); "
+            "module['require'](False, 'injected wrong ACK')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-O", "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("injected wrong ACK", result.stderr)
 
 
 if __name__ == "__main__":

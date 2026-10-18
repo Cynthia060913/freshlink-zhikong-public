@@ -11,6 +11,12 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 
+def require(condition: bool, reason: str) -> None:
+    """Evidence gates must remain active under python -O/PYTHONOPTIMIZE."""
+    if not condition:
+        raise RuntimeError("Browser control verification failed: " + reason)
+
+
 def preflight() -> str:
     source = os.environ.get("CONTROL_BROWSER_SOURCE", "")
     database = urlparse(os.environ.get("DATABASE_URL", ""))
@@ -136,7 +142,7 @@ def run() -> None:
                 headers=headers,
                 json={"code": "browser-proof", "name": "Isolated browser warehouse"},
             )
-            assert warehouse.status_code == 201
+            require(warehouse.status_code == 201, "warehouse create")
             warehouse_id = UUID(warehouse.json()["id"])
             with Session(engine) as session:
                 for identity, kind in (
@@ -158,7 +164,7 @@ def run() -> None:
                     headers=headers,
                     json={"warehouse_id": str(warehouse_id)},
                 )
-                assert bound.status_code == 200
+                require(bound.status_code == 200, "device binding")
             common = {
                 "host": "broker",
                 "port": 1883,
@@ -233,17 +239,20 @@ def run() -> None:
                 json.dump({"source": source, "actuator_id": str(actuator)}, output)
             wait_until(lambda: (results / "browser.json").is_file(), timeout=120)
             browser = json.loads((results / "browser.json").read_text(encoding="utf-8"))
-            assert browser["phase"] == "real_browser_http_mqtt_control_passed"
+            require(
+                browser["phase"] == "real_browser_http_mqtt_control_passed",
+                "browser result phase",
+            )
             command_id = UUID(browser["command_id"])
             prefix = f"/api/v1/devices/{actuator}/commands"
             detail = api.get(f"{prefix}/{command_id}", headers=headers).json()
-            assert detail["status"] == "acknowledged"
-            assert detail["enabled"] is True
-            assert len(detail["receipts"]) == 1
-            assert detail["receipts"][0]["outcome"] == "accepted"
-            assert device.plant.state()["execution_count"] == 1
+            require(detail["status"] == "acknowledged", "saved ACK status")
+            require(detail["enabled"] is True, "command intent")
+            require(len(detail["receipts"]) == 1, "receipt count")
+            require(detail["receipts"][0]["outcome"] == "accepted", "receipt outcome")
+            require(device.plant.state()["execution_count"] == 1, "execution count")
             with Session(engine) as session:
-                assert len(session.exec(select(DeviceCommand)).all()) == 1
+                require(len(session.exec(select(DeviceCommand)).all()) == 1, "DB count")
             wait_until(lambda: bool(samples) and samples[-1] < before - 0.05)
             with sample_lock:
                 after = samples[-1]
