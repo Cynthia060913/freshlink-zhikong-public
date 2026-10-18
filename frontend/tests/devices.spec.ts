@@ -13,6 +13,37 @@ const device: Device = {
   connectivity: "unknown",
 }
 
+for (const status of ["online", "offline"] as const) {
+  test(`Devices UI mock: committed ${status} state is shown in list and detail`, async ({
+    page,
+  }) => {
+    const current: Device = {
+      ...device,
+      connectivity: status,
+      last_seen_at: "2026-10-14T00:00:00Z",
+    }
+    await page.route("**/api/v1/devices/**", async (route) => {
+      const path = new URL(route.request().url()).pathname
+      await route.fulfill({
+        json: path.endsWith("/connectivity-events")
+          ? { data: [], count: 0 }
+          : path.endsWith(device.id)
+            ? current
+            : { data: [current], count: 1 },
+      })
+    })
+    await page.goto("/devices")
+    const label = status === "online" ? "在线" : "离线"
+    await expect(
+      page.getByRole("cell", { name: label, exact: true }),
+    ).toBeVisible()
+    await page.getByRole("button", { name: "查看详情" }).click()
+    await expect(
+      page.getByRole("dialog").getByText(label, { exact: true }),
+    ).toBeVisible()
+  })
+}
+
 async function mockList(page: Page, data: Device[] = []) {
   await page.route("**/api/v1/devices/**", async (route) => {
     await route.fulfill({ json: { data, count: data.length } })
@@ -257,7 +288,10 @@ test("Devices UI mock: detail keeps unknown heartbeat and Beijing time", async (
   page,
 }) => {
   await page.route("**/api/v1/devices/**", async (route) => {
-    if (new URL(route.request().url()).pathname.endsWith(device.id)) {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith("/connectivity-events")) {
+      await route.fulfill({ json: { data: [], count: 0 } })
+    } else if (path.endsWith(device.id)) {
       await route.fulfill({ json: device })
     } else {
       await route.fulfill({ json: { data: [device], count: 1 } })

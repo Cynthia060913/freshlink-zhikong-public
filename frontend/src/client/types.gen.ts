@@ -35,6 +35,238 @@ export type Body_login_login_access_token = {
 };
 
 /**
+ * CommandCreate
+ */
+export type CommandCreate = {
+    /**
+     * Command Id
+     */
+    command_id: string;
+    /**
+     * Action
+     */
+    action?: 'set_cooling';
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Lifetime Seconds
+     */
+    lifetime_seconds?: number;
+    /**
+     * Event Id
+     */
+    event_id?: string | null;
+};
+
+/**
+ * CommandDetail
+ */
+export type CommandDetail = {
+    /**
+     * Command Id
+     */
+    command_id: string;
+    /**
+     * Device Id
+     */
+    device_id: string;
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string;
+    /**
+     * Action
+     */
+    action: 'set_cooling';
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Issued At
+     */
+    issued_at: string;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * Status
+     */
+    status: 'queued' | 'sent' | 'acknowledged' | 'failed' | 'timeout';
+    /**
+     * Attempt Count
+     */
+    attempt_count: number;
+    /**
+     * Transport Accepted At
+     */
+    transport_accepted_at: string | null;
+    /**
+     * Ack Received At
+     */
+    ack_received_at: string | null;
+    /**
+     * Terminal At
+     */
+    terminal_at: string | null;
+    /**
+     * Failure Reason
+     */
+    failure_reason: string | null;
+    /**
+     * Event Id
+     */
+    event_id?: null;
+    /**
+     * Parameters
+     */
+    parameters: {
+        [key: string]: boolean;
+    };
+    /**
+     * Receipts
+     */
+    receipts: Array<ReceiptPublic>;
+};
+
+/**
+ * CommandPublic
+ */
+export type CommandPublic = {
+    /**
+     * Command Id
+     */
+    command_id: string;
+    /**
+     * Device Id
+     */
+    device_id: string;
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string;
+    /**
+     * Action
+     */
+    action: 'set_cooling';
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Issued At
+     */
+    issued_at: string;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * Status
+     */
+    status: 'queued' | 'sent' | 'acknowledged' | 'failed' | 'timeout';
+    /**
+     * Attempt Count
+     */
+    attempt_count: number;
+    /**
+     * Transport Accepted At
+     */
+    transport_accepted_at: string | null;
+    /**
+     * Ack Received At
+     */
+    ack_received_at: string | null;
+    /**
+     * Terminal At
+     */
+    terminal_at: string | null;
+    /**
+     * Failure Reason
+     */
+    failure_reason: string | null;
+    /**
+     * Event Id
+     */
+    event_id?: null;
+    /**
+     * Parameters
+     */
+    parameters: {
+        [key: string]: boolean;
+    };
+};
+
+/**
+ * CommandsPublic
+ */
+export type CommandsPublic = {
+    /**
+     * Data
+     */
+    data: Array<CommandPublic>;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * DeviceConnectivityEventPublic
+ */
+export type DeviceConnectivityEventPublic = {
+    /**
+     * Source Event Id
+     */
+    source_event_id: string;
+    /**
+     * Device Id
+     */
+    device_id: string;
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string | null;
+    /**
+     * Occurred At
+     */
+    occurred_at: string;
+    /**
+     * Kind
+     */
+    kind: 'offline' | 'recovered';
+    /**
+     * Reason
+     */
+    reason: string;
+    /**
+     * Related Source Event Id
+     */
+    related_source_event_id: string | null;
+    /**
+     * Delivery State
+     */
+    delivery_state: 'pending' | 'held_unbound' | 'delivered' | 'failed';
+};
+
+/**
+ * DeviceConnectivityEventsPublic
+ */
+export type DeviceConnectivityEventsPublic = {
+    /**
+     * Data
+     */
+    data: Array<DeviceConnectivityEventPublic>;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
  * DeviceCreate
  */
 export type DeviceCreate = {
@@ -95,7 +327,7 @@ export type DevicePublic = {
     /**
      * Connectivity
      */
-    connectivity?: 'unknown';
+    connectivity?: 'unknown' | 'online' | 'offline';
 };
 
 /**
@@ -234,6 +466,36 @@ export type PrivateUserCreate = {
      * Is Verified
      */
     is_verified?: boolean;
+};
+
+/**
+ * ReceiptPublic
+ */
+export type ReceiptPublic = {
+    /**
+     * Received At
+     */
+    received_at: string;
+    /**
+     * Executed At
+     */
+    executed_at: string | null;
+    /**
+     * Result
+     */
+    result: 'executed' | 'failed';
+    /**
+     * Cooling Enabled
+     */
+    cooling_enabled: boolean;
+    /**
+     * Reason
+     */
+    reason: string | null;
+    /**
+     * Outcome
+     */
+    outcome: 'accepted' | 'late' | 'conflict';
 };
 
 /**
@@ -1087,6 +1349,148 @@ export type devicesReadDeviceResponses = {
 };
 
 export type devicesReadDeviceResponse = devicesReadDeviceResponses[keyof devicesReadDeviceResponses];
+
+export type devicesReadConnectivityEventsData = {
+    body?: never;
+    path: {
+        /**
+         * Device Id
+         */
+        device_id: string;
+    };
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/devices/{device_id}/connectivity-events';
+};
+
+export type devicesReadConnectivityEventsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type devicesReadConnectivityEventsError = devicesReadConnectivityEventsErrors[keyof devicesReadConnectivityEventsErrors];
+
+export type devicesReadConnectivityEventsResponses = {
+    /**
+     * Successful Response
+     */
+    200: DeviceConnectivityEventsPublic;
+};
+
+export type devicesReadConnectivityEventsResponse = devicesReadConnectivityEventsResponses[keyof devicesReadConnectivityEventsResponses];
+
+export type deviceControlListCommandsData = {
+    body?: never;
+    path: {
+        /**
+         * Device Id
+         */
+        device_id: string;
+    };
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/devices/{device_id}/commands';
+};
+
+export type deviceControlListCommandsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type deviceControlListCommandsError = deviceControlListCommandsErrors[keyof deviceControlListCommandsErrors];
+
+export type deviceControlListCommandsResponses = {
+    /**
+     * Successful Response
+     */
+    200: CommandsPublic;
+};
+
+export type deviceControlListCommandsResponse = deviceControlListCommandsResponses[keyof deviceControlListCommandsResponses];
+
+export type deviceControlQueueCommandData = {
+    body: CommandCreate;
+    path: {
+        /**
+         * Device Id
+         */
+        device_id: string;
+    };
+    query?: never;
+    url: '/api/v1/devices/{device_id}/commands';
+};
+
+export type deviceControlQueueCommandErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type deviceControlQueueCommandError = deviceControlQueueCommandErrors[keyof deviceControlQueueCommandErrors];
+
+export type deviceControlQueueCommandResponses = {
+    /**
+     * Successful Response
+     */
+    201: CommandPublic;
+};
+
+export type deviceControlQueueCommandResponse = deviceControlQueueCommandResponses[keyof deviceControlQueueCommandResponses];
+
+export type deviceControlReadCommandData = {
+    body?: never;
+    path: {
+        /**
+         * Device Id
+         */
+        device_id: string;
+        /**
+         * Command Id
+         */
+        command_id: string;
+    };
+    query?: never;
+    url: '/api/v1/devices/{device_id}/commands/{command_id}';
+};
+
+export type deviceControlReadCommandErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type deviceControlReadCommandError = deviceControlReadCommandErrors[keyof deviceControlReadCommandErrors];
+
+export type deviceControlReadCommandResponses = {
+    /**
+     * Successful Response
+     */
+    200: CommandDetail;
+};
+
+export type deviceControlReadCommandResponse = deviceControlReadCommandResponses[keyof deviceControlReadCommandResponses];
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;

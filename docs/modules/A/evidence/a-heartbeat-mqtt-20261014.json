@@ -1,0 +1,13 @@
+{
+  "stage": "local MQTT heartbeat worker candidate",
+  "dependency_commit": "1d02960ba46796123a65484f07f5f0d626f06006",
+  "backend": {"passed": 255, "failed": 0, "coverage_percent": 95, "worker_unit_tests": 26},
+  "live_chain": {"broker": "authenticated Mosquitto in internal test network", "database": "disposable PostgreSQL18", "authenticated_api": true, "offline_recovery_link": true, "duplicate_does_not_renew": true, "retained_rejected": true, "identity_mismatch_rejected": true, "foreign_topic_denied": true, "service_heartbeat_publish_denied": true},
+  "offline_seconds": {"test": 3, "production_default": 90},
+  "mypy": "passed",
+  "ruff": "passed",
+  "not_tested": ["production TLS/ACL provisioning", "browser interaction", "B event delivery and notifications", "C persistence", "E1", "remote CI"],
+  "application_database_modified": false,
+  "system_python_modified": false,
+  "shared_main_updated": false
+}
