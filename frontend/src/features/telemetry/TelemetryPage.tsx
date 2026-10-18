@@ -3,11 +3,7 @@ import { type FormEvent, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  type TelemetryFilters,
-  telemetryApi,
-  telemetryError,
-} from "./api"
+import { type TelemetryFilters, telemetryApi, telemetryError } from "./api"
 
 type Selection = {
   filters: TelemetryFilters
@@ -104,75 +100,181 @@ export default function TelemetryPage() {
         </p>
       </header>
       <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
-        本页面是 C 模块接线候选。无规则、缺测或数据服务失败时风险保持未知；高温原值保留。
+        本页面是 C
+        模块接线候选。无规则、缺测或数据服务失败时风险保持未知；高温原值保留。
       </p>
-      <form onSubmit={submit} className="grid gap-4 rounded-lg border p-5 md:grid-cols-2">
+      <form
+        onSubmit={submit}
+        className="grid gap-4 rounded-lg border p-5 md:grid-cols-2"
+      >
         <div>
           <Label htmlFor="telemetry-device">设备 ID</Label>
-          <Input id="telemetry-device" value={deviceId} onChange={(event) => setDeviceId(event.target.value)} placeholder="UUID（可选）" />
+          <Input
+            id="telemetry-device"
+            value={deviceId}
+            onChange={(event) => setDeviceId(event.target.value)}
+            placeholder="UUID（可选）"
+          />
         </div>
         <div>
           <Label htmlFor="telemetry-warehouse">冷库 ID</Label>
-          <Input id="telemetry-warehouse" value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} placeholder="UUID（可选）" />
+          <Input
+            id="telemetry-warehouse"
+            value={warehouseId}
+            onChange={(event) => setWarehouseId(event.target.value)}
+            placeholder="UUID（可选）"
+          />
         </div>
         <div>
           <Label htmlFor="telemetry-from">采样起始 UTC</Label>
-          <Input id="telemetry-from" type="datetime-local" value={sampledFrom} onChange={(event) => setSampledFrom(event.target.value)} />
+          <Input
+            id="telemetry-from"
+            type="datetime-local"
+            value={sampledFrom}
+            onChange={(event) => setSampledFrom(event.target.value)}
+          />
         </div>
         <div>
           <Label htmlFor="telemetry-to">采样结束 UTC（不含）</Label>
-          <Input id="telemetry-to" type="datetime-local" value={sampledTo} onChange={(event) => setSampledTo(event.target.value)} />
+          <Input
+            id="telemetry-to"
+            type="datetime-local"
+            value={sampledTo}
+            onChange={(event) => setSampledTo(event.target.value)}
+          />
         </div>
         <div>
           <Label htmlFor="telemetry-quality">质量标记</Label>
-          <Input id="telemetry-quality" value={quality} onChange={(event) => setQuality(event.target.value)} placeholder="单个标记（可选）" />
+          <Input
+            id="telemetry-quality"
+            value={quality}
+            onChange={(event) => setQuality(event.target.value)}
+            placeholder="单个标记（可选）"
+          />
         </div>
         <div className="flex items-end gap-2">
           <Button type="submit">按筛选新建快照</Button>
-          <Button type="button" variant="outline" onClick={() => setSelection((current) => ({ filters: current.filters, revision: current.revision + 1 }))}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              setSelection((current) => ({
+                filters: current.filters,
+                revision: current.revision + 1,
+              }))
+            }
+          >
             刷新快照
           </Button>
         </div>
       </form>
       <section className="rounded-lg border p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="font-semibold">观测列表{page.data ? `（固定快照共 ${page.data.total} 条）` : ""}</h2>
-          <Button type="button" variant="outline" disabled={!page.data || downloading} onClick={download}>
+          <h2 className="font-semibold">
+            观测列表{page.data ? `（固定快照共 ${page.data.total} 条）` : ""}
+          </h2>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!page.data || downloading}
+            onClick={download}
+          >
             {downloading ? "正在导出…" : "导出本次快照 CSV"}
           </Button>
         </div>
-        {csvError && <p role="alert" className="mb-3 text-destructive">{csvError}</p>}
-        {page.isPending ? <p role="status">正在读取观测…</p> : page.isError ? (
-          <p role="alert" className="text-destructive">{telemetryError(page.error)}</p>
-        ) : page.data.items.length === 0 ? <p>该筛选没有观测；空结果不代表环境正常。</p> : (
+        {csvError && (
+          <p role="alert" className="mb-3 text-destructive">
+            {csvError}
+          </p>
+        )}
+        {page.isPending ? (
+          <p role="status">正在读取观测…</p>
+        ) : page.isError ? (
+          <p role="alert" className="text-destructive">
+            {telemetryError(page.error)}
+          </p>
+        ) : page.data.items.length === 0 ? (
+          <p>该筛选没有观测；空结果不代表环境正常。</p>
+        ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead><tr className="border-b"><th className="p-2">采样 UTC</th><th className="p-2">设备</th><th className="p-2">温度 °C</th><th className="p-2">湿度 %</th><th className="p-2">质量 / 风险</th><th className="p-2">原始证据</th></tr></thead>
-              <tbody>{page.data.items.map((item) => <tr key={item.observation_id} className="border-b">
-                <td className="p-2">{display(item.sampled_at)}</td>
-                <td className="p-2">{item.device_id}</td>
-                <td className="p-2">{display(item.temperature_c)}</td>
-                <td className="p-2">{display(item.humidity_percent)}</td>
-                <td className="p-2">{item.quality.join(", ") || "无标记"} / {item.risk_state || "unknown"}</td>
-                <td className="p-2"><Button type="button" variant="outline" onClick={() => setSelectedId(item.observation_id)}>查看</Button></td>
-              </tr>)}</tbody>
+              <thead>
+                <tr className="border-b">
+                  <th className="p-2">采样 UTC</th>
+                  <th className="p-2">设备</th>
+                  <th className="p-2">温度 °C</th>
+                  <th className="p-2">湿度 %</th>
+                  <th className="p-2">质量 / 风险</th>
+                  <th className="p-2">原始证据</th>
+                </tr>
+              </thead>
+              <tbody>
+                {page.data.items.map((item) => (
+                  <tr key={item.observation_id} className="border-b">
+                    <td className="p-2">{display(item.sampled_at)}</td>
+                    <td className="p-2">{item.device_id}</td>
+                    <td className="p-2">{display(item.temperature_c)}</td>
+                    <td className="p-2">{display(item.humidity_percent)}</td>
+                    <td className="p-2">
+                      {item.quality.join(", ") || "无标记"} /{" "}
+                      {item.risk_state || "unknown"}
+                    </td>
+                    <td className="p-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setSelectedId(item.observation_id)}
+                      >
+                        查看
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         )}
-        {page.data?.next_cursor && <Button type="button" variant="outline" className="mt-4" onClick={() => {
-          const currentPage = page.data
-          if (!currentPage?.next_cursor) return
-          setSelection((current) => ({ ...current, snapshotId: currentPage.snapshot_id, cursor: currentPage.next_cursor! }))
-        }}>下一页</Button>}
+        {page.data?.next_cursor && (
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-4"
+            onClick={() => {
+              const currentPage = page.data
+              if (!currentPage?.next_cursor) return
+              setSelection((current) => ({
+                ...current,
+                snapshotId: currentPage.snapshot_id,
+                cursor: currentPage.next_cursor!,
+              }))
+            }}
+          >
+            下一页
+          </Button>
+        )}
       </section>
-      {selectedId && <section className="rounded-lg border p-5">
-        <h2 className="mb-3 font-semibold">观测原始证据</h2>
-        {detail.isPending ? <p>读取中…</p> : detail.isError ? <p role="alert" className="text-destructive">{telemetryError(detail.error)}</p> : <>
-          <p>质量：{detail.data.quality.join(", ") || "无标记"}</p>
-          <pre className="mt-3 max-h-64 overflow-auto rounded bg-muted p-3 text-xs">{detail.data.raw_text}</pre>
-          <p className="mt-3 text-sm">接收记录：{detail.data.receptions.length} 次</p>
-        </>}
-      </section>}
+      {selectedId && (
+        <section className="rounded-lg border p-5">
+          <h2 className="mb-3 font-semibold">观测原始证据</h2>
+          {detail.isPending ? (
+            <p>读取中…</p>
+          ) : detail.isError ? (
+            <p role="alert" className="text-destructive">
+              {telemetryError(detail.error)}
+            </p>
+          ) : (
+            <>
+              <p>质量：{detail.data.quality.join(", ") || "无标记"}</p>
+              <pre className="mt-3 max-h-64 overflow-auto rounded bg-muted p-3 text-xs">
+                {detail.data.raw_text}
+              </pre>
+              <p className="mt-3 text-sm">
+                接收记录：{detail.data.receptions.length} 次
+              </p>
+            </>
+          )}
+        </section>
+      )}
     </div>
   )
 }
