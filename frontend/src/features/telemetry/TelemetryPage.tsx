@@ -28,6 +28,8 @@ export default function TelemetryPage() {
   const [warehouseId, setWarehouseId] = useState("")
   const [sampledFrom, setSampledFrom] = useState("")
   const [sampledTo, setSampledTo] = useState("")
+  const [receivedFrom, setReceivedFrom] = useState("")
+  const [receivedTo, setReceivedTo] = useState("")
   const [quality, setQuality] = useState("")
   const [selection, setSelection] = useState<Selection>(initialSelection)
   const [csvError, setCsvError] = useState<string | null>(null)
@@ -61,6 +63,8 @@ export default function TelemetryPage() {
         warehouse_id: warehouseId.trim() || undefined,
         sampled_from: utcInput(sampledFrom),
         sampled_to: utcInput(sampledTo),
+        received_from: utcInput(receivedFrom),
+        received_to: utcInput(receivedTo),
         quality_in: quality.trim() ? [quality.trim()] : undefined,
       },
       revision: selection.revision + 1,
@@ -144,6 +148,24 @@ export default function TelemetryPage() {
           />
         </div>
         <div>
+          <Label htmlFor="telemetry-received-from">接收起始 UTC</Label>
+          <Input
+            id="telemetry-received-from"
+            type="datetime-local"
+            value={receivedFrom}
+            onChange={(event) => setReceivedFrom(event.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="telemetry-received-to">接收结束 UTC（不含）</Label>
+          <Input
+            id="telemetry-received-to"
+            type="datetime-local"
+            value={receivedTo}
+            onChange={(event) => setReceivedTo(event.target.value)}
+          />
+        </div>
+        <div>
           <Label htmlFor="telemetry-quality">质量标记</Label>
           <Input
             id="telemetry-quality"
@@ -201,6 +223,7 @@ export default function TelemetryPage() {
               <thead>
                 <tr className="border-b">
                   <th className="p-2">采样 UTC</th>
+                  <th className="p-2">接收 UTC</th>
                   <th className="p-2">设备</th>
                   <th className="p-2">温度 °C</th>
                   <th className="p-2">湿度 %</th>
@@ -212,6 +235,7 @@ export default function TelemetryPage() {
                 {page.data.items.map((item) => (
                   <tr key={item.observation_id} className="border-b">
                     <td className="p-2">{display(item.sampled_at)}</td>
+                    <td className="p-2">{item.received_at}</td>
                     <td className="p-2">{item.device_id}</td>
                     <td className="p-2">{display(item.temperature_c)}</td>
                     <td className="p-2">{display(item.humidity_percent)}</td>

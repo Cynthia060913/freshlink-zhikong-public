@@ -6,6 +6,8 @@ export interface TelemetryFilters {
   warehouse_id?: string
   sampled_from?: string
   sampled_to?: string
+  received_from?: string
+  received_to?: string
   quality_in?: string[]
 }
 

@@ -219,7 +219,7 @@ DTO/摘要/持久行/by-source 回读中增加恢复类型与关联字段，并�
 `frontend/src/features/telemetry/TelemetryPage.tsx` 和同目录 `api.ts` 使用现有
 客户端的 bearer 配置调用 C 相对路由预期的
 `/api/v1/telemetry/observations/`、`/{observation_id}`、`/export.csv`。
-筛选表单中的 `datetime-local` 明确按 UTC 输入，转换为带 `Z` 的时间；
+采样与接收时间筛选表单中的 `datetime-local` 明确按 UTC 输入，转换为带 `Z` 的时间；
 筛选提交或刷新会请求新快照。分页携带同一快照及签名游标，CSV 携带同一
 快照 ID 与已提交筛选，不采用尚未提交的表单值。页面显示缺失/未知与错误，
 不将空结果或服务失败解释为正常。
