@@ -81,10 +81,10 @@ def _reception(
 
 @unittest.skipUnless(_ENABLED, "requires FRESHLINK_C_TEST_POSTGRES=1")
 class PostgresStorageCandidateTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
+    def setUp(self) -> None:
         # Refuse to connect until the exact disposable project/database/host
-        # guard passes. The DSN is never printed or committed.
+        # guard passes. A fresh schema per test prevents HTTP data from
+        # changing the transaction test's expected row counts.
         from app.core.config import settings
 
         url = make_url(str(settings.DATABASE_URL))
@@ -95,26 +95,24 @@ class PostgresStorageCandidateTests(unittest.TestCase):
             or settings.PROJECT_NAME != "FreshLink-test"
         ):
             raise AssertionError("C PG test requires disposable test-db only")
-        cls.url = url.set(drivername="postgresql+psycopg")
-        cls.schema = "c_test_" + uuid4().hex
-        cls.base_engine = create_engine(cls.url, pool_pre_ping=True)
-        with cls.base_engine.begin() as connection:
-            connection.execute(CreateSchema(cls.schema))
-        cls.engine = cls.base_engine.execution_options(
-            schema_translate_map={None: cls.schema}
+        self.url = url.set(drivername="postgresql+psycopg")
+        self.schema = "c_test_" + uuid4().hex
+        self.base_engine = create_engine(self.url, pool_pre_ping=True)
+        self.addCleanup(self.base_engine.dispose)
+        with self.base_engine.begin() as connection:
+            connection.execute(CreateSchema(self.schema))
+        self.engine = self.base_engine.execution_options(
+            schema_translate_map={None: self.schema}
         )
+        self.addCleanup(self._drop_test_schema)
         # Test schema only. Production must use the reviewed Alembic chain.
-        metadata.create_all(cls.engine)
+        metadata.create_all(self.engine)
 
-    @classmethod
-    def tearDownClass(cls) -> None:
-        try:
-            metadata.drop_all(cls.engine)
-            with cls.base_engine.begin() as connection:
-                # No CASCADE: refuse removal if unexpected objects appeared.
-                connection.execute(DropSchema(cls.schema))
-        finally:
-            cls.base_engine.dispose()
+    def _drop_test_schema(self) -> None:
+        metadata.drop_all(self.engine)
+        with self.base_engine.begin() as connection:
+            # No CASCADE: refuse removal if unexpected objects appeared.
+            connection.execute(DropSchema(self.schema))
 
     def _count(self, table) -> int:
         with self.engine.connect() as connection:
