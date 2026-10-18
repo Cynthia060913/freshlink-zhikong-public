@@ -1,5 +1,6 @@
 """Real process/HTTP baseline proof, Docker-only and disposable database only."""
 
+import argparse
 import json
 import logging
 import os
@@ -33,7 +34,7 @@ def request(base, path, *, data=None, token=None, form=False):
         return error.code, json.load(error)
 
 
-def main():
+def main(*, preflight=False):
     if not Path("/.dockerenv").is_file():
         raise RuntimeError("Docker-only proof; do not run in host Python")
     source = os.environ.get("BASELINE_SOURCE_COMMIT", "")
@@ -47,7 +48,6 @@ def main():
         raise RuntimeError("A dirty worktree cannot prove published main")
 
     from app.core.config import settings
-    from app.core.db import engine
 
     url = urlparse(str(settings.DATABASE_URL))
     if (
@@ -56,6 +56,12 @@ def main():
         or settings.PROJECT_NAME != "FreshLink-test"
     ):
         raise RuntimeError("Refusing non-disposable database")
+    if preflight:
+        logging.info("PASS disposable-only preflight before any migration")
+        return
+
+    from app.core.db import engine
+
     with engine.connect() as connection:
         heads = (
             connection.exec_driver_sql("SELECT version_num FROM alembic_version")
@@ -168,4 +174,6 @@ def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--preflight", action="store_true")
+    main(preflight=parser.parse_args().preflight)

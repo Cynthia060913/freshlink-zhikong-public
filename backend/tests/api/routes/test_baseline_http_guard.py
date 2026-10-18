@@ -59,3 +59,20 @@ def test_non_disposable_database_refused_without_connecting(monkeypatch):
         with pytest.raises(RuntimeError, match="Refusing non-disposable"):
             proof.main()
     engine.connect.assert_not_called()
+
+
+def test_preflight_validates_but_never_connects_or_starts_process(monkeypatch):
+    _source(monkeypatch)
+    settings = SimpleNamespace(
+        DATABASE_URL="postgresql://example:unused@test-db/freshlink_test",
+        PROJECT_NAME="FreshLink-test",
+    )
+    with (
+        mock.patch.object(proof.Path, "is_file", return_value=True),
+        mock.patch("app.core.config.settings", settings),
+        mock.patch("app.core.db.engine") as engine,
+        mock.patch.object(proof.subprocess, "Popen") as process,
+    ):
+        proof.main(preflight=True)
+    engine.connect.assert_not_called()
+    process.assert_not_called()

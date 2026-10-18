@@ -13,7 +13,8 @@
 标准公有runner费用边界见[GitHub官方说明](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories)；
 服务网络/可用性不能由本项目保证，运行失败须分辨依赖下载与实际测试失败，不反复空跑。
 
-它构建临时测试镜像和内网tmpfs PG，升级**该临时库**到本次源码的唯一head，启动
+它构建临时测试镜像和内网tmpfs PG；在任何迁移前先做Docker/来源/临时库拒绝守卫，
+预检不连接数据库、不启动进程。通过后升级**该临时库**到本次源码的唯一head，启动
 真实Uvicorn子进程，检查health、匿名401、密码登录、活跃管理员回读、注册初始unknown、
 重复409且数量仍1、列表及详情。无宿主端口，不使用原应用服务/卷/凭据，结束只清本次
 项目。Python只在容器运行；禁止拿此说明去安装/同步/卸载宿主Python环境。

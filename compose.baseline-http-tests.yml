@@ -36,7 +36,7 @@ services:
       - ./backend:/app/backend:ro
       - ${BASELINE_RESULT_DIR:?Use the owned wrapper}:/results
     entrypoint: ["bash", "-c"]
-    command: ["set -e; alembic upgrade head; python app/initial_data.py; python scripts/check-baseline-http.py"]
+    command: ["set -e; python scripts/check-baseline-http.py --preflight; alembic upgrade head; python app/initial_data.py; python scripts/check-baseline-http.py"]
 networks:
   default:
     internal: true
