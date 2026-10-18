@@ -1,5 +1,17 @@
 # C 共享接线请求
 
+## 2026-10-19 C→B 恢复回读接线
+
+PR #11 的独立 C HTTP 适配现在消费 B PR #10 `9cf9a5de55d48bf0761655b6f2cda844ec5975f6`
+的 `GET /api/v1/candidates/by-source/{source_event_id}` 中 `content_digest`
+和告警生命周期 `status`。C 对恢复候选即使收到 201/200、相同来源和正文摘要，
+仍要回读**原异常**的 `status=resolved` 才将本地恢复 outbox 标为 delivered；
+回读超时、拒绝、状态仍 open/acknowledged 或状态不可验证时保留同一 ID/冻结正文
+有界重试，不把业务恢复说成已完成。C 本机通过合成 HTTP/端口测试；B 实际路由
+未挂公共根，尚无跨模块实跑。B 请维持恢复写入和原告警 resolved 的同事务语义、
+by-source 返回可核验的 `source_event_id`、`content_digest` 和 `status`。A 后续
+只需按签收包挂一次 B/C 相对 router，勿重复 `/api/v1`。正式迁移和任务调度仍未接。
+
 ## 2026-10-18 鉴权 HTTP 候选接线
 
 `backend/app/modules/telemetry/http_candidate.py` 新增相对 router

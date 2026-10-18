@@ -1,8 +1,8 @@
 """Isolated durable C→B delivery coordinator with an injected transport port.
 
-The port has no production HTTP adapter yet. Its receipt digest must represent
-the same frozen JSON body stored by C; an unverifiable reply never marks work
-delivered. No scheduler, shared migration, or B route is installed here.
+Its receipt digest must represent the same frozen JSON body stored by C; an
+unverifiable reply never marks work delivered. The HTTP adapter is opt-in; no
+scheduler, shared migration, or B route is installed here.
 """
 
 from __future__ import annotations
@@ -36,6 +36,7 @@ class RemoteCandidateReceipt:
     source_event_id: UUID
     status: ReceiptStatus
     body_sha256: str | None = None
+    alert_status: Literal["open", "acknowledged", "resolved"] | None = None
 
 
 class CandidateDeliveryPort(Protocol):
@@ -61,6 +62,38 @@ def _decision(
     if receipt.status == "retryable_failure":
         return "retry", "b_retryable_failure"
     return "retry", "b_receipt_unverifiable"
+
+
+def _confirm_recovery(
+    port: CandidateDeliveryPort,
+    claim: DeliveryClaimCandidate,
+    decision: tuple[Literal["delivered", "retry", "rejected"], str],
+) -> tuple[Literal["delivered", "retry", "rejected"], str]:
+    """A recovery is delivered only after B reports its original as resolved.
+
+    B promises to insert the recovery and resolve the original in one
+    transaction. The read-back checks that promise even when the POST reply
+    was lost; uncertainty keeps the same durable source ID and frozen body.
+    """
+    if decision[0] != "delivered" or claim.body.get("kind") != "temperature_recovered":
+        return decision
+    try:
+        related = UUID(claim.body["related_source_event_id"])
+    except (KeyError, TypeError, ValueError):  # fmt: skip
+        return "rejected", "invalid_recovery_reference"
+    try:
+        original = port.lookup(related)
+    except PermissionError:
+        return "retry", "b_auth_unavailable"
+    except (TimeoutError, ConnectionError):  # fmt: skip
+        return "retry", "b_recovery_unverifiable"
+    if (
+        original is None
+        or original.source_event_id != related
+        or original.alert_status != "resolved"
+    ):
+        return "retry", "b_recovery_unverifiable"
+    return decision
 
 
 def _finish(
@@ -132,7 +165,11 @@ def deliver_once_candidate(
         )
     if prior is not None:
         return _finish(
-            engine, claim, _decision(prior, claim), now=now, max_attempts=max_attempts
+            engine,
+            claim,
+            _confirm_recovery(port, claim, _decision(prior, claim)),
+            now=now,
+            max_attempts=max_attempts,
         )
 
     receipt: RemoteCandidateReceipt | None
@@ -161,7 +198,11 @@ def deliver_once_candidate(
             max_attempts=max_attempts,
         )
     return _finish(
-        engine, claim, _decision(receipt, claim), now=now, max_attempts=max_attempts
+        engine,
+        claim,
+        _confirm_recovery(port, claim, _decision(receipt, claim)),
+        now=now,
+        max_attempts=max_attempts,
     )
 
 

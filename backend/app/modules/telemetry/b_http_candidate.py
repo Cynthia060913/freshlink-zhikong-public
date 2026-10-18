@@ -186,10 +186,15 @@ class BHttpCandidatePort:
             raise ConnectionError("B candidate lookup source is unverifiable") from exc
         digest = data.get("content_digest")
         match = _DIGEST.fullmatch(digest) if isinstance(digest, str) else None
+        status = data.get("status")
+        alert_status = (
+            status if status in ("open", "acknowledged", "resolved") else None
+        )
         return RemoteCandidateReceipt(
             source_event_id=returned,
             status="accepted_duplicate",
             body_sha256=match.group(1) if match else None,
+            alert_status=alert_status,
         )
 
     def send(self, body: dict[str, Any]) -> RemoteCandidateReceipt:

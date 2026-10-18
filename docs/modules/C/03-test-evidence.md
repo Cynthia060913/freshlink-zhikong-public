@@ -1,5 +1,30 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-19 当前 C 证据（M03 底稿，未签收）
+
+- 共同 main `46fa463d6ca4f71965b8db74b08a41f352b05cfb` 已正常合入；
+  [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  已普通推送至 `94909d348f852ed4e3ba3e77cd6a33258a8a3c84`。此前本地 HTTP
+  适配 `5b9fa2acfb529f479fe5c94374c4e8cb71be6d2f` 和证据提交
+  `b67063b199ee9e5137982ab5bc16aa757925a9fe` 均已上传；旧节的“待上传”
+  只反映 10 月 18 日当时网络故障。
+- 949 同 SHA 的 Backend、Compose、pre-commit、Playwright、Zizmor 五项远端
+  Actions 实际均 completed/success。通用浏览器/容器检查没有运行未挂载的 C
+  页面、正式 C 迁移、真实 B 候选接收或 E1。
+- 本轮 C 恢复回读改动在 Windows/Python3.13 隔离环境执行
+  `test_telemetry_b_http_candidate`、`test_telemetry_delivery_candidate`、
+  `test_telemetry_outbox_candidate`、`test_telemetry_f03_body_candidate`，
+  **35 项 OK**；Ruff、mypy、ty 检查改动模块通过。恢复候选须回读原异常
+  `status=resolved` 才标记本地 delivered；回读仍 open 时冻结同正文重试。
+  此条是 C 的合成端口/临时 SQLite 测试，未实际调用 B HTTP；本改动提交 SHA、
+  有限安全扫描及同头 CI 在 #9/PR11 记录。
+- A 独立 Python3.14.8/PG18.6 的 C opt-in 3/3 仅对应旧
+  `a97b9c04ff9cb3cd32872e87335b11bfadf677e1`，不是当前分支 PG 证据。
+  本机完整启动/登录/设备页、正式 PG 迁移、已挂载鉴权页面和 E1 仍未测。
+
+以下 10 月 18 日及更早记录均保留为准确时点的历史证据；实时状态以 PR #11
+和 [#9 STATUS C](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6181488019) 为准。
+
 ## 2026-10-18 最新 C 证据索引（M03 底稿，未签收）
 
 - **版本**：共同 main `095c3a7b34ceacd4b9d52cbea180d77de596f2dc` 已正常合入

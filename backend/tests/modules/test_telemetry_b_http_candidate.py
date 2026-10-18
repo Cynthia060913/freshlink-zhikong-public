@@ -63,7 +63,14 @@ class BHttpCandidatePortTests(unittest.TestCase):
         digest = f03_digest_candidate(body)
         transport = FakeTransport(
             [
-                _reply(200, {"source_event_id": SOURCE, "content_digest": digest}),
+                _reply(
+                    200,
+                    {
+                        "source_event_id": SOURCE,
+                        "content_digest": digest,
+                        "status": "resolved",
+                    },
+                ),
                 _reply(
                     201,
                     {
@@ -79,6 +86,7 @@ class BHttpCandidatePortTests(unittest.TestCase):
         assert prior is not None
         self.assertEqual(prior.source_event_id, UUID(SOURCE))
         self.assertEqual(prior.body_sha256, digest.removeprefix("sha256:"))
+        self.assertEqual(prior.alert_status, "resolved")
         receipt = port.send(body)
         self.assertEqual(receipt.status, "accepted_new")
         self.assertEqual(receipt.body_sha256, prior.body_sha256)
@@ -99,6 +107,11 @@ class BHttpCandidatePortTests(unittest.TestCase):
             BHttpCandidatePort(FakeTransport([_reply(503, {})])).lookup(UUID(SOURCE))
         with self.assertRaises(PermissionError):
             BHttpCandidatePort(FakeTransport([_reply(401, {})])).lookup(UUID(SOURCE))
+        unverified = BHttpCandidatePort(
+            FakeTransport([_reply(200, {"source_event_id": SOURCE, "status": "bad"})])
+        ).lookup(UUID(SOURCE))
+        assert unverified is not None
+        self.assertIsNone(unverified.alert_status)
 
     def test_post_five_way_and_framework_validation_error(self) -> None:
         expected = [

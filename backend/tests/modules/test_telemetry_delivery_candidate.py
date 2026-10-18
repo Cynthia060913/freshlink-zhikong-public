@@ -370,13 +370,88 @@ class CandidateDeliveryTests(unittest.TestCase):
                 source_event_id=recovery_id,
                 now=NOW,
                 port=FakePort(
+                    lookup_results=[
+                        None,
+                        RemoteCandidateReceipt(
+                            self.source_id,
+                            "accepted_duplicate",
+                            alert_status="resolved",
+                        ),
+                    ],
                     send_results=[
                         RemoteCandidateReceipt(recovery_id, "accepted_new", digest)
-                    ]
+                    ],
                 ),
             ),
             "delivered",
         )
+
+    def test_recovery_waits_for_b_resolved_readback_after_acceptance(self) -> None:
+        recovery_id = uuid4()
+        recovery = {
+            **self.body,
+            "source_event_id": str(recovery_id),
+            "kind": "temperature_recovered",
+            "related_source_event_id": str(self.source_id),
+        }
+        stage_candidate(
+            self.engine,
+            source_event_id=recovery_id,
+            observation_id=UUID(self.body["observation_ids"][0]),
+            body=recovery,
+            now=NOW,
+        )
+        self.assertEqual(
+            self._run(FakePort(send_results=[self._receipt()])), "delivered"
+        )
+        with self.engine.connect() as connection:
+            digest = connection.execute(
+                select(outbox.c.body_sha256).where(
+                    outbox.c.source_event_id == recovery_id
+                )
+            ).scalar_one()
+        accepted = RemoteCandidateReceipt(recovery_id, "accepted_new", digest)
+        original_open = RemoteCandidateReceipt(
+            self.source_id, "accepted_duplicate", alert_status="open"
+        )
+        first = FakePort(lookup_results=[None, original_open], send_results=[accepted])
+        self.assertEqual(
+            deliver_once_candidate(
+                self.engine, source_event_id=recovery_id, now=NOW, port=first
+            ),
+            "retry",
+        )
+        self.assertEqual(first.lookup_ids, [recovery_id, self.source_id])
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    select(outbox).where(outbox.c.source_event_id == recovery_id)
+                )
+                .mappings()
+                .one()
+            )
+        self.assertEqual(row["last_error_code"], "b_recovery_unverifiable")
+        self.assertEqual(row["state"], "pending")
+        original_resolved = RemoteCandidateReceipt(
+            self.source_id, "accepted_duplicate", alert_status="resolved"
+        )
+        second = FakePort(
+            lookup_results=[
+                RemoteCandidateReceipt(recovery_id, "accepted_duplicate", digest),
+                original_resolved,
+            ]
+        )
+        self.assertEqual(
+            deliver_once_candidate(
+                self.engine,
+                source_event_id=recovery_id,
+                now=NOW + timedelta(seconds=31),
+                port=second,
+            ),
+            "delivered",
+        )
+        self.assertEqual(second.sent_bodies, [])
+        self.assertEqual(second.lookup_ids, [recovery_id, self.source_id])
 
     def test_recovery_stays_pending_when_original_is_rejected(self) -> None:
         recovery_id = uuid4()
