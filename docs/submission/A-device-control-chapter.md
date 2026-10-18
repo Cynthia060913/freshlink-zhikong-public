@@ -1,5 +1,9 @@
 # A 设备与控制设计章节底稿（未签收）
 
+2026-10-18更新：下方为10月15日历史底稿；当前发布/候选状态、七表ER与
+真实缺口以[同日架构补充](A-architecture-and-er-2026-10-18.md)及
+[同日测试摘编](A-test-record-2026-10-18.md)为准，不再按旧main推断当前状态。
+
 2026-10-15。供B汇编M03软件设计文档、C汇编测试报告使用，不是最终发布说明。
 本章源码依据为[PR18 / 53833a7921fbf700a3f945de449646cdc3d88b2d](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/18)，
 依赖[PR13](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/13)。共同main
