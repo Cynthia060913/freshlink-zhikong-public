@@ -15,6 +15,12 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 
 
+def require(condition: bool, reason: str) -> None:
+    """A PASS report must never depend on removable assert statements."""
+    if not condition:
+        raise RuntimeError("Baseline HTTP verification failed: " + reason)
+
+
 def request(base, path, *, data=None, token=None, form=False):
     headers = {
         "Content-Type": (
@@ -103,7 +109,7 @@ def main(*, preflight=False):
             else:
                 raise RuntimeError("Disposable server health timed out")
 
-            assert request(base, "/devices/")[0] == 401
+            require(request(base, "/devices/")[0] == 401, "anonymous device refusal")
             status, login = request(
                 base,
                 "/login/access-token",
@@ -113,25 +119,42 @@ def main(*, preflight=False):
                     "password": settings.FIRST_SUPERUSER_PASSWORD,
                 },
             )
-            assert status == 200
+            require(
+                status == 200 and isinstance(login.get("access_token"), str),
+                "password login",
+            )
             token = login["access_token"]
             status, actor = request(base, "/users/me", token=token)
-            assert status == 200 and actor["is_active"] and actor["is_superuser"]
+            require(
+                status == 200 and actor["is_active"] and actor["is_superuser"],
+                "active admin readback",
+            )
             status, empty = request(base, "/devices/", token=token)
-            assert status == 200 and empty["count"] == 0
+            require(status == 200 and empty["count"] == 0, "empty device list")
             fixture = {
                 "code": "baseline-" + uuid4().hex[:12],
                 "name": "Disposable baseline HTTP fixture",
                 "kind": "temperature_sensor",
             }
             status, saved = request(base, "/devices/", data=fixture, token=token)
-            assert status == 201 and saved["connectivity"] == "unknown"
-            assert request(base, "/devices/", data=fixture, token=token)[0] == 409
+            require(
+                status == 201 and saved["connectivity"] == "unknown",
+                "register unknown device",
+            )
+            require(
+                request(base, "/devices/", data=fixture, token=token)[0] == 409,
+                "duplicate device refusal",
+            )
             status, page = request(base, "/devices/", token=token)
-            assert status == 200 and page["count"] == 1
-            assert page["data"][0]["id"] == saved["id"]
+            require(
+                status == 200 and page["count"] == 1, "device count after duplicate"
+            )
+            require(page["data"][0]["id"] == saved["id"], "device list identity")
             status, detail = request(base, "/devices/" + saved["id"], token=token)
-            assert status == 200 and detail["connectivity"] == "unknown"
+            require(
+                status == 200 and detail["connectivity"] == "unknown",
+                "device detail readback",
+            )
             report = {
                 "phase": "isolated_baseline_real_http_passed",
                 "source_commit": source,
