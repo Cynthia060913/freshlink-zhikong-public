@@ -40,6 +40,7 @@ outbox = Table(
     "telemetry_candidate_outbox_candidate",
     metadata,
     Column("source_event_id", Uuid(as_uuid=True), primary_key=True),
+    Column("related_source_event_id", Uuid(as_uuid=True)),
     Column(
         "observation_id",
         Uuid(as_uuid=True),
@@ -77,6 +78,23 @@ outbox_conflicts = Table(
         name="uq_c_candidate_outbox_conflict",
     ),
 )
+
+_original_outbox = outbox.alias("original_candidate")
+
+
+def _dependency_ready():
+    """A recovery is due only after its own original is delivered to B."""
+    original_delivered = (
+        select(_original_outbox.c.source_event_id)
+        .where(
+            _original_outbox.c.source_event_id == outbox.c.related_source_event_id,
+            _original_outbox.c.state == "delivered",
+        )
+        .correlate(outbox)
+        .exists()
+    )
+    return or_(outbox.c.related_source_event_id.is_(None), original_delivered)
+
 
 StageStatus = Literal["staged", "duplicate", "conflict"]
 FinishDisposition = Literal["delivered", "retry", "rejected"]
@@ -136,11 +154,26 @@ def stage_candidate(
         raise ValueError("source_event_id and observation_id must be UUIDs")
     current = _aware_now(now)
     frozen, digest = _frozen_body(body, source_event_id, observation_id)
+    related = frozen.get("related_source_event_id")
+    if frozen.get("kind") == "temperature_recovered":
+        if not isinstance(related, str):
+            raise ValueError("recovery must reference its original source_event_id")
+        try:
+            related_id = UUID(related)
+        except ValueError as exc:
+            raise ValueError("related_source_event_id must be a UUID") from exc
+        if related_id == source_event_id:
+            raise ValueError("recovery cannot reference itself")
+    elif related is not None:
+        raise ValueError("only recovery may reference an original source_event_id")
+    else:
+        related_id = None
     try:
         with engine.begin() as connection:
             connection.execute(
                 outbox.insert().values(
                     source_event_id=source_event_id,
+                    related_source_event_id=related_id,
                     observation_id=observation_id,
                     body_sha256=digest,
                     body=frozen,
@@ -243,6 +276,7 @@ def claim_candidate(
             update(outbox)
             .where(
                 outbox.c.source_event_id == source_event_id,
+                _dependency_ready(),
                 or_(
                     and_(
                         outbox.c.state == "pending",
@@ -295,6 +329,7 @@ def due_source_ids_candidate(
             connection.scalars(
                 select(outbox.c.source_event_id)
                 .where(
+                    _dependency_ready(),
                     or_(
                         and_(
                             outbox.c.state == "pending",
@@ -304,7 +339,7 @@ def due_source_ids_candidate(
                             outbox.c.state == "leased",
                             outbox.c.lease_until_utc <= current,
                         ),
-                    )
+                    ),
                 )
                 .order_by(due_at, outbox.c.source_event_id)
                 .limit(limit)

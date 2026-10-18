@@ -309,6 +309,100 @@ class CandidateDeliveryTests(unittest.TestCase):
             )
         self.assertEqual(self._row()["attempt_count"], 0)
 
+    def test_recovery_waits_for_original_delivery_without_using_attempts(self) -> None:
+        recovery_id = uuid4()
+        recovery = {
+            **self.body,
+            "source_event_id": str(recovery_id),
+            "kind": "temperature_recovered",
+            "related_source_event_id": str(self.source_id),
+        }
+        self.assertEqual(
+            stage_candidate(
+                self.engine,
+                source_event_id=recovery_id,
+                observation_id=UUID(self.body["observation_ids"][0]),
+                body=recovery,
+                now=NOW,
+            ),
+            "staged",
+        )
+        self.assertEqual(
+            due_source_ids_candidate(self.engine, now=NOW), [self.source_id]
+        )
+        preflight = FakePort()
+        self.assertEqual(
+            deliver_once_candidate(
+                self.engine, source_event_id=recovery_id, now=NOW, port=preflight
+            ),
+            "not_due",
+        )
+        self.assertEqual(preflight.lookup_ids, [])
+        self.assertEqual(preflight.sent_bodies, [])
+        self.assertEqual(
+            self._run(FakePort(send_results=[self._receipt()])), "delivered"
+        )
+        self.assertEqual(due_source_ids_candidate(self.engine, now=NOW), [recovery_id])
+        with self.engine.connect() as connection:
+            digest = connection.execute(
+                select(outbox.c.body_sha256).where(
+                    outbox.c.source_event_id == recovery_id
+                )
+            ).scalar_one()
+        self.assertEqual(
+            deliver_once_candidate(
+                self.engine,
+                source_event_id=recovery_id,
+                now=NOW,
+                port=FakePort(
+                    send_results=[
+                        RemoteCandidateReceipt(recovery_id, "accepted_new", digest)
+                    ]
+                ),
+            ),
+            "delivered",
+        )
+
+    def test_recovery_stays_pending_when_original_is_rejected(self) -> None:
+        recovery_id = uuid4()
+        recovery = {
+            **self.body,
+            "source_event_id": str(recovery_id),
+            "kind": "temperature_recovered",
+            "related_source_event_id": str(self.source_id),
+        }
+        stage_candidate(
+            self.engine,
+            source_event_id=recovery_id,
+            observation_id=UUID(self.body["observation_ids"][0]),
+            body=recovery,
+            now=NOW,
+        )
+        self.assertEqual(
+            self._run(FakePort(send_results=[self._receipt("invalid")])),
+            "rejected",
+        )
+        self.assertEqual(due_source_ids_candidate(self.engine, now=NOW), [])
+        self.assertEqual(
+            deliver_once_candidate(
+                self.engine,
+                source_event_id=recovery_id,
+                now=NOW,
+                port=FakePort(),
+            ),
+            "not_due",
+        )
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    select(outbox).where(outbox.c.source_event_id == recovery_id)
+                )
+                .mappings()
+                .one()
+            )
+        self.assertEqual(row["state"], "pending")
+        self.assertEqual(row["attempt_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
