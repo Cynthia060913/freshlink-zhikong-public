@@ -334,7 +334,7 @@ export type CandidateCreate = {
     /**
      * Severity
      */
-    severity: string;
+    severity: 'info' | 'warning' | 'critical';
     /**
      * Rule Snapshot Id
      */
