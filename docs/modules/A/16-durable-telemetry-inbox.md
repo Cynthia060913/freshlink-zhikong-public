@@ -4,6 +4,9 @@
 不改 B/C 源码，不新开正式 Alembic head，不操作宿主 Python 或原应用数据库。
 S0 仍按 #5 的同版签收包推进，本候选不代三方签收。
 
+后续 A09 独立增加[数据库/Broker容器替换验收](17-telemetry-recreation-proof.md)；
+本页下方“未完成”是 A08 当时边界，不把后续测试当作正式部署或完整E1。
+
 ## 保存与确认边界
 
 `TelemetryReceiver` 复用现有 TLS、证书校验、显式最多14设备范围与手动 ACK。
