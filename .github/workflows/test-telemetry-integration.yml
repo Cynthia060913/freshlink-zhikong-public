@@ -7,6 +7,7 @@ on:
       - backend/Dockerfile
       - backend/pyproject.toml
       - backend/scripts/check-telemetry-mqtt.py
+      - backend/scripts/check-telemetry-inbox.py
       - uv.lock
       - scripts/windows/check-telemetry-mqtt.ps1
       - scripts/mqtt-runtime/**
