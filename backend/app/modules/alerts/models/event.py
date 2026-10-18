@@ -35,7 +35,7 @@ import math
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import field_validator, model_validator
 from sqlalchemy import Column, DateTime
@@ -53,6 +53,13 @@ _DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
 _MAX_OBSERVATION_IDS = 64
 _MAX_PAYLOAD_BYTES = 32768
 _CANDIDATE_SCHEMA_VERSION = "1.0"
+
+# F03 severity is a CLOSED set aligned with :class:`RuleSeverity`
+# (info / warning / critical). Free text was a round-3 review defect
+# (PR #10 review 5535120012 item 3): B's alert records and digest
+# round-trip must never carry an unknown tier, and C gets a stable
+# rejection instead of silently stored garbage.
+SeverityLevel = Literal["info", "warning", "critical"]
 
 
 class CandidateKind(enum.StrEnum):
@@ -196,7 +203,7 @@ class CandidateCreate(SQLModel):
     sampled_at: datetime
     value: float | None = None
     unit: str | None = Field(default=None, max_length=8)
-    severity: str = Field(min_length=1, max_length=32)
+    severity: SeverityLevel
     rule_snapshot_id: uuid.UUID | None = None
     rule_version: str | None = Field(default=None, max_length=64)
     algorithm_version: str | None = Field(default=None, max_length=64)
@@ -269,13 +276,20 @@ class CandidateCreate(SQLModel):
 
     @field_validator("severity", mode="before")
     @classmethod
-    def _norm_severity(cls, value: object) -> str:
+    def _norm_severity(cls, value: object) -> SeverityLevel:
         if not isinstance(value, str):
             raise ValueError("severity must be text")
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("severity must not be empty")
-        return stripped
+        stripped = value.strip().lower()
+        # Explicit literal returns instead of a cast: mypy does not
+        # narrow ``str`` through a tuple-membership check while ty
+        # flags the cast as redundant — this satisfies both.
+        if stripped == "info":
+            return "info"
+        if stripped == "warning":
+            return "warning"
+        if stripped == "critical":
+            return "critical"
+        raise ValueError("severity must be one of: info, warning, critical")
 
     @field_validator("rule_version", mode="before")
     @classmethod

@@ -762,7 +762,10 @@ class Round2HttpFailureCase(_IsolatedCase):
 
 
 def _snapshot(
-    start: datetime, supersedes: tuple[uuid.UUID, ...] = ()
+    start: datetime,
+    supersedes: tuple[uuid.UUID, ...] = (),
+    *,
+    end: datetime | None = None,
 ) -> BatchRuleSnapshotCreate:
     return BatchRuleSnapshotCreate(
         version_id=uuid.uuid4(),
@@ -776,7 +779,7 @@ def _snapshot(
             )
         ],
         effective_start_at=start,
-        effective_end_at=None,
+        effective_end_at=end,
         supersedes_snapshot_ids=list(supersedes),
     )
 
@@ -837,6 +840,296 @@ class ChainReplacementCase(_World):
             create_snapshot(session, self.bid, _snapshot(T0))
             with self.assertRaises(SnapshotOverlapConflict):
                 create_snapshot(session, self.bid, _snapshot(T1))
+
+
+# ---------------------------------------------------------------------------
+# Round-3 item 1 — a transient storage failure inside rule selection must
+# PROPAGATE (SQLAlchemyError) so C retries; only BatchNotFound is the
+# permanent invalid/unknown_batch answer (PR #10 review 5535120012).
+# ---------------------------------------------------------------------------
+
+
+class SelectionReadFailureCase(_World):
+    def test_batch_lookup_operational_error_propagates(self) -> None:
+        with Session(self.eng) as session:
+            with mock.patch(
+                "app.modules.alerts.services.rules.get_batch", side_effect=_broken()
+            ):
+                with self.assertRaises(OperationalError):
+                    select_rules_for_observation(
+                        session,
+                        warehouse_id=self.wid,
+                        batch_ids=[self.bid],
+                        metric_code="temperature_high",
+                        sampled_at=T0,
+                    )
+
+    def test_snapshot_query_operational_error_propagates(self) -> None:
+        with Session(self.eng) as session:
+            with mock.patch.object(session, "exec", side_effect=_broken()):
+                with self.assertRaises(OperationalError):
+                    select_rules_for_observation(
+                        session,
+                        warehouse_id=self.wid,
+                        batch_ids=[self.bid],
+                        metric_code="temperature_high",
+                        sampled_at=T0,
+                    )
+
+    def test_unknown_batch_still_invalid(self) -> None:
+        with Session(self.eng) as session:
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[uuid.uuid4()],
+                metric_code="temperature_high",
+                sampled_at=T0,
+            )
+        self.assertEqual(selection.status, "invalid")
+        self.assertEqual(selection.reason_code, "unknown_batch")
+
+    def test_foreign_batch_still_invalid(self) -> None:
+        with Session(self.eng) as session:
+            other_wid = create_warehouse(
+                session, WarehouseCreate(code="WH2", name="W2")
+            ).id
+            other_bid = create_batch(
+                session, other_wid, BatchCreate(code="B2", product="x")
+            ).id
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[other_bid],
+                metric_code="temperature_high",
+                sampled_at=T0,
+            )
+        self.assertEqual(selection.status, "invalid")
+        self.assertEqual(selection.reason_code, "unknown_batch")
+
+
+# ---------------------------------------------------------------------------
+# Round-3 item 2 — supersedes closure is PERMANENT: a bounded successor's
+# expiry must not revive its closed predecessor. A's proof case: S1 open
+# from T0, S2 [T1, T2) supersedes S1 — an observation after T2 must be
+# no_rule, never S1 again (PR #10 review 5535120012).
+# ---------------------------------------------------------------------------
+
+
+class PermanentSupersedesClosureCase(_World):
+    def test_expired_bounded_successor_does_not_revive_predecessor(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "no_rule")
+        self.assertEqual(selection.rules, [])
+
+    def test_predecessor_covers_before_bounded_successor_starts(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T0 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual([e.snapshot_id for e in selection.rules], [s1.id])
+
+    def test_bounded_successor_covers_inside_its_own_window(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            s2 = create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T1 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual([e.snapshot_id for e in selection.rules], [s2.id])
+
+    def test_new_snapshot_after_closure_is_accepted_and_selected(self) -> None:
+        """Read/write consistency: once S1's window closed at S2's start,
+        a later snapshot starting after S2's expiry is a legal insert
+        (no overlap) and is the rule the reader returns."""
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            s3 = create_snapshot(session, self.bid, _snapshot(T2 + timedelta(days=1)))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(days=1, hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual([e.snapshot_id for e in selection.rules], [s3.id])
+
+    def test_bounded_middle_of_three_version_chain(self) -> None:
+        """S1 open → S2 [T1,T2) supersedes S1 → S3 open at T2 supersedes
+        S2: after T2 the reader returns S3, and S1 never revives."""
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            s3 = create_snapshot(session, self.bid, _snapshot(T2, ()))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual([e.snapshot_id for e in selection.rules], [s3.id])
+
+    def test_gap_after_bounded_expiry_is_no_rule(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(minutes=1),
+            )
+        self.assertEqual(selection.status, "no_rule")
+
+    def test_closure_is_per_batch_independent(self) -> None:
+        """A permanently closed S1 in batch A must not affect batch B's
+        own open rule at the same sampled_at."""
+        with Session(self.eng) as session:
+            other_bid = create_batch(
+                session, self.wid, BatchCreate(code="B2", product="x")
+            ).id
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            s_b = create_snapshot(session, other_bid, _snapshot(T0))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid, other_bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual(
+            sorted((e.batch_id, e.snapshot_id) for e in selection.rules),
+            [(other_bid, s_b.id)],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Round-3 item 3 — severity is a closed set: info / warning / critical
+# (PR #10 review 5535120012). Anything else is an explicit 422 invalid,
+# never silently stored free text.
+# ---------------------------------------------------------------------------
+
+
+class SeverityClosedSetCase(_World):
+    def test_all_three_levels_accepted_and_round_trip(self) -> None:
+        with Session(self.eng) as session:
+            for level in ("info", "warning", "critical"):
+                payload = self._world_candidate(
+                    source_event_id=f"sev-{level}", severity=level
+                )
+                receipt = receive_candidate(session, payload)
+                self.assertEqual(receipt.status, "accepted_new")
+                row = get_event_by_source(session, f"sev-{level}")
+                assert row is not None
+                self.assertEqual(row.severity, level)
+
+    def test_unknown_text_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._world_candidate(severity="high")
+
+    def test_empty_and_whitespace_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._world_candidate(severity="")
+        with self.assertRaises(ValueError):
+            self._world_candidate(severity="   ")
+
+    def test_non_text_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._world_candidate(severity=5)
+
+    def test_case_folded_to_lowercase(self) -> None:
+        payload = self._world_candidate(severity="WARNING")
+        self.assertEqual(payload.severity, "warning")
+
+    def test_case_folded_replay_is_duplicate(self) -> None:
+        """Normalization is part of the canonical payload: "WARNING"
+        and "warning" carry the same digest, so the replay is a
+        duplicate, not a conflict."""
+        with Session(self.eng) as session:
+            first = receive_candidate(
+                session,
+                self._world_candidate(source_event_id="sev-case", severity="WARNING"),
+            )
+            replay = receive_candidate(
+                session,
+                self._world_candidate(source_event_id="sev-case", severity="warning"),
+            )
+        self.assertEqual(first.status, "accepted_new")
+        self.assertEqual(replay.status, "accepted_duplicate")
+
+
+class SeverityHttpCase(_IsolatedCase):
+    def test_unknown_severity_rejected_422(self) -> None:
+        client = _client()
+        wid = client.post("/warehouses/", json={"code": "WH", "name": "W"}).json()["id"]
+        bid = client.post(
+            f"/warehouses/{wid}/batches", json={"code": "B-001", "product": "x"}
+        ).json()["id"]
+        body = {
+            "source_event_id": "sev-http-1",
+            "warehouse_id": wid,
+            "batch_id": bid,
+            "observation_ids": [_OBS_A],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-14T00:01:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "urgent",
+            "rule_version": "v1",
+        }
+        r = client.post("/candidates", json=body)
+        self.assertEqual(r.status_code, 422)
+
+    def test_valid_severity_accepted_201(self) -> None:
+        client = _client()
+        wid = client.post("/warehouses/", json={"code": "WH", "name": "W"}).json()["id"]
+        bid = client.post(
+            f"/warehouses/{wid}/batches", json={"code": "B-001", "product": "x"}
+        ).json()["id"]
+        body = {
+            "source_event_id": "sev-http-2",
+            "warehouse_id": wid,
+            "batch_id": bid,
+            "observation_ids": [_OBS_A],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-14T00:01:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "critical",
+            "rule_version": "v1",
+        }
+        r = client.post("/candidates", json=body)
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["status"], "accepted_new")
 
 
 if __name__ == "__main__":
