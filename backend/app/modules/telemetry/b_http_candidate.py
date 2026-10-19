@@ -32,6 +32,10 @@ from app.modules.telemetry.delivery_candidate import (
 from app.modules.telemetry.f03_body_candidate import f03_digest_candidate
 
 _MAX_REPLY_BYTES = 65536
+# One delivery can perform up to four requests (preflight lookup, POST,
+# uncertain-POST lookup, recovery-original lookup). Keep their combined
+# network timeout below the outbox's 30-second lease.
+_MAX_REQUEST_TIMEOUT_S = 5.0
 _DIGEST = re.compile(r"^sha256:([0-9a-f]{64})$")
 _POST_STATUSES: dict[int, ReceiptStatus] = {
     201: "accepted_new",
@@ -95,8 +99,8 @@ class UrllibCandidateTransport:
             "::1",
         ):
             raise ValueError("bearer over plain HTTP is limited to local loopback")
-        if not 0 < timeout_s <= 30:
-            raise ValueError("timeout_s must be 0-30 seconds")
+        if not 0 < timeout_s <= _MAX_REQUEST_TIMEOUT_S:
+            raise ValueError("timeout_s must be 0-5 seconds within the outbox lease")
         self._base_url = base_url.rstrip("/")
         self._bearer = bearer
         self._timeout_s = timeout_s

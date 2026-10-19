@@ -221,6 +221,15 @@ class UrllibCandidateTransportTests(unittest.TestCase):
             UrllibCandidateTransport(
                 base_url="https://user:pass@alerts.example.test", bearer=lambda: "x"
             )
+        UrllibCandidateTransport(
+            base_url="https://alerts.example.test", bearer=lambda: "x", timeout_s=5
+        )
+        with self.assertRaisesRegex(ValueError, "outbox lease"):
+            UrllibCandidateTransport(
+                base_url="https://alerts.example.test",
+                bearer=lambda: "x",
+                timeout_s=5.1,
+            )
 
     def test_redirect_and_network_failure_do_not_leak_acceptance(self) -> None:
         redirect_body = io.BytesIO(b"")
