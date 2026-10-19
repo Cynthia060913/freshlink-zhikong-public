@@ -216,6 +216,9 @@ class HeartbeatWorker:
                     policy=self.policy,
                 )
 
+    def _connect(self) -> int:
+        return self.client.connect(self.settings.host, self.settings.port, keepalive=30)
+
     def run(self, *, max_seconds: float | None = None) -> None:
         if max_seconds is not None and (
             not math.isfinite(max_seconds) or max_seconds <= 0
@@ -233,9 +236,7 @@ class HeartbeatWorker:
                     break
                 if not connected_socket and now >= retry_at:
                     try:
-                        result = self.client.connect(
-                            self.settings.host, self.settings.port, keepalive=30
-                        )
+                        result = self._connect()
                         connected_socket = result == mqtt.MQTT_ERR_SUCCESS
                     except OSError:
                         connected_socket = False
