@@ -20,6 +20,8 @@ fileConfig(config.config_file_name)
 # target_metadata = None
 
 from app.models import SQLModel  # noqa
+# Register B tables for schema comparison; this never creates tables at startup.
+from app.modules.alerts import models as alerts_models  # noqa: F401
 from app.modules.iot.models import Device  # noqa: F401
 from app.modules.iot.control_models import DeviceCommand, CommandAttempt, CommandReceipt  # noqa: F401
 from app.core.config import settings # noqa

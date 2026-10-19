@@ -43,6 +43,7 @@ services:
       - >-
         set -e;
         alembic upgrade head;
+        alembic check;
         python app/initial_data.py;
         coverage run -m pytest -p no:cacheprovider tests/ --junitxml=/results/pytest.xml;
         coverage report --fail-under=90;

@@ -85,6 +85,35 @@ A候选正常合入C文档头0dca，形成干净集成头
 
 这些仍是PR14待审候选证据，未合main、未升级正式库，不关闭S0/E1。
 
+## B01 新候选与共享迁移环境（2026-10-19 18:50）
+
+B已交 `8561ce1ec0ea4e996bccbdc5f46d473bb170fc09`，只增加B01迁移和测试，
+不是B尚未交源码。A正常合入本人DRAFT集成分支，未修改B所属文件；正式main
+仍为A03。B01在临时库的唯一后继是a03_control_storage，C正式后继仍未发布。
+
+A在自有共享 `alembic/env.py` 登记B SQLModel表，使元数据比较能识别已迁移B表；
+没有自动建表或新编写B迁移。隔离验收现先真实 `upgrade head` 再执行
+`alembic check`，输出 **No new upgrade operations detected**，随后完整后端
+**830/830、0跳过、覆盖率92%**。迁移测试导入Alembic源码导致覆盖分母变化，
+不沿用旧94%。JUnit SHA256
+`94fb37416562ed31f54bb8afbb422f8364046926ed1359686e7dd922f93a04ea`。
+实际OpenAPI与先前成功构建源仍同hash，前端未变化。
+
+B精确归档自身596/596、92%通过。A c15+B8561+Cdf232附加真实PG/HTTP
+**40/40通过**：B六表来自实际Alembic，不再是B测试DDL；A03之前写入的合成
+设备升级后完整保留、B PG元数据零差异、快照UPDATE/DELETE触发器均真实拒绝，
+原规则保留；后续实际历史规则/C候选/B回读和恢复边界亦通过。报告SHA256
+`b333d38f12d2b01d8a8720fc0147d37a4b7a2a388b2897b09753248bca1e78f4`，
+probe_exit0/cleanup_exit0。C仍为隔离测试DDL，不冒称正式C迁移或完整E1。
+
+B新头需新的有效C独立审查，原3f批准已DISMISSED；A范围反馈在PR10
+review5570487550。B步骤测试固定全仓head和任意可达PG探测的注意项已交原作者，
+不由A改写其测试。C准备唯一B01后继时需指出其独立MetaData导入点，由A继续
+协调共享env登记；不能只跑create_all或让未来autogenerate误删既有表。
+
+本候选依然DRAFT，后续正式链发布、实际页面/持续恢复、两通知实收和第二机
+验收保留，未以本轮测试数量清掉这些要求。
+
 尚未完成正式 B/C Alembic、持续采集到真实 C 页面、自动恢复窗口接调度、
 两独立真实通知实收、两库三批十四设备、第二机复现和最终材料签收。
 PR #14 保持 DRAFT；不得因本地测试通过将该组合直接合入 main。
