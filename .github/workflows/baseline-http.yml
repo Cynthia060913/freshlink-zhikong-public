@@ -1,0 +1,40 @@
+name: Shared baseline real HTTP
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/baseline-http.yml
+      - compose.baseline-http-tests.yml
+      - backend/scripts/check-baseline-http.py
+      - scripts/windows/check-baseline-http.ps1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: baseline-http-${{ github.ref }}-${{ github.actor }}
+  cancel-in-progress: true
+
+jobs:
+  baseline-http:
+    if: >-
+      github.repository == 'Cynthia060913/freshlink-zhikong-public' &&
+      !github.event.repository.private &&
+      (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare disposable test image
+        run: |
+          docker build -f backend/Dockerfile -t freshlink-baseline-check .
+          docker pull postgres:18
+      - name: Check actual application process and authenticated HTTP
+        shell: pwsh
+        run: |
+          $scope = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { 'published-main' } else { 'candidate' }
+          ./scripts/windows/check-baseline-http.ps1 -AppImage freshlink-baseline-check -Scope $scope
