@@ -7,8 +7,14 @@ or its data.
 
 What is verified here and where:
 
-- **Single head** — the alembic script directory has exactly one head
-  (``b01_alerts_storage``), i.e. B did not fork the chain.
+- **Chain containment, not "final head"** — B1 must chain on the
+  UNIQUE published A chain (``a03_control_storage``) and every alembic
+  head must descend from ``b01_alerts_storage``. The tests deliberately
+  do NOT require the whole-repo head to equal B1: a legitimate C
+  successor revision must keep every B regression green. The step
+  upgrade target is pinned to B1 (never ``head``), and a synthetic
+  successor probe proves a C revision chained on B1 neither breaks the
+  B assertions nor lets the fixed-target upgrade overshoot.
 - **Step upgrade on an empty SQLite DB** — the base app migrations use
   PG-only ``ALTER COLUMN`` so the full chain cannot run on SQLite; the
   local test STAMPS ``a03_control_storage`` (the real chain end) and
@@ -20,18 +26,23 @@ What is verified here and where:
 - **Model consistency** — the migrated schema matches
   ``SQLModel.metadata``/create_all for the six alerts tables down to
   column order, nullability, types, indexes and unique constraints.
-- **PostgreSQL live checks (CI only)** — when the configured
-  ``DATABASE_URL`` is a reachable PostgreSQL (CI test-backend runs
-  against the prestart-migrated DB), the migration's PG-only pieces
-  are asserted for real: the tables exist, the append-only trigger on
-  ``alerts_batch_rule_snapshot`` exists, and it rejects UPDATE/DELETE.
-  Skipped locally where no PG is available — reported as untested
-  outside CI rather than silently assumed.
+- **PostgreSQL live checks — dedicated throwaway DB** — when a
+  PostgreSQL server is reachable AND the explicit opt-in flag
+  ``B01_LIVE_PG_TESTS=1`` is set (set by this module tree's conftest),
+  the checks CREATE their own dedicated database
+  (``b01_live_pg_test``), migrate it up to B1 over the real PG chain,
+  assert the PG-only pieces for real, and DROP it afterwards. The
+  configured application database is never written to; the append-only
+  trigger probe runs entirely inside one transaction with an explicit
+  rollback, verified by counting zero leftover rows. Where no PG is
+  reachable the checks skip and are reported as untested there rather
+  than silently assumed.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import unittest
 import uuid
@@ -42,7 +53,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, select
 
@@ -151,25 +162,138 @@ class _SqliteMigrationCase(unittest.TestCase):
                 pass
 
 
-class SingleHeadCase(unittest.TestCase):
-    def test_b01_is_the_only_head(self) -> None:
-        script = ScriptDirectory(
-            str(_BACKEND_DIR / "app" / "alembic"),
-        )
-        self.assertEqual(list(script.get_heads()), [_HEAD])
+def _ancestry(script: ScriptDirectory, revision_id: str) -> set[str]:
+    """All revisions from ``revision_id`` down to the chain base."""
+
+    seen: set[str] = set()
+    rev = script.get_revision(revision_id)
+    while rev is not None and rev.revision != "base":
+        seen.add(rev.revision)
+        if rev.down_revision is None:
+            break
+        rev = script.get_revision(rev.down_revision)
+    return seen
+
+
+class ChainContainmentCase(unittest.TestCase):
+    """B1 must live on the unique chain — but NOT be forced to remain
+    the final head: a legitimate C successor keeps everything green."""
+
+    def test_every_head_descends_from_b01(self) -> None:
+        script = ScriptDirectory(str(_BACKEND_DIR / "app" / "alembic"))
+        heads = list(script.get_heads())
+        self.assertTrue(heads)
+        for head in heads:
+            self.assertIn(
+                _HEAD,
+                _ancestry(script, head),
+                f"head {head} does not descend from b01_alerts_storage",
+            )
 
     def test_b01_chains_on_the_published_a_chain_end(self) -> None:
         script = ScriptDirectory(str(_BACKEND_DIR / "app" / "alembic"))
         revision = script.get_revision(_HEAD)
         assert revision is not None
         self.assertEqual(revision.down_revision, _CHAIN_END)
+        # …and that A chain end itself descends from the base chain.
+        self.assertIn("e2412789c190", _ancestry(script, _CHAIN_END))
+
+
+# A test-only successor that could never be published: it exists ONLY
+# inside a temp copy of the alembic script directory.
+_SUCCESSOR_ID = "c01_successor_probe"
+_SUCCESSOR_SRC = '''"""Synthetic C-successor probe (test fixture, never published)."""
+
+revision = "c01_successor_probe"
+down_revision = "b01_alerts_storage"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    """No-op: only the chain shape is under test."""
+
+
+def downgrade() -> None:
+    """No-op: only the chain shape is under test."""
+'''
+
+
+class SuccessorChainCompatCase(_SqliteMigrationCase):
+    """With a legitimate C successor chained on B1, the B-step
+    regressions still pass: heads() stops being B1 (the old "only head
+    == b01" assertion would have failed), B's fixed-target upgrade
+    stops exactly at B1, and the successor neither breaks B's schema
+    nor survives B1's downgrade."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.script_dir = Path(tempfile.mkdtemp(prefix="b01-successor-"))
+        shutil.copytree(
+            _BACKEND_DIR / "app" / "alembic", self.script_dir, dirs_exist_ok=True
+        )
+        versions = self.script_dir / "versions"
+        versions.mkdir(exist_ok=True)
+        (versions / f"{_SUCCESSOR_ID}.py").write_text(_SUCCESSOR_SRC, encoding="utf-8")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.script_dir, ignore_errors=True)
+        super().tearDown()
+
+    def _successor_cfg(self) -> Config:
+        cfg = Config(str(_BACKEND_DIR / "alembic.ini"))
+        cfg.set_main_option("script_location", str(self.script_dir))
+        return cfg
+
+    def test_b_steps_stay_green_with_a_successor_revision(self) -> None:
+        script = ScriptDirectory(str(self.script_dir))
+        # Single head is now the successor, NOT b01 — the old
+        # "heads == [b01]" assertion would break exactly here.
+        self.assertEqual(list(script.get_heads()), [_SUCCESSOR_ID])
+        self.assertIn(_HEAD, _ancestry(script, _SUCCESSOR_ID))
+
+        cfg = self._successor_cfg()
+        command.stamp(cfg, _CHAIN_END)
+        # Fixed target: upgrade stops at B1 even though a successor
+        # exists — it must not run past B's own revision.
+        command.upgrade(cfg, _HEAD)
+        insp = inspect(self._engine())
+        self.assertTrue(set(_ALERTS_TABLES).issubset(set(insp.get_table_names())))
+        with self._engine().connect() as conn:
+            version = conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar()
+        self.assertEqual(version, _HEAD)
+
+        # The successor can still be reached by name/head afterwards…
+        command.upgrade(cfg, "head")
+        with self._engine().connect() as conn:
+            version = conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar()
+        self.assertEqual(version, _SUCCESSOR_ID)
+        # …B's six tables survive it…
+        self.assertTrue(
+            set(_ALERTS_TABLES).issubset(set(inspect(self._engine()).get_table_names()))
+        )
+        # …and downgrading back to B1 (and then a03) still works.
+        command.downgrade(cfg, _HEAD)
+        with self._engine().connect() as conn:
+            version = conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar()
+        self.assertEqual(version, _HEAD)
+        command.downgrade(cfg, _CHAIN_END)
+        self.assertFalse(
+            set(_ALERTS_TABLES) & set(inspect(self._engine()).get_table_names())
+        )
 
 
 class EmptyStepUpgradeCase(_SqliteMigrationCase):
     def test_stamp_and_upgrade_creates_all_six_tables(self) -> None:
         cfg = _alembic_cfg()
         command.stamp(cfg, _CHAIN_END)
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, _HEAD)
         insp = inspect(self._engine())
         tables = set(insp.get_table_names())
         self.assertTrue(set(_ALERTS_TABLES).issubset(tables))
@@ -182,7 +306,7 @@ class EmptyStepUpgradeCase(_SqliteMigrationCase):
     def test_downgrade_restores_pre_b01_table_set(self) -> None:
         cfg = _alembic_cfg()
         command.stamp(cfg, _CHAIN_END)
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, _HEAD)
         command.downgrade(cfg, _CHAIN_END)
         insp = inspect(self._engine())
         tables = set(insp.get_table_names())
@@ -217,7 +341,7 @@ class OldADataPreservedCase(_SqliteMigrationCase):
         # the local chain end is STAMPED so only B1 runs for real.
         command.stamp(cfg, _CHAIN_END)
         self._insert_device()
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, _HEAD)
 
         engine = self._engine()
         with Session(engine) as session:
@@ -243,7 +367,7 @@ class MigratedSchemaMatchesModelsCase(_SqliteMigrationCase):
     def test_migrated_schema_equals_create_all(self) -> None:
         cfg = _alembic_cfg()
         command.stamp(cfg, _CHAIN_END)
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, _HEAD)
         migrated = self._engine()
 
         created = create_engine("sqlite://")
@@ -259,7 +383,7 @@ class MigratedSchemaServesTheServicesCase(_SqliteMigrationCase):
     def test_services_run_against_migrated_schema(self) -> None:
         cfg = _alembic_cfg()
         command.stamp(cfg, _CHAIN_END)
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, _HEAD)
 
         from app.modules.alerts.models import (
             BatchCreate,
@@ -305,44 +429,90 @@ class MigratedSchemaServesTheServicesCase(_SqliteMigrationCase):
             )
 
 
-def _live_postgres_engine() -> Engine | None:
-    """The configured DB when it is a reachable PostgreSQL, else None.
+_LIVE_PG_FLAG = "B01_LIVE_PG_TESTS"
+_LIVE_PG_DB = "b01_live_pg_test"
 
-    CI test-backend runs against the prestart-migrated compose DB;
-    locally there is no PG, so these checks skip (reported as
-    untested outside CI) instead of silently passing.
-    """
 
-    url = str(settings.DATABASE_URL)
-    if not url.startswith("postgresql"):
-        return None
+def _server_reachable(url: object) -> bool:
     try:
-        engine = create_engine(url, connect_args={"connect_timeout": 3})
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return engine
+        engine = create_engine(
+            str(url), connect_args={"connect_timeout": 3}, isolation_level="AUTOCOMMIT"
+        )
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return True
+        finally:
+            engine.dispose()
     except Exception:
-        return None
+        return False
 
 
 class PostgresLiveChecksCase(unittest.TestCase):
-    """Runs only against a live PostgreSQL (CI); skips locally."""
+    """Real-PG checks on a SELF-CREATED, DEDICATED throwaway database.
+
+    Opt-in (``B01_LIVE_PG_TESTS=1``, set by this module tree's
+    conftest) plus a reachable PostgreSQL server. The case CREATEs
+    ``b01_live_pg_test`` on that server, migrates it over the real PG
+    chain up to B1, asserts the PG-only migration pieces, and DROPs it
+    again in teardown. The configured application database itself is
+    never written to, so a misconfigured business URL cannot be
+    polluted. Where no server is reachable the case skips (reported
+    as untested there) rather than silently passing.
+    """
 
     engine: Engine
+    admin_engine: Engine
+    _saved_url: str
 
     @classmethod
     def setUpClass(cls) -> None:
-        live = _live_postgres_engine()
-        if live is None:
+        if os.environ.get(_LIVE_PG_FLAG) != "1":
             raise unittest.SkipTest(
-                "no live PostgreSQL DATABASE_URL — PG checks run in CI only"
+                "B01 live PG checks not opted in (B01_LIVE_PG_TESTS != 1)"
             )
-        cls.engine = live
+        url = make_url(str(settings.DATABASE_URL))
+        if url.get_backend_name() != "postgresql":
+            raise unittest.SkipTest("configured DATABASE_URL is not PostgreSQL")
+        admin_url = url.set(database="postgres")
+        if not _server_reachable(admin_url):
+            raise unittest.SkipTest(
+                "no reachable PostgreSQL server — dedicated-DB PG checks skipped"
+            )
+        # Dedicated throwaway DB on the test server (created here,
+        # dropped in tearDownClass). Never the configured app DB.
+        cls.admin_engine = create_engine(
+            str(admin_url),
+            connect_args={"connect_timeout": 3},
+            isolation_level="AUTOCOMMIT",
+        )
+        with cls.admin_engine.connect() as conn:
+            conn.execute(text(f"DROP DATABASE IF EXISTS {_LIVE_PG_DB} WITH (FORCE)"))
+            conn.execute(text(f"CREATE DATABASE {_LIVE_PG_DB}"))
+        cls._saved_url = str(settings.DATABASE_URL)
+        dedicated = str(url.set(database=_LIVE_PG_DB))
+        # See _SqliteMigrationCase.setUp for the setattr/noqa story.
+        setattr(settings, "DATABASE_URL", dedicated)  # noqa: B010
+        cls.engine = create_engine(dedicated)
+        # Real full chain (base → … → b01) on the dedicated PG DB; the
+        # target is pinned to B1 so a future C successor never makes
+        # these checks run past B's revision.
+        command.upgrade(_alembic_cfg(), _HEAD)
 
     @classmethod
     def tearDownClass(cls) -> None:
         if getattr(cls, "engine", None) is not None:
             cls.engine.dispose()
+        if os.environ.get(_LIVE_PG_FLAG) == "1" and hasattr(cls, "_saved_url"):
+            setattr(settings, "DATABASE_URL", cls._saved_url)  # noqa: B010
+        if getattr(cls, "admin_engine", None) is not None:
+            try:
+                with cls.admin_engine.connect() as conn:
+                    conn.execute(
+                        text(f"DROP DATABASE IF EXISTS {_LIVE_PG_DB} WITH (FORCE)")
+                    )
+            finally:
+                cls.admin_engine.dispose()
 
     def test_alerts_tables_exist_on_migrated_postgres(self) -> None:
         tables = set(inspect(self.engine).get_table_names())
@@ -362,55 +532,70 @@ class PostgresLiveChecksCase(unittest.TestCase):
         self.assertIsNotNone(trigger, "append-only trigger missing on PG")
 
         now = datetime(2026, 10, 19, tzinfo=UTC)
-        # One transaction: if the UPDATE raises (it must), the whole
-        # txn rolls back and no row survives in the shared CI DB.
-        with self.assertRaises(IntegrityError):
-            with self.engine.connect() as conn:
-                with conn.begin():
-                    conn.execute(
-                        text(
-                            "INSERT INTO alerts_warehouse (id, code, name, created_at) "
-                            "VALUES (:id, 'wh-b01-pg', 'W', :ts)"
-                        ),
-                        {"id": uuid.uuid4(), "ts": now},
-                    )
-                    wid = conn.execute(
-                        text("SELECT id FROM alerts_warehouse WHERE code = 'wh-b01-pg'")
-                    ).scalar()
-                    conn.execute(
-                        text(
-                            "INSERT INTO alerts_batch "
-                            "(id, code, warehouse_id, product, started_at, created_at) "
-                            "VALUES (:id, 'b-b01-pg', :wid, 'x', :ts, :ts)"
-                        ),
-                        {"id": uuid.uuid4(), "wid": wid, "ts": now},
-                    )
-                    bid = conn.execute(
-                        text("SELECT id FROM alerts_batch WHERE code = 'b-b01-pg'")
-                    ).scalar()
-                    conn.execute(
-                        text(
-                            "INSERT INTO alerts_batch_rule_snapshot "
-                            "(id, batch_id, version_id, payload_json, signature, "
-                            "effective_start_at, supersedes_json, created_at) "
-                            "VALUES (:id, :bid, :vid, '[]', :sig, :ts, '[]', :ts)"
-                        ),
-                        {
-                            "id": uuid.uuid4(),
-                            "bid": bid,
-                            "vid": uuid.uuid4(),
-                            "sig": "b01pg" * 12 + "cdef",
-                            "ts": now,
-                        },
-                    )
-                    conn.execute(
-                        text(
-                            "UPDATE alerts_batch_rule_snapshot "
-                            "SET signature = 'tampered' "
-                            "WHERE batch_id = :bid"
-                        ),
-                        {"bid": bid},
-                    )
+        # Everything inside ONE transaction with an EXPLICIT rollback
+        # on failure: if the UPDATE raises (it must), nothing survives.
+        raised: Exception | None = None
+        conn = self.engine.connect()
+        try:
+            conn.begin()
+            conn.execute(
+                text(
+                    "INSERT INTO alerts_warehouse (id, code, name, created_at) "
+                    "VALUES (:id, 'wh-b01-pg', 'W', :ts)"
+                ),
+                {"id": uuid.uuid4(), "ts": now},
+            )
+            wid = conn.execute(
+                text("SELECT id FROM alerts_warehouse WHERE code = 'wh-b01-pg'")
+            ).scalar()
+            conn.execute(
+                text(
+                    "INSERT INTO alerts_batch "
+                    "(id, code, warehouse_id, product, started_at, created_at) "
+                    "VALUES (:id, 'b-b01-pg', :wid, 'x', :ts, :ts)"
+                ),
+                {"id": uuid.uuid4(), "wid": wid, "ts": now},
+            )
+            bid = conn.execute(
+                text("SELECT id FROM alerts_batch WHERE code = 'b-b01-pg'")
+            ).scalar()
+            conn.execute(
+                text(
+                    "INSERT INTO alerts_batch_rule_snapshot "
+                    "(id, batch_id, version_id, payload_json, signature, "
+                    "effective_start_at, supersedes_json, created_at) "
+                    "VALUES (:id, :bid, :vid, '[]', :sig, :ts, '[]', :ts)"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "bid": bid,
+                    "vid": uuid.uuid4(),
+                    "sig": "b01pg" * 12 + "cdef",
+                    "ts": now,
+                },
+            )
+            conn.execute(
+                text(
+                    "UPDATE alerts_batch_rule_snapshot "
+                    "SET signature = 'tampered' "
+                    "WHERE batch_id = :bid"
+                ),
+                {"bid": bid},
+            )
+            conn.commit()
+        except IntegrityError as exc:
+            raised = exc
+            conn.rollback()
+        finally:
+            conn.rollback()  # idempotent no-op once already rolled back
+            conn.close()
+        self.assertIsNotNone(raised, "UPDATE on the snapshot table was not blocked")
+        # Rollback guarantee, verified: zero leftover synthetic rows.
+        with self.engine.connect() as check:
+            leftovers = check.execute(
+                text("SELECT count(*) FROM alerts_warehouse WHERE code = 'wh-b01-pg'")
+            ).scalar()
+        self.assertEqual(leftovers, 0)
 
 
 if __name__ == "__main__":
