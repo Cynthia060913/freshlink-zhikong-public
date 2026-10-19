@@ -1,6 +1,19 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
-核对日期：2026-10-17。**状态：M03 底稿，未签收**。本文件汇集三人已公开的版本化证据，不能把不同 PR/机器/数据库的结果相加，不能代 A/B 签字。最终报告须在同一发布 SHA、部署配置和第二台电脑上复核后重写实际结果；本文件不证明 E1 或比赛验收。
+初版核对日期：2026-10-17；最新补证：2026-10-19。**状态：M03 底稿，未签收**。本文件汇集三人已公开的版本化证据，不能把不同 PR/机器/数据库的结果相加，不能代 A/B 签字。最终报告须在同一发布 SHA、部署配置和第二台电脑上复核后重写实际结果；本文件不证明 E1 或比赛验收。
+
+## 2026-10-19 补证与旧快照边界
+
+下方第 1—3 节是 10 月 17 日的来源快照，表中的旧 main、PR HEAD 和“未签收”判断不能当作今日实时状态。今日已核对的公共 main 为 **`46fa463d6ca4f71965b8db74b08a41f352b05cfb`**，固定 F01—F06/§3 目标包 `f98e65b4717334bae34f7495181c320ae5061860` 已由三方接受并经 PR #23 合入；S0 的成员实际启动记录仍未齐，[共同状态见 #5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5)。这项目标签收不表示正式 B/C 迁移、应用接线或 E1 已完成。
+
+| 补证来源 | 准确版本与实际结果 | 仍不能声称 |
+| --- | --- | --- |
+| C 本人数据模块 | [PR #11 `07bac16f7b5591f323e4ed09a7d51244c9813d82`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)：Windows/Codex 隔离 Python3.13、临时 SQLite 文件，规则选择/原始观测/outbox/F03 契约/B HTTP 合跑 **41/41 OK**；Ruff、Ty、限定文件 Mypy、暂存文本安全扫描及 10 项安全脚本通过。`c6f78…` 同头五项 Actions 已成功；`07bac…` 的远端最终检查仍须单独回读。 | B 真实 F02 SQLModel/HTTP 调用、正式 C Alembic、PG 同头、页面正式挂载、通知及 E1。此 41 项不与 10/17 旧 102 项相加。 |
+| A 对 C 的独立补测 | A 在 [#9 精确 `9b26a781cf5be93f899247d7d190234111344330` 的报告](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6252700886)记录 Python3.14.8/受控 PG18.6 的 C telemetry **145/145**，专属测试库清理完成。 | 不是 C 本人 Windows/当前 `07bac…` 同头 PG 结果，也不是正式迁移或真实 B 接收。 |
+| A 设备/控制 | A [PR #18 当前 `cffcf4f3b4a73d83ddf3173986ab5a37b239f88f`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/18) 的六个文件与本报告 10/17 已列 `53833…` 的对应 Git blob 完全相同；当前头五项 Actions 成功，C 已[独立批准](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/18#pullrequestreview-5566149541)。A 的 340/96% 与 MQTT 实证仍按其原提交范围引用。 | 当前头并未因此由 C 本人重跑 MQTT/PG，B 真实仓库 lookup、C 正式入库及 E1 未验证。 |
+| B 规则/告警 | [PR #10 仍为 `9cf9a5de55d48bf0761655b6f2cda844ec5975f6`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10)。A 在 [#8 独立核验](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/8#issuecomment-6250590489)记录该头后端 462/94%，但旧持久行摘要重放和误恢复仍有 P1，C 对误恢复提交了[审查](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5563695226)。 | PR 未合 main，不能用 462 项绿色把两项缺陷、正式 B 迁移或两渠道真实收件填为通过。 |
+
+下一轮 C 汇编须补同一发布 SHA 的正式 PG/HTTP/页面/CSV 和 E1 #6 实证；A/B 尚未提供的最终业务证据继续写“待验证”。下方 10/17 表格保留原始时间标签，以便追溯测试版本，不作为当前进度总表。
 
 ## 1. 证据版本与环境
 
@@ -32,7 +45,7 @@
 
 | 门禁 | 当前状态 | 后续应取得的同版证据和提供方 |
 | --- | --- | --- |
-| S0 同版契约与唯一迁移 | **未签收** | A/B/C 在 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5) 确认同一 F01—F06 版本、正常/失败样例和已合并唯一迁移 head；B 修 PR #10 三项后重测 |
+| S0 同版契约与唯一迁移 | **10/17 历史状态；10/19 固定目标已签、实际启动未齐** | A/B/C 已在 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5) 接受同一 f98 包，PR #23 已合入 A03；B/C 正式迁移及本人运行证据仍需另验，不能拿目标签收代替 E1 |
 | A→C 真正接收及 PostgreSQL 入库/重启 | **未测** | A 提供可信 ingress 与启动版本；C 在已合并迁移链上实跑坏包、高温、重发、冲突、断电/重启保留、事务失败及本人 PG opt-in 用例，保留脱敏对象 ID/日志摘要 |
 | 鉴权历史、页面与正式 CSV | **未测** | C/A 对同一登录用户、规范筛选和固定快照比对页面/下载 ID、行数、UTC、质量及原值；测试无权、空结果、上限、过期、晚提交、公式文本在目标表格软件中的人工查看 |
 | C→B 候选、可靠重试与恢复 | **未测** | B 给同版规则选择与按来源回读；C/B 测同 ID 重放、改正文冲突、超时查无原正文重试、缺测/无规则不发、恢复引用和失败留证；当前合成 JSON 不算收件 |
