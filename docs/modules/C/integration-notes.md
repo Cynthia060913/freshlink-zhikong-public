@@ -296,16 +296,30 @@ UUID、UTC、数值、severity 和全部可空字段与 B `CandidateCreate` 规�
 一致，否则 B 的摘要可能不同，C 不能把回复误判为 delivered。此段是
 7b1cf26 时的版本记录；恢复候选增量的更新见下节。实际跨模块投递仍待验证。
 
-### 2026-10-18 B 恢复增量后的正文版本边界
+### 2026-10-19 B 兼容摘要约定与 C 对拍
+
+B PR #10 的 `3f43af70a29bfc0859fed711333cd38e7e505a05` 已把
+schema 1.0 非恢复候选的空 `related_source_event_id` 从**摘要字段集**精确
+排除；HTTP 正文仍可带该字段的 `null`。因此普通高温固定向量继续是
+`sha256:20789a39ec33eba8c25651c3f41c5c077c466c852ff58a11532cb211ca5aa234`，
+既有 B 行的同 ID 同文重放仍可返回 `accepted_duplicate`。恢复候选的非空
+引用仍参与摘要，固定向量 `sha256:d6d1ef23731e60bdcdee94f36c7b271952d071ce7d4d53841cb4dd7cee301c0c`
+不变。C 的 F03 staging 保存完整规范化 HTTP 正文，同时以 B 的精确摘要字段
+集写入 outbox `body_sha256`；恢复后重开及同 ID 同文重复均在隔离测试中核验。
+先前 `f862dc…` 是 B `9cf9a5d` 候选期间的普通事件摘要，**不是当前同版值**。
+已冻结的旧 pending 行不在这里批量改写；正式接入前须盘点持久行的数量、
+版本与 B 回读结果。此对拍不代表真实 B HTTP 送达或 S0/E1 业务验收。
+
+### 2026-10-18 B 恢复增量后的正文版本边界（历史）
 
 B PR #10 当前 `9cf9a5de55d48bf0761655b6f2cda844ec5975f6` 已新增
 `CandidateCreate.related_source_event_id`（非恢复候选也由 `model_dump(mode="json")`
 输出 `null`），恢复 `temperature_recovered` 以新 ID 引用原异常；B 已在 #5
 给出恢复固定摘要 `sha256:d6d1ef23731e60bdcdee94f36c7b271952d071ce7d4d53841cb4dd7cee301c0c`。
-上段 `20789…` 是 **7b1cf26 旧 DTO 的历史向量**；相同普通高温正文在新增
+当时 `20789…` 是 **7b1cf26 旧 DTO 的向量**；相同普通高温正文在新增
 `related_source_event_id:null` 后按 B 规范变为
 `sha256:f862dc326de9146c30723cb636cdd8e7fbb99cea3eb464ee09fd2d40cdc9f36c`。
-不得拿旧摘要核对新 B 版本。
+这段只描述 9cf 的暂时实现；当前约定以上方 3f43 的兼容修复为准。
 
 C 新 `f03_body_candidate.py::normalize_f03_body_candidate` 固定 16 字段、UUID、
 UTC、温度 °C、有限数值、质量证据和 32768 字节上限，拒绝未知字段；

@@ -1,7 +1,7 @@
 """Isolated durable C→B delivery coordinator with an injected transport port.
 
-Its receipt digest must represent the same frozen JSON body stored by C; an
-unverifiable reply never marks work delivered. The HTTP adapter is opt-in; no
+Its receipt digest must represent B's canonical identity of the frozen C body;
+an unverifiable reply never marks work delivered. The HTTP adapter is opt-in; no
 scheduler, shared migration, or B route is installed here.
 """
 

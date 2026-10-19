@@ -206,8 +206,8 @@ class BHttpCandidatePort:
         )
 
     def send(self, body: dict[str, Any]) -> RemoteCandidateReceipt:
-        # A partial or previously unnormalized body must never reach B: B's
-        # model_dump would add fields and make C's persisted digest diverge.
+        # A partial or previously unnormalized body must never reach B: its
+        # canonical DTO field set could differ from C's persisted digest.
         try:
             f03_digest_candidate(body)
         except (TypeError, ValueError) as exc:  # fmt: skip

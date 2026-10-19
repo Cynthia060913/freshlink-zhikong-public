@@ -1,9 +1,10 @@
 """Freeze a C temperature candidate in B's pinned F03 JSON shape.
 
 This is a fail-closed adapter for the B PR #10 CandidateCreate shape at
-9cf9a5de55d48bf0761655b6f2cda844ec5975f6. It has no service, rule
-lookup, migration, or HTTP side effect. B's optional recovery-link field is
-always present, including null on anomalies, because B hashes model_dump.
+3f43af70a29bfc0859fed711333cd38e7e505a05. It has no service, rule
+lookup, migration, or HTTP side effect. The wire body keeps the optional
+recovery link; B omits a null link from the canonical digest for ordinary
+candidates to preserve the schema 1.0 replay format.
 """
 
 from __future__ import annotations
@@ -148,7 +149,7 @@ def normalize_f03_body_candidate(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def f03_digest_candidate(body: dict[str, Any]) -> str:
-    """Digest the already-normalized body exactly as B hashes model_dump JSON."""
+    """Digest a frozen wire body using B's compatible candidate field set."""
     encoded = json.dumps(
         body,
         sort_keys=True,
@@ -166,4 +167,14 @@ def f03_digest_candidate(body: dict[str, Any]) -> str:
     ).encode("utf-8")
     if encoded != expected:
         raise ValueError("F03 digest requires a complete normalized B body")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+    canonical = dict(normalized)
+    if canonical["related_source_event_id"] is None:
+        del canonical["related_source_event_id"]
+    canonical_bytes = json.dumps(
+        canonical,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(canonical_bytes).hexdigest()
