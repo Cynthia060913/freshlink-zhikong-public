@@ -1,5 +1,29 @@
 # C 共享接线请求
 
+## 2026-10-19 原规则恢复条件绑定（独立 C 端口）
+
+`recovery_rule_candidate.py::bind_original_recovery_rule(original, selected)`
+消费原已冻结 F03 温度高异常正文，以及 B 在**原异常采样时刻**选出的历史
+`RuleSelectionEntry.model_dump(mode="json")`。它逐项核对仓/批/指标、原快照
+`snapshot_id`、`rule_version`、severity、原异常阈值及生效半开区间；后来版本
+即使阈值相同也不能替换原版本。B 规则没有明确 `recovery.comparison` 与
+`recovery.threshold` 时返回无自动恢复条件，不猜测异常阈值。B 可配置 1 条
+或 2 条，但 C 按固定 S0 最小策略提升到 3 条；B 更严格的样本数仍保留。
+B 当前 DTO 没有间隔字段，C 使用 S0 的 90 秒；若后续历史规则明确给更短
+间隔，端口可保留，不接受超过 90 秒。此端口只生成纯判据，不持久保存窗口、
+不发送恢复、不把告警状态标为 resolved。目前仅支持 C 已实现的
+temperature_high 路径；低温
+恢复须另补明确比较符、单测和真实接线。规则的旧版本查询由 B 提供，A 不应
+让页面或调度器把“当前最新规则”传给旧异常。
+
+A 已在 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6265029865)
+按 A c15+B3f+Cdf232 精确组合复测真实 PG/HTTP **33/33**，旧摘要失败解除；
+此探针用候选 C DDL，非正式迁移或完整 E1。B 新 `b01_alerts_storage` 在
+[PR #10](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10) 的
+8561 头仅为未合并草稿；C 对该头测试入口的[修改请求](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5572604584)
+要求 B 步测试允许合法 C 后继且 PG 写测试只触及专属测试库。正式 C 迁移仍
+接 B 审核后合入 main 的唯一 head，不从 PR 分支创建平行正式版本。
+
 ## 2026-10-19 恢复窗口隔离判据（本机候选，未接线）
 
 `recovery_window_candidate.py` 只接受原异常规则中**明确配置**的恢复比较符、
@@ -15,7 +39,7 @@
 
 本地 F03 摘要/恢复准入已按 B `3f43af70a29bfc0859fed711333cd38e7e505a05`
 准备；C 对该 B 头的精确代码 review 见 PR #10。下面若引用更早 B/C 头，
-仅是历史阶段记录，不能覆盖此版本事实。本段随本机 C 提交尚待安全上传。
+仅是历史阶段记录，不能覆盖此版本事实。
 
 ## 2026-10-19 C→B 恢复回读接线
 
