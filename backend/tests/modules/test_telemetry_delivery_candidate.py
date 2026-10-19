@@ -12,6 +12,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import create_engine, select
 from sqlalchemy.engine import Engine
 
+from app.modules.telemetry.b_http_candidate import (
+    BHttpCandidatePort,
+    HttpCandidateReply,
+)
 from app.modules.telemetry.delivery_candidate import (
     RemoteCandidateReceipt,
     deliver_due_batch_candidate,
@@ -142,6 +146,39 @@ class CandidateDeliveryTests(unittest.TestCase):
         self.assertEqual(self._row()["state"], "delivered")
         self.assertEqual(self._run(port, now=NOW + timedelta(hours=1)), "not_due")
         self.assertEqual(len(port.sent_bodies), 1)
+
+    def test_locally_incompatible_frozen_body_is_rejected_once(self) -> None:
+        class MissingOnlyTransport:
+            methods: list[str] = []
+
+            def request(self, method, _path, _body=None):
+                self.methods.append(method)
+                if method != "GET":
+                    raise AssertionError("invalid frozen body must not reach B")
+                return HttpCandidateReply(404, b"{}")
+
+        transport = MissingOnlyTransport()
+        self.assertEqual(
+            deliver_once_candidate(
+                self.engine,
+                source_event_id=self.source_id,
+                now=NOW,
+                port=BHttpCandidatePort(transport),
+            ),
+            "rejected",
+        )
+        self.assertEqual(transport.methods, ["GET"])
+        self.assertEqual(self._row()["last_error_code"], "invalid_local_candidate")
+        self.assertEqual(self._row()["state"], "rejected")
+        self.assertEqual(
+            deliver_once_candidate(
+                self.engine,
+                source_event_id=self.source_id,
+                now=NOW + timedelta(hours=1),
+                port=BHttpCandidatePort(transport),
+            ),
+            "not_due",
+        )
 
     def test_timeout_after_remote_commit_is_resolved_by_source(self) -> None:
         port = FakePort(

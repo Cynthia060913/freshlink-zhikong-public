@@ -31,6 +31,10 @@ ReceiptStatus = Literal[
 DeliveryOutcome = Literal["not_due", "delivered", "retry", "rejected", "lost_lease"]
 
 
+class InvalidLocalCandidate(ValueError):
+    """The frozen C body cannot be accepted by the current F03 DTO."""
+
+
 @dataclass(frozen=True)
 class RemoteCandidateReceipt:
     source_event_id: UUID
@@ -175,6 +179,14 @@ def deliver_once_candidate(
     receipt: RemoteCandidateReceipt | None
     try:
         receipt = port.send(claim.body)
+    except InvalidLocalCandidate:
+        return _finish(
+            engine,
+            claim,
+            ("rejected", "invalid_local_candidate"),
+            now=now,
+            max_attempts=max_attempts,
+        )
     except PermissionError:
         return _finish(
             engine,

@@ -11,6 +11,10 @@ PR #11 的独立 C HTTP 适配现在消费 B PR #10 `9cf9a5de55d48bf0761655b6f2c
 未挂公共根，尚无跨模块实跑。B 请维持恢复写入和原告警 resolved 的同事务语义、
 by-source 返回可核验的 `source_event_id`、`content_digest` 和 `status`。A 后续
 只需按签收包挂一次 B/C 相对 router，勿重复 `/api/v1`。正式迁移和任务调度仍未接。
+若冻结正文与当前 F03 DTO 不兼容，C 仅做 by-source 回查；查无后在本地把任务
+标记 `rejected/invalid_local_candidate` 并保留原 ID/正文，不向 B 发错包，
+也不在租约到期后无限重试。正式运维需要人工可见此状态并处理版本兼容，
+不得批量改写已冻结事件以便“通过”。
 
 ## 2026-10-18 鉴权 HTTP 候选接线
 

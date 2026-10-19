@@ -13,6 +13,7 @@ from app.modules.telemetry.b_http_candidate import (
     HttpCandidateReply,
     UrllibCandidateTransport,
 )
+from app.modules.telemetry.delivery_candidate import InvalidLocalCandidate
 from app.modules.telemetry.f03_body_candidate import (
     f03_digest_candidate,
     normalize_f03_body_candidate,
@@ -144,7 +145,7 @@ class BHttpCandidatePortTests(unittest.TestCase):
         self,
     ) -> None:
         transport = FakeTransport([_reply(201, {"status": "accepted_new"})])
-        with self.assertRaisesRegex(ValueError, "complete normalized"):
+        with self.assertRaisesRegex(InvalidLocalCandidate, "incompatible"):
             BHttpCandidatePort(transport).send(
                 {k: v for k, v in _body().items() if k != "related_source_event_id"}
             )

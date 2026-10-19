@@ -18,6 +18,11 @@
   `status=resolved` 才标记本地 delivered；回读仍 open 时冻结同正文重试。
   此条是 C 的合成端口/临时 SQLite 测试，未实际调用 B HTTP；本改动提交 SHA、
   有限安全扫描及同头 CI 在 #9/PR11 记录。
+- 随后的本轮 C 投递边界复测 **36 项 OK**：旧式或损坏的冻结 F03 正文在
+  by-source 查无后由 B HTTP 适配器本地拒绝，outbox 记录
+  `invalid_local_candidate` 并转 `rejected`，未向 B 发 POST，后续不再抢租；
+  原正文与来源 ID 保留以便人工排查。此项仍仅是合成 HTTP/临时 SQLite，
+  没有真实 B 服务或 PG 同头投递。
 - A 独立 Python3.14.8/PG18.6 的 C opt-in 3/3 仅对应旧
   `a97b9c04ff9cb3cd32872e87335b11bfadf677e1`，不是当前分支 PG 证据。
   本机完整启动/登录/设备页、正式 PG 迁移、已挂载鉴权页面和 E1 仍未测。

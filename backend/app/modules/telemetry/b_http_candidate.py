@@ -25,6 +25,7 @@ from urllib.request import (
 from uuid import UUID
 
 from app.modules.telemetry.delivery_candidate import (
+    InvalidLocalCandidate,
     ReceiptStatus,
     RemoteCandidateReceipt,
 )
@@ -200,7 +201,10 @@ class BHttpCandidatePort:
     def send(self, body: dict[str, Any]) -> RemoteCandidateReceipt:
         # A partial or previously unnormalized body must never reach B: B's
         # model_dump would add fields and make C's persisted digest diverge.
-        f03_digest_candidate(body)
+        try:
+            f03_digest_candidate(body)
+        except (TypeError, ValueError) as exc:  # fmt: skip
+            raise InvalidLocalCandidate("frozen F03 body is incompatible") from exc
         encoded = json.dumps(
             body,
             sort_keys=True,
