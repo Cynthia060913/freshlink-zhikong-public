@@ -44,15 +44,15 @@ class RecoveryRuleCandidate:
         if (
             isinstance(self.min_samples, bool)
             or not isinstance(self.min_samples, int)
-            or self.min_samples < 1
+            or self.min_samples < 3
         ):
-            raise ValueError("min_samples must be positive")
+            raise ValueError("min_samples must be at least 3")
         if (
             isinstance(self.max_gap_seconds, bool)
             or not isinstance(self.max_gap_seconds, int)
-            or self.max_gap_seconds < 1
+            or not 1 <= self.max_gap_seconds <= 90
         ):
-            raise ValueError("max_gap_seconds must be positive")
+            raise ValueError("max_gap_seconds must be 1-90")
 
 
 @dataclass(frozen=True)

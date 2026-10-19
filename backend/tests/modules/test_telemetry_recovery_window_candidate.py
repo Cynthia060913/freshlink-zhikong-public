@@ -146,8 +146,10 @@ class RecoveryWindowCandidateCase(unittest.TestCase):
             {"threshold_c": float("nan")},
             {"threshold_c": True},
             {"min_samples": 0},
+            {"min_samples": 2},
             {"min_samples": "3"},
             {"max_gap_seconds": 0},
+            {"max_gap_seconds": 91},
             {"max_gap_seconds": "90"},
         ):
             with self.assertRaises(ValueError):
