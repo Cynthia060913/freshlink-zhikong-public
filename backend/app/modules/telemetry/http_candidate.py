@@ -5,7 +5,7 @@ migration. It does not create tables or add the shared /api/v1 prefix.
 """
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -92,7 +92,7 @@ def list_observations(
     snapshot_id: UUID | None = None,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> dict:
+) -> dict[str, Any]:
     """Freeze a selection on first request; subsequent pages use signed cursors."""
     try:
         if snapshot_id is None and cursor is None:
@@ -156,7 +156,7 @@ def read_observation(
     actor: CurrentUser,
     engine: Annotated[Engine, Depends(_engine)],
     observation_id: UUID,
-) -> dict:
+) -> dict[str, Any]:
     """Expose exact raw and reception evidence to an active logged-in user."""
     _ = actor  # CurrentUser is evaluated on every request; no warehouse ACL exists yet.
     try:

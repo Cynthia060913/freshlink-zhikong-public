@@ -31,6 +31,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.modules.telemetry.f03_body_candidate import (
     f03_digest_candidate,
@@ -85,7 +86,7 @@ outbox_conflicts = Table(
 _original_outbox = outbox.alias("original_candidate")
 
 
-def _dependency_ready():
+def _dependency_ready() -> ColumnElement[bool]:
     """A recovery is due only after its own original is delivered to B."""
     original_delivered = (
         select(_original_outbox.c.source_event_id)

@@ -145,7 +145,10 @@ def normalize_f03_body_candidate(body: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("candidate evidence must be finite JSON") from exc
     if len(encoded) > 32768:
         raise ValueError("candidate exceeds B F03 32768-byte limit")
-    return json.loads(encoded)
+    frozen = json.loads(encoded)
+    if not isinstance(frozen, dict) or any(not isinstance(key, str) for key in frozen):
+        raise ValueError("candidate must remain a JSON object with text keys")
+    return frozen
 
 
 def f03_digest_candidate(body: dict[str, Any]) -> str:
