@@ -236,6 +236,19 @@ def _recovery_transition(
     and re-posts after the original is accepted) — never a silently
     stored dangling link like device events, and never a manufactured
     "resolved" or closed alert.
+
+    The original must be a TEMPERATURE anomaly (``temperature_high`` /
+    ``temperature_low`` — a single recovery kind covers both; the
+    comparison comes from the original's immutable rule snapshot, not
+    from the recovery body) whose rule identity and severity the
+    recovery must PRESERVE: ``rule_snapshot_id``, ``rule_version`` and
+    ``severity`` must equal the original's (PR #10 reviews 5563581508 /
+    5563695226 — a ``data_quality`` anomaly or a recovery carrying a
+    different rule/severity must never resolve the alert). Mismatched
+    input is rejected BEFORE any write: no recovery row, no status
+    change. Unusable originals (rule fields NULL on both sides are a
+    match; a value on one side only is a mismatch) are rejected rather
+    than guessed.
     """
 
     related = payload.related_source_event_id
@@ -250,14 +263,24 @@ def _recovery_transition(
     if original is None:
         return "unknown_related_event"
     # The original must be the SAME alert: warehouse/batch/metric all
-    # match, and it is an anomaly, not another recovery.
+    # match, and it must be a temperature anomaly — not another
+    # recovery, not data_quality, not a humidity anomaly.
     if (
         original.warehouse_id != payload.warehouse_id
         or original.batch_id != payload.batch_id
         or original.metric_code != payload.metric_code
-        or original.kind == str(CandidateKind.TEMPERATURE_RECOVERED)
+        or original.kind
+        not in (str(CandidateKind.TEMPERATURE_HIGH), str(CandidateKind.TEMPERATURE_LOW))
     ):
         return "related_event_mismatch"
+    # f98 §3 decision 1: the recovery PRESERVES the original's rule
+    # identity and severity instead of introducing its own.
+    if (
+        original.rule_snapshot_id != payload.rule_snapshot_id
+        or original.rule_version != payload.rule_version
+        or original.severity != payload.severity
+    ):
+        return "related_rule_mismatch"
     assert status is not None
     if status == AlertStatus.RESOLVED:
         return None

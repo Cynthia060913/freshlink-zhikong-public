@@ -182,9 +182,31 @@ def canonical_payload_json(payload: SQLModel) -> str:
     Field order is normalized via ``sort_keys``; datetimes were already
     normalized to UTC by the DTO validators, so the same logical event
     always digests identically regardless of input key order.
+
+    Compat (PR #10 reviews 5563581508 / 5563695226): a NULL
+    ``related_source_event_id`` on a CANDIDATE stays OUT of the
+    canonical payload. The field was added to ``CandidateCreate`` for
+    recoveries only, and ``model_dump`` emitting it as ``null`` for
+    every ordinary candidate changed the digest of bodies that had
+    already been received and stored — replaying the exact old body
+    against an old row answered ``conflict`` instead of
+    ``accepted_duplicate`` (A's cross-version probe). Per the #5
+    compatibility rule we keep the pre-recovery field set for
+    empty-related candidates and do NOT rewrite old rows, source ids
+    or stored digests. A NON-EMPTY related id (recovery candidates)
+    IS part of the digest. ``DeviceEventCreate`` is untouched: it
+    always carried the field, so its digests are unchanged either way —
+    the exclusion is deliberately scoped to candidates instead of a
+    global ``exclude_none`` (which would silently alter every other
+    nullable field's digest).
     """
 
     data = payload.model_dump(mode="json")
+    if (
+        isinstance(payload, CandidateCreate)
+        and data.get("related_source_event_id") is None
+    ):
+        data.pop("related_source_event_id", None)
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
