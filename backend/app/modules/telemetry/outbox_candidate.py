@@ -258,11 +258,33 @@ def stage_f03_candidate(
     integration callers must use this wrapper so B's schema 1.0 canonical
     field set cannot change the stored digest later.
     """
+    frozen = normalize_f03_body_candidate(body)
+    related = frozen["related_source_event_id"]
+    if related is not None:
+        with engine.connect() as connection:
+            original = connection.execute(
+                select(outbox.c.body).where(outbox.c.source_event_id == UUID(related))
+            ).scalar_one_or_none()
+        if original is None or original.get("kind") not in (
+            "temperature_high",
+            "temperature_low",
+        ):
+            raise ValueError("recovery requires a local original temperature anomaly")
+        for key in (
+            "warehouse_id",
+            "batch_id",
+            "metric_code",
+            "rule_snapshot_id",
+            "rule_version",
+            "severity",
+        ):
+            if frozen[key] != original.get(key):
+                raise ValueError(f"recovery {key} must match the original anomaly")
     return stage_candidate(
         engine,
         source_event_id=source_event_id,
         observation_id=observation_id,
-        body=normalize_f03_body_candidate(body),
+        body=frozen,
         now=now,
         _f03=True,
     )

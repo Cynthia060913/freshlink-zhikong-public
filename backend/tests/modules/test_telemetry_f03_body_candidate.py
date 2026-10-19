@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 
 from app.modules.telemetry.delivery_candidate import (
     RemoteCandidateReceipt,
@@ -20,7 +20,11 @@ from app.modules.telemetry.f03_body_candidate import (
     f03_digest_candidate,
     normalize_f03_body_candidate,
 )
-from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
+from app.modules.telemetry.outbox_candidate import (
+    outbox,
+    stage_candidate,
+    stage_f03_candidate,
+)
 from app.modules.telemetry.storage_candidate import ingest_observation, metadata
 
 SOURCE = "77777777-7777-4777-8777-777777777777"
@@ -98,6 +102,8 @@ class F03BodyCandidateTests(unittest.TestCase):
             f03_digest_candidate(_anomaly())
 
     def test_recovery_matches_b_new_fixed_digest(self) -> None:
+        # This is B's digest vector only; the referenced stored anomaly is
+        # checked separately before staging, including its original severity.
         body = {
             **_anomaly(),
             "source_event_id": "99999999-9999-4999-8999-999999999999",
@@ -227,6 +233,114 @@ class F03BodyCandidateTests(unittest.TestCase):
             )
             self.assertEqual(port.sent, [body])
             reopened.dispose()
+
+    def test_recovery_staging_preserves_original_rule_and_severity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            engine = create_engine(f"sqlite:///{Path(directory) / 'recovery.db'}")
+            metadata.create_all(engine)
+            observation_ids = []
+            for sampled_at, value in (
+                ("2026-10-14T00:01:00Z", 11),
+                ("2026-10-14T00:05:00Z", 7),
+            ):
+                raw = {
+                    "schema_version": "1.0",
+                    "device_id": "11111111-1111-4111-8111-111111111111",
+                    "message_id": str(uuid4()),
+                    "sampled_at": sampled_at,
+                    "metrics": [{"key": "temperature", "value": value, "unit": "°C"}],
+                }
+                result = ingest_observation(
+                    engine, Reception(json.dumps(raw, ensure_ascii=False))
+                )
+                assert result.observation_id is not None
+                observation_ids.append(result.observation_id)
+
+            anomaly = {**_anomaly(), "observation_ids": [str(observation_ids[0])]}
+            self.assertEqual(
+                stage_f03_candidate(
+                    engine,
+                    source_event_id=UUID(SOURCE),
+                    observation_id=observation_ids[0],
+                    body=anomaly,
+                    now=datetime(2026, 10, 14, 0, 1, 2, tzinfo=UTC),
+                ),
+                "staged",
+            )
+            recovery_id = "99999999-9999-4999-8999-999999999999"
+            recovery = {
+                **anomaly,
+                "source_event_id": recovery_id,
+                "related_source_event_id": SOURCE,
+                "kind": "temperature_recovered",
+                "observation_ids": [str(observation_ids[1])],
+                "sampled_at": "2026-10-14T00:05:00Z",
+                "value": 7.0,
+                "evidence": {"comparison": "<", "threshold": 8.0},
+            }
+            for mismatch in (
+                {"severity": "info"},
+                {"rule_snapshot_id": str(uuid4())},
+                {"rule_version": "v2"},
+                {"warehouse_id": str(uuid4())},
+                {"batch_id": str(uuid4())},
+                {"related_source_event_id": str(uuid4())},
+            ):
+                with self.subTest(mismatch=mismatch), self.assertRaises(ValueError):
+                    stage_f03_candidate(
+                        engine,
+                        source_event_id=UUID(recovery_id),
+                        observation_id=observation_ids[1],
+                        body={**recovery, **mismatch},
+                        now=datetime(2026, 10, 14, 0, 5, 1, tzinfo=UTC),
+                    )
+            with engine.connect() as connection:
+                self.assertEqual(
+                    connection.scalar(select(func.count()).select_from(outbox)), 1
+                )
+            self.assertEqual(
+                stage_f03_candidate(
+                    engine,
+                    source_event_id=UUID(recovery_id),
+                    observation_id=observation_ids[1],
+                    body=recovery,
+                    now=datetime(2026, 10, 14, 0, 5, 1, tzinfo=UTC),
+                ),
+                "staged",
+            )
+            with engine.connect() as connection:
+                self.assertEqual(
+                    connection.scalar(select(func.count()).select_from(outbox)), 2
+                )
+            quality_id = uuid4()
+            self.assertEqual(
+                stage_candidate(
+                    engine,
+                    source_event_id=quality_id,
+                    observation_id=observation_ids[0],
+                    body={
+                        **anomaly,
+                        "source_event_id": str(quality_id),
+                        "kind": "data_quality",
+                    },
+                    now=datetime(2026, 10, 14, 0, 5, 2, tzinfo=UTC),
+                ),
+                "staged",
+            )
+            bad_recovery_id = uuid4()
+            with self.assertRaisesRegex(ValueError, "original temperature anomaly"):
+                stage_f03_candidate(
+                    engine,
+                    source_event_id=bad_recovery_id,
+                    observation_id=observation_ids[1],
+                    body={
+                        **recovery,
+                        "source_event_id": str(bad_recovery_id),
+                        "related_source_event_id": str(quality_id),
+                    },
+                    now=datetime(2026, 10, 14, 0, 5, 3, tzinfo=UTC),
+                )
+            engine.dispose()
 
 
 if __name__ == "__main__":
