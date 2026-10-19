@@ -115,7 +115,7 @@ def _project_row(row: RowMapping) -> dict[str, Any]:
         "humidity_percent": metrics.get("humidity"),
         "quality": list(row["quality"]),
         "risk_state": row["risk"]["state"],
-        "rule_version": None,
+        "rule_version": row["risk"].get("rule_version"),
     }
 
 

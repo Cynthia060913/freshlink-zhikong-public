@@ -245,6 +245,11 @@ HTTP 服务获审后挂载同一相对后端 router，并在共享前端路由�
 还需真实浏览器复核登录、筛选、翻页、详情、CSV 文件行数/列/权限及失败
 展示。本候选代码和普通前端检查不等于这些场景已通过。
 
+F02 候选评估写入的 `risk.rule_version` 由 C 历史投影带入后续新快照的
+页面列表及 14 列 CSV；已创建的旧快照仍保留先前 `unknown` 和空规则版本，
+不悄悄覆盖。此一致性仅在隔离 SQLite 快照/CSV 测试通过，正式应用/PG
+与真实浏览器尚未验证。
+
 ## C→B 持久候选投递协调层（2026-10-18，独立端口）
 
 `backend/app/modules/telemetry/delivery_candidate.py` 消费 C outbox 的不可变

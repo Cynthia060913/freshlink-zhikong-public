@@ -1,18 +1,26 @@
 """Isolated C/B rule-selection adapter checks; no shared app or real B database."""
 
+import csv
 import json
 import tempfile
 import unittest
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.exc import OperationalError
 
+from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
 from app.modules.telemetry.outbox_candidate import outbox, outbox_conflicts
 from app.modules.telemetry.rule_evaluation_candidate import evaluate_one_batch_candidate
+from app.modules.telemetry.snapshot_candidate import (
+    create_snapshot_candidate,
+    read_snapshot_page_candidate,
+    render_snapshot_csv_candidate,
+)
 from app.modules.telemetry.storage_candidate import (
     evaluation_jobs,
     ingest_observation,
@@ -112,6 +120,15 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
         self,
     ) -> None:
         observation_id, raw = self._ingest(13, humidity=False)
+        actor_id = uuid4()
+        filters = HistoryFiltersCandidate(warehouse_id=WAREHOUSE)
+        old_snapshot = create_snapshot_candidate(
+            self.engine,
+            actor_id=actor_id,
+            filters=filters,
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
         selector = Selector(_rule())
         result = evaluate_one_batch_candidate(
             self.engine,
@@ -134,6 +151,44 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
         self.assertEqual(sent["body"]["evidence"]["raw_value"], 13)
         self.assertEqual(sent["body"]["rule_snapshot_id"], str(SNAPSHOT))
         self.assertEqual(self._read(evaluation_jobs)[0]["state"], "candidate_staged")
+        new_snapshot = create_snapshot_candidate(
+            self.engine,
+            actor_id=actor_id,
+            filters=filters,
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
+
+        def projected_version(snapshot_id: UUID) -> tuple[str | None, str]:
+            page = read_snapshot_page_candidate(
+                self.engine,
+                snapshot_id=snapshot_id,
+                actor_id=actor_id,
+                filters=filters,
+                policy_version="active-user-read-v1",
+                now=NOW,
+            )
+            exported = list(
+                csv.DictReader(
+                    StringIO(
+                        render_snapshot_csv_candidate(
+                            self.engine,
+                            snapshot_id=snapshot_id,
+                            actor_id=actor_id,
+                            filters=filters,
+                            policy_version="active-user-read-v1",
+                            now=NOW,
+                        ).decode("utf-8-sig")
+                    )
+                )
+            )
+            self.assertEqual(page.total, 1)
+            self.assertEqual(len(exported), 1)
+            self.assertEqual(exported[0]["observation_id"], str(observation_id))
+            return page.items[0]["rule_version"], exported[0]["rule_version"]
+
+        self.assertEqual(projected_version(old_snapshot), (None, ""))
+        self.assertEqual(projected_version(new_snapshot), ("temp-v1", "temp-v1"))
         again = evaluate_one_batch_candidate(
             self.engine,
             observation_id=observation_id,
