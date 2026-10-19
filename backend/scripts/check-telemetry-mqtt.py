@@ -23,13 +23,14 @@ from paho.mqtt.subscribeoptions import SubscribeOptions
 from sqlalchemy import event, func
 from sqlalchemy import select as core_select
 from sqlalchemy.exc import OperationalError
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session
 
 from app.core.config import settings
 from app.core.db import engine
 from app.main import app
 from app.modules.iot.ingress import IngressRejected
 from app.modules.iot.models import Device
+from app.modules.iot.proof_schema_guard import require_b01_candidate_schema
 from app.modules.iot.registry import receive_registered_telemetry
 from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
 
@@ -66,10 +67,9 @@ def run():
     if target.exists():
         raise RuntimeError("Refusing evidence overwrite")
     source_revision = os.environ["TELEMETRY_C_REVISION"]
-    if source_revision != "be795f248350a24d73a02d7689585009af61e003":
+    if source_revision != "78e61cd347646911b3e6a6c94d0998aa23545af4":
         raise RuntimeError("C source must match this proof's pinned revision")
-    for name in ("alerts_warehouse", "alerts_batch", "alerts_event"):
-        SQLModel.metadata.tables[name].create(engine, checkfirst=False)
+    require_b01_candidate_schema(engine)
     # C-only candidate metadata; never called by application startup.
     metadata.create_all(engine)
     with Session(engine) as session:
@@ -404,6 +404,7 @@ def run():
                         "a_revision": os.environ["TELEMETRY_A_REVISION"],
                         "a_worktree_dirty": os.environ["TELEMETRY_A_DIRTY"] == "1",
                         "c_revision": source_revision,
+                        "b_schema_mode": "actual_alembic_b01_candidate_not_published",
                         "observation_count": 6,
                         "reception_count": 8,
                         "mqtt_receipts_acknowledged_after_commit": 8,

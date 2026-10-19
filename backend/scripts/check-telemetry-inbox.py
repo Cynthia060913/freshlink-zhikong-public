@@ -49,7 +49,7 @@ def run():
         or settings.PROJECT_NAME != "FreshLink-test"
         or settings.FASTAPI_ENV != "development"
         or os.environ["TELEMETRY_C_REVISION"]
-        != "be795f248350a24d73a02d7689585009af61e003"
+        != "78e61cd347646911b3e6a6c94d0998aa23545af4"
     ):
         raise RuntimeError("Refusing unpinned/non-disposable proof")
     target = Path("/results/mqtt-telemetry-inbox.json")

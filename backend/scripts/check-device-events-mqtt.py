@@ -1,6 +1,6 @@
 """Isolated authenticated heartbeat -> A outbox -> actual B ingestion proof.
 
-Uses test-only B DDL, not migrations or external notification delivery.
+Uses actual candidate B01 migration, not publication or notification delivery.
 """
 
 import json
@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from paho.mqtt.enums import CallbackAPIVersion
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
-from sqlmodel import Session, SQLModel, select
+from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.db import engine
@@ -39,6 +39,7 @@ from app.modules.iot.event_worker import (
 from app.modules.iot.heartbeat import HeartbeatPolicy
 from app.modules.iot.heartbeat_worker import HeartbeatWorker, HeartbeatWorkerSettings
 from app.modules.iot.models import Device, DeviceConnectivityEvent
+from app.modules.iot.proof_schema_guard import require_b01_candidate_schema
 
 SENSOR = UUID("11111111-1111-4111-8111-111111111111")
 UNBOUND = UUID("66666666-6666-4666-8666-666666666666")
@@ -256,9 +257,7 @@ def run():
     target = Path("/results/mqtt-device-events.json")
     if target.exists():
         raise RuntimeError("Refusing evidence overwrite")
-    # Exact candidate tables, solely in this disposable DB after the guards.
-    for name in ("alerts_warehouse", "alerts_batch", "alerts_event"):
-        SQLModel.metadata.tables[name].create(engine, checkfirst=False)
+    require_b01_candidate_schema(engine)
     with Session(engine) as session:
         for identity in (SENSOR, UNBOUND):
             assert session.get(Device, identity) is None
