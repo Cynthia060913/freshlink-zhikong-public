@@ -1,0 +1,87 @@
+{
+  "status": "contract_target_not_implemented",
+  "candidate": {
+    "source_event_id": "77777777-7777-4777-8777-777777777777",
+    "observation_ids": [
+      "00000000-0000-4000-8000-000000000004"
+    ],
+    "warehouse_id": "22222222-2222-4222-8222-222222222222",
+    "batch_ids": [
+      "55555555-5555-4555-8555-555555555555"
+    ],
+    "occurred_at": "2026-10-10T00:01:00Z",
+    "kind": "temperature_high",
+    "severity": "warning",
+    "algorithm_version": "threshold-rule/0.2.0-rc1",
+    "rule_version": "v1",
+    "rule_snapshot_id": "88888888-8888-4888-8888-888888888888",
+    "evidence": {
+      "device_id": "11111111-1111-4111-8111-111111111111",
+      "message_id": "44444444-4444-4444-8444-444444444444",
+      "metric_code": "temperature",
+      "sampled_at": "2026-10-10T00:01:00Z",
+      "raw_value": 11,
+      "raw_unit": "°C",
+      "normalized_value": 11,
+      "normalized_unit": "°C",
+      "comparison": ">",
+      "threshold": 8,
+      "quality": [
+        "ok"
+      ]
+    }
+  },
+  "transport_sequence": [
+    {
+      "step": "submit",
+      "outcome": "timeout",
+      "outbox_state": "retryable_unknown"
+    },
+    {
+      "step": "lookup_by_source",
+      "source_event_id": "77777777-7777-4777-8777-777777777777",
+      "http_status": 404,
+      "reason_code": "not_found",
+      "outbox_state": "retryable_unknown"
+    },
+    {
+      "step": "retry_same_candidate",
+      "source_event_id": "77777777-7777-4777-8777-777777777777",
+      "expected_status": "accepted_new_or_accepted_duplicate",
+      "outbox_state": "accepted_after_digest_check"
+    }
+  ],
+  "other_result_shapes": [
+    {
+      "status": "accepted_duplicate",
+      "source_event_id": "77777777-7777-4777-8777-777777777777",
+      "event_id": "99999999-9999-4999-8999-999999999999",
+      "content_digest": "sha256:<B-canonical-digest>"
+    },
+    {
+      "status": "conflict",
+      "reason_code": "content_digest_mismatch",
+      "stored_event_id": "99999999-9999-4999-8999-999999999999"
+    },
+    {
+      "status": "invalid",
+      "reason_code": "unknown_batch",
+      "retryable": false
+    },
+    {
+      "status": "retryable_failure",
+      "reason_code": "storage_unavailable",
+      "retryable": true,
+      "retry_after_s": 30
+    }
+  ],
+  "not_emitted_example": {
+    "observation_id": "00000000-0000-4000-8000-000000000005",
+    "temperature_c": null,
+    "quality": [
+      "missing_value:temperature"
+    ],
+    "risk_state": "unknown",
+    "candidate_sent": false
+  }
+}
