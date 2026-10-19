@@ -1,5 +1,17 @@
 # C 共享接线请求
 
+## 2026-10-19 恢复进度隔离持久端口（待正式迁移和业务接线）
+
+`backend/app/modules/telemetry/recovery_progress_candidate.py` 在独立候选
+metadata 中保存原异常 ID、可信设备/仓/批、原采样时刻、**冻结的原规则条件**、
+连续观测 ID、时间水位及版本号。每步事务使用版本比较更新；再次打开测试库后
+仍可继续累计，重复/迟到/冲突/缺测不会凑足恢复条件，具备资格后证据不再变化。
+调用方必须先核对原异常与 B 的历史规则，并从 C 已持久观测生成样本；此端口
+本身不查询 B、不创建表、不自动投递或改变告警状态。测试只在临时 SQLite
+文件使用 `metadata.create_all`；正式 C Alembic 必须接审核合入的 B01 唯一
+head，且还需把窗口与恢复 outbox 的生成纳入可恢复事务。当前不能把本端口
+称为真实 E1 恢复或 PostgreSQL 重启验收。
+
 ## 2026-10-19 原规则恢复条件绑定（独立 C 端口）
 
 `recovery_rule_candidate.py::bind_original_recovery_rule(original, selected)`
@@ -420,7 +432,7 @@ metric_code, sampled_at) -> RuleSelection` 转为 `model_dump(mode="json")`
 示意的 B→C 选择回复（仅端口输入样例，非真实服务回执）：
 
 ```json
-{"status":"configured","rules":[{"batch_id":"33333333-3333-4333-8333-333333333333","warehouse_id":"22222222-2222-4222-8222-222222222222","rule_version":"temp-v1","snapshot_id":"88888888-8888-4888-8888-888888888888","metric_code":"temperature","unit":"°C","kind":"temperature_high","severity":"warning","comparison":">","threshold":8.0,"recovery":{"consecutive_samples":3},"effective_start_at":"2026-10-14T00:00:00Z","effective_end_at":null,"source":"warehouse-manager-ui"}],"reason_code":null}
+{"status":"configured","rules":[{"batch_id":"33333333-3333-4333-8333-333333333333","warehouse_id":"22222222-2222-4222-8222-222222222222","rule_version":"temp-v1","snapshot_id":"88888888-8888-4888-8888-888888888888","metric_code":"temperature","unit":"°C","kind":"temperature_high","severity":"warning","comparison":">","threshold":8.0,"recovery":{"comparison":"<=","threshold":7.0,"min_samples":3},"effective_start_at":"2026-10-14T00:00:00Z","effective_end_at":null,"source":"warehouse-manager-ui"}],"reason_code":null}
 ```
 
 选择器返回 `no_rule` 且空规则时，任务记 `no_rule` 而观测风险仍为 `unknown`；
