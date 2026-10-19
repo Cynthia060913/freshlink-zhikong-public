@@ -1,0 +1,12 @@
+{
+  "stage": "A03 local persistent control/API candidate",
+  "base": "07aac839c24bd6acb41003aa28a65fb672a0bf65",
+  "backend": {"passed": 296, "failed": 0, "coverage_percent": 95, "control_tests": 41, "control_storage_coverage_percent": 96},
+  "restart": {"actual_postgresql_container_restart": true, "new_runner": true, "same_payload_after_lease_recovery": true, "software_device_executions_after_replay": 1, "late_ack_keeps_timeout": true, "alembic_check": "no new upgrade operations"},
+  "frontend_sdk_biome_typescript_vite": "passed",
+  "warehouse_validation": "explicit synthetic test substitute; production dependency fails closed with HTTP503",
+  "not_tested": ["actual B warehouse integration", "server MQTT command publisher/ACK consumer", "control page and browser", "B fault notifications", "E1", "remote CI"],
+  "application_database_modified": false,
+  "system_python_modified": false,
+  "shared_main_updated": false
+}

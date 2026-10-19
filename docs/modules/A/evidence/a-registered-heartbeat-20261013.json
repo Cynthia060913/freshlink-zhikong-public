@@ -1,0 +1,11 @@
+{
+  "evidence_type": "executed_disposable_PostgreSQL_tests_not_persistent_heartbeat",
+  "date": "2026-10-13",
+  "base_main": "0bf33f86c1fde9af1cb7e7e5a9a74d411b42f813",
+  "component": "receive_registered_heartbeat read-only identity adapter",
+  "tests": {"added_heartbeat_registry_cases": 8, "full_backend_passed": 206, "full_backend_failed": 0, "warnings": 2, "total_coverage_percent_rounded": 95, "registry_coverage_percent": 100},
+  "checks": {"ruff": "passed", "mypy_registry": "passed", "ty_registry": "passed"},
+  "private_evidence": "work/a01-tests-20261013001926-25656/pytest.xml and htmlcov; ignored",
+  "cleanup": "Only this unique disposable PostgreSQL container/network removed; application volume untouched.",
+  "not_tested": ["production_MQTT_auth", "last_seen_or_state_commit", "durable_event_outbox", "B_deliveries", "new_cloud_CI", "E1"]
+}

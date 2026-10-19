@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import field_validator
-from sqlalchemy import Column, DateTime
+from sqlalchemy import CheckConstraint, Column, DateTime, String
 from sqlmodel import Field, SQLModel
 
 DeviceKind = Literal["temperature_sensor", "cooling_actuator"]
@@ -44,6 +44,20 @@ class DeviceCreate(SQLModel):
 
 class Device(SQLModel, table=True):
     __tablename__ = "iot_device"
+    __table_args__ = (
+        CheckConstraint(
+            "connectivity IN ('unknown', 'online', 'offline')",
+            name="ck_iot_device_connectivity",
+        ),
+        CheckConstraint(
+            "connectivity = 'unknown' OR (last_seen_at IS NOT NULL AND last_sent_at IS NOT NULL AND last_heartbeat_message_id IS NOT NULL)",
+            name="ck_iot_device_heartbeat_history",
+        ),
+        CheckConstraint(
+            "(connectivity = 'offline' AND offline_source_event_id IS NOT NULL) OR (connectivity <> 'offline' AND offline_source_event_id IS NULL)",
+            name="ck_iot_device_offline_reference",
+        ),
+    )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     code: str = Field(unique=True, index=True, max_length=64)
     name: str = Field(max_length=120)
@@ -57,6 +71,15 @@ class Device(SQLModel, table=True):
     last_seen_at: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
     )
+    connectivity: str = Field(
+        default="unknown",
+        sa_column=Column(String(16), nullable=False, server_default="unknown"),
+    )
+    last_sent_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    last_heartbeat_message_id: uuid.UUID | None = None
+    offline_source_event_id: uuid.UUID | None = None
 
 
 class DevicePublic(SQLModel):
@@ -68,10 +91,84 @@ class DevicePublic(SQLModel):
     is_simulated: bool
     created_at: datetime
     last_seen_at: datetime | None
-    # Registration cannot establish connectivity; heartbeat is not implemented.
-    connectivity: Literal["unknown"] = "unknown"
+    # Registration starts unknown. Only committed, verified heartbeats can
+    # establish online; the persistent scanner can establish offline.
+    connectivity: Literal["unknown", "online", "offline"] = "unknown"
 
 
 class DevicesPublic(SQLModel):
     data: list[DevicePublic]
+    count: int
+
+
+class HeartbeatMessage(SQLModel, table=True):
+    __tablename__ = "iot_heartbeat_message"
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('accepted', 'out_of_order')", name="ck_iot_heartbeat_outcome"
+        ),
+    )
+    device_id: uuid.UUID = Field(
+        primary_key=True, foreign_key="iot_device.id", ondelete="CASCADE"
+    )
+    message_id: uuid.UUID = Field(primary_key=True)
+    fingerprint: str = Field(max_length=64)
+    outcome: str = Field(max_length=32)
+    received_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+
+
+class HeartbeatConflict(SQLModel, table=True):
+    __tablename__ = "iot_heartbeat_conflict"
+    device_id: uuid.UUID = Field(
+        primary_key=True, foreign_key="iot_device.id", ondelete="CASCADE"
+    )
+    message_id: uuid.UUID = Field(primary_key=True)
+    fingerprint: str = Field(primary_key=True, max_length=64)
+    received_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+
+
+class DeviceConnectivityEvent(SQLModel, table=True):
+    """Durable event/outbox body; B delivery is a separate later operation."""
+
+    __tablename__ = "iot_connectivity_event"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('offline', 'recovered')", name="ck_iot_connectivity_event_kind"
+        ),
+        CheckConstraint(
+            "delivery_state IN ('pending', 'held_unbound', 'delivered', 'failed')",
+            name="ck_iot_connectivity_event_delivery",
+        ),
+    )
+    source_event_id: uuid.UUID = Field(primary_key=True)
+    device_id: uuid.UUID = Field(
+        foreign_key="iot_device.id", ondelete="CASCADE", index=True
+    )
+    warehouse_id: uuid.UUID | None = None
+    occurred_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    kind: str = Field(max_length=16)
+    reason: str = Field(max_length=64)
+    related_source_event_id: uuid.UUID | None = None
+    delivery_state: str = Field(default="pending", max_length=16)
+
+
+class DeviceConnectivityEventPublic(SQLModel):
+    source_event_id: uuid.UUID
+    device_id: uuid.UUID
+    warehouse_id: uuid.UUID | None
+    occurred_at: datetime
+    kind: Literal["offline", "recovered"]
+    reason: str
+    related_source_event_id: uuid.UUID | None
+    delivery_state: Literal["pending", "held_unbound", "delivered", "failed"]
+
+
+class DeviceConnectivityEventsPublic(SQLModel):
+    data: list[DeviceConnectivityEventPublic]
     count: int
