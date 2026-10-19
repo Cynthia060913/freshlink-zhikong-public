@@ -66,7 +66,7 @@ def run():
     if target.exists():
         raise RuntimeError("Refusing evidence overwrite")
     source_revision = os.environ["TELEMETRY_C_REVISION"]
-    if source_revision != "6d05d75d58dc23de48872ba2985a8f129c35ae49":
+    if source_revision != "be795f248350a24d73a02d7689585009af61e003":
         raise RuntimeError("C source must match this proof's pinned revision")
     for name in ("alerts_warehouse", "alerts_batch", "alerts_event"):
         SQLModel.metadata.tables[name].create(engine, checkfirst=False)
