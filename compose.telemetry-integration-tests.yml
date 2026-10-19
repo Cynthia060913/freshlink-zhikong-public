@@ -34,7 +34,7 @@ services:
       PYTHONPATH: /tmp/telemetry-proof/backend
       TELEMETRY_A_REVISION: ${TELEMETRY_A_REVISION:?Use check-telemetry-mqtt.ps1}
       TELEMETRY_A_DIRTY: ${TELEMETRY_A_DIRTY:?Use check-telemetry-mqtt.ps1}
-      TELEMETRY_C_REVISION: "6d05d75d58dc23de48872ba2985a8f129c35ae49"
+      TELEMETRY_C_REVISION: "be795f248350a24d73a02d7689585009af61e003"
     volumes:
       - ./backend:/source/backend:ro
       - ${TELEMETRY_C_ARCHIVE:?Use check-telemetry-mqtt.ps1}:/source-c.tar:ro

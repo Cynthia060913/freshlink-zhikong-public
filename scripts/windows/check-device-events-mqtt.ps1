@@ -3,6 +3,7 @@
 param([string]$AppImage='freshlink-app:p0')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'device-event-evidence.ps1')
 $originalLocation=Get-Location
 $priorResult=[Environment]::GetEnvironmentVariable('DEVICE_EVENT_RESULT_DIR','Process')
 $priorImage=[Environment]::GetEnvironmentVariable('DEVICE_EVENT_APP_IMAGE','Process')
@@ -12,6 +13,9 @@ $exitCode=1
 try {
     $root=Get-FreshLinkRoot
     Set-Location -LiteralPath $root
+    $sourceSha=(& git rev-parse HEAD).Trim()
+    if($LASTEXITCODE -ne 0 -or $sourceSha -notmatch '^[0-9a-f]{40}$'){throw 'Cannot establish source commit'}
+    $sourceDirty=[bool](& git status --porcelain)
     $docker=Assert-FreshLinkDocker
     $runId='device-events-'+(Get-Date -Format 'yyyyMMddHHmmss')+'-'+$PID
     if($runId -notmatch '^device-events-\d{14}-\d+$'){throw 'Invalid owned test project'}
@@ -28,9 +32,15 @@ try {
     if($LASTEXITCODE -ne 0){throw 'Device-event chain failed'}
     $report=Get-Content -LiteralPath (Join-Path $results 'mqtt-device-events.json') -Raw|ConvertFrom-Json
     if($report.phase -ne 'live_mqtt_a_outbox_b_ingestion_passed'){throw 'Wrong evidence phase'}
+    $continuous=Get-Content -LiteralPath (Join-Path $results 'mqtt-event-worker.json') -Raw|ConvertFrom-Json
+    if($continuous.phase -ne 'live_mqtt_continuous_event_worker_passed' -or $continuous.b_new_events -ne 2){throw 'Continuous event worker evidence missing'}
+    if((& git rev-parse HEAD).Trim() -ne $sourceSha -or [bool](& git status --porcelain) -ne $sourceDirty){throw 'Source state changed during proof; retain results without claiming clean revision'}
+    $sourceEvidence=Write-DeviceEventSourceEvidence -ReportPath (Join-Path $results 'mqtt-event-worker.json') -Commit $sourceSha -Dirty $sourceDirty
     Write-Output 'PASS actual authenticated heartbeat/offline/recovery -> A durable event -> B real ingestion; lost A checkpoint replay, B transient failure, original source/reason and recovery reference.'
+    Write-Output 'PASS automatic continuous delivery, persisted transient retry, recovery ordered after original receipt, new worker/pool retains attempt budget; two real new B events.'
     Write-Output ('Evidence: '+$results)
-    Write-Output 'NOT CHECKED: formal B migration, automatic retry scheduling, notification dispatch/terminal receipts, C persistence/CSV, browser or full E1.'
+    Write-Output ('Source evidence (raw report retained): '+$sourceEvidence)
+    Write-Output 'NOT CHECKED: formal B/A10 migration, event-worker OS restart, notification dispatch/terminal receipts, C persistence/CSV, browser or full E1.'
     $exitCode=0
 } catch {Write-Output ('STOP: '+$_.Exception.Message)}
 finally {

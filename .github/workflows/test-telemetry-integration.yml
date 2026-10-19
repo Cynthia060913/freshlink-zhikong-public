@@ -9,14 +9,19 @@ on:
       - backend/scripts/check-telemetry-mqtt.py
       - backend/scripts/check-telemetry-inbox.py
       - backend/scripts/check-telemetry-restart.py
+      - backend/scripts/check-device-events-mqtt.py
       - uv.lock
       - scripts/windows/check-telemetry-mqtt.ps1
       - scripts/windows/check-telemetry-restart.ps1
       - scripts/windows/telemetry-restart-guards.ps1
       - scripts/windows/test-telemetry-restart-guards.ps1
+      - scripts/windows/check-device-events-mqtt.ps1
+      - scripts/windows/device-event-evidence.ps1
+      - scripts/windows/test-device-event-evidence.ps1
       - scripts/mqtt-runtime/**
       - compose.telemetry-integration-tests.yml
       - compose.telemetry-restart-tests.yml
+      - compose.device-event-tests.yml
       - .github/workflows/test-telemetry-integration.yml
   workflow_dispatch:
 
@@ -39,7 +44,9 @@ jobs:
           persist-credentials: false
       - name: Verify synthetic-only ownership guards
         shell: pwsh
-        run: ./scripts/windows/test-telemetry-restart-guards.ps1
+        run: |
+          ./scripts/windows/test-telemetry-restart-guards.ps1
+          ./scripts/windows/test-device-event-evidence.ps1
       - name: Build disposable application image
         run: docker build --file backend/Dockerfile --tag freshlink-app:p0 .
       - name: Prepare test-only service images on disposable runner
@@ -49,3 +56,6 @@ jobs:
       - name: Run private-network MQTT A C and owned-container recovery proof
         shell: pwsh
         run: ./scripts/windows/check-telemetry-restart.ps1
+      - name: Run private-network continuous A B event-delivery proof
+        shell: pwsh
+        run: ./scripts/windows/check-device-events-mqtt.ps1

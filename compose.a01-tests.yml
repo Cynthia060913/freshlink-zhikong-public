@@ -30,6 +30,7 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: /app/backend
       FRESHLINK_INBOX_TEST_POSTGRES: "1"
+      FRESHLINK_EVENT_TEST_POSTGRES: "1"
     volumes:
       - ./backend:/app/backend:ro
       - ./contracts:/app/contracts:ro
