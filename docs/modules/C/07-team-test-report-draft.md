@@ -4,7 +4,13 @@
 
 ## 2026-10-19 补证与旧快照边界
 
-下方第 1—3 节是 10 月 17 日的来源快照，表中的旧 main、PR HEAD 和“未签收”判断不能当作今日实时状态。今日已核对的公共 main 为 **`46fa463d6ca4f71965b8db74b08a41f352b05cfb`**，固定 F01—F06/§3 目标包 `f98e65b4717334bae34f7495181c320ae5061860` 已由三方接受并经 PR #23 合入；S0 的成员实际启动记录仍未齐，[共同状态见 #5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5)。这项目标签收不表示正式 B/C 迁移、应用接线或 E1 已完成。
+下方第 1—3 节是 10 月 17 日的来源快照，表中的旧 main、PR HEAD 和“未签收”判断不能当作今日实时状态。今日已核对的公共 main 为 **`e235a25650fce96b3ec92888e28a3d0702b16a06`**，固定 F01—F06/§3 目标包 `f98e65b4717334bae34f7495181c320ae5061860` 已由三方接受并经 PR #23 合入。C 已取得新版 main 并补本人云端基础启动记录；S0 是否关闭仍由 A 核对三方状态，[共同状态见 #5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5)。这项目标签收不表示正式 B/C 迁移、应用接线或 E1 已完成。
+
+| 10 月 19 日新增证据 | 准确版本与实际结果 | 边界 |
+| --- | --- | --- |
+| C 本人取得共同基础并执行运行检查 | [main `e235a256…` 的 Actions run #4](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39201471480)：本人 im1yt 手动触发 `published-main`，Ubuntu 24.04/Python 3.14.8/一次性 PostgreSQL 18.6，实际 Uvicorn 健康、匿名 401、密码登录、设备登记 201、重复 409 且计数 1、鉴权列表/详情均通过；临时资源清理成功。 | 共同基础 API 验证；不是 C 正式业务入库/页面/E1，也不是 Windows 本机验证。 |
+| C 分支合入共同基础 | [PR #11 `ca2a70bd385b043d5f136a0305a9d2508461c1d6`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)：正常 merge main，behind 0/ahead 72；五项适用 Actions 完成成功。[Backend run](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39201578872) 收集 467 项，463 passed/4 skipped，含 A→C 边界文件 5 项。 | CI 在项目规定 Python 3.14 环境，不能把整仓测试数写成 C 专项或跨模块 E1。C 本机 Python 3.13 且隔离环境缺 FastAPI，完整收集有两个导入错误；可导入遥测子集 146 项中 140 通过、6 项 PG 跳过。 |
+| A 对 C 旧精确头独立 PostgreSQL 复测 | [A 在 #9 的原始记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6259910875)：精确 C `be795f248350a24d73a02d7689585009af61e003`，Python 3.14.8/PG 18.6 遥测 154/154、0 跳过，测试 schema 剩余 0。 | A 代跑旧 C 源码，不是 C 本人或合并后 `ca2a70…` 的 PG 复测；测试隔离表不等于正式 Alembic。 |
 
 | 补证来源 | 准确版本与实际结果 | 仍不能声称 |
 | --- | --- | --- |
@@ -45,7 +51,7 @@
 
 | 门禁 | 当前状态 | 后续应取得的同版证据和提供方 |
 | --- | --- | --- |
-| S0 同版契约与唯一迁移 | **10/17 历史状态；10/19 固定目标已签、实际启动未齐** | A/B/C 已在 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5) 接受同一 f98 包，PR #23 已合入 A03；B/C 正式迁移及本人运行证据仍需另验，不能拿目标签收代替 E1 |
+| S0 同版契约与唯一迁移 | **10/17 历史状态；10/19 固定目标已签，C 本人云端共同基础已启动** | A/B/C 已在 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5) 接受同一 f98 包，PR #23 已合入 A03；C 本人 [run #4](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39201471480) 仅覆盖共同基础 HTTP/API，B 本人环境状态及三方 S0 最终核验仍按 #5；B/C 正式迁移和 E1 另验 |
 | A→C 真正接收及 PostgreSQL 入库/重启 | **未测** | A 提供可信 ingress 与启动版本；C 在已合并迁移链上实跑坏包、高温、重发、冲突、断电/重启保留、事务失败及本人 PG opt-in 用例，保留脱敏对象 ID/日志摘要 |
 | 鉴权历史、页面与正式 CSV | **未测** | C/A 对同一登录用户、规范筛选和固定快照比对页面/下载 ID、行数、UTC、质量及原值；测试无权、空结果、上限、过期、晚提交、公式文本在目标表格软件中的人工查看 |
 | C→B 候选、可靠重试与恢复 | **未测** | B 给同版规则选择与按来源回读；C/B 测同 ID 重放、改正文冲突、超时查无原正文重试、缺测/无规则不发、恢复引用和失败留证；当前合成 JSON 不算收件 |
