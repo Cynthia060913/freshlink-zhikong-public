@@ -206,6 +206,24 @@ class CandidateDeliveryTests(unittest.TestCase):
         self.assertEqual(first.sent_bodies, second.sent_bodies)
         self.assertEqual(self._row()["attempt_count"], 2)
 
+    def test_timeout_followup_lookup_auth_failure_retries_with_evidence(self) -> None:
+        first = FakePort(
+            lookup_results=[None, PermissionError("synthetic auth failure")],
+            send_results=[TimeoutError("simulated lost response")],
+        )
+        self.assertEqual(self._run(first), "retry")
+        self.assertEqual(first.lookup_ids, [self.source_id, self.source_id])
+        self.assertEqual(self._row()["state"], "pending")
+        self.assertEqual(self._row()["last_error_code"], "b_auth_unavailable")
+        self.assertEqual(self._row()["attempt_count"], 1)
+
+        second = FakePort(lookup_results=[self._receipt("accepted_duplicate")])
+        self.assertEqual(
+            self._run(second, now=NOW + timedelta(seconds=30)), "delivered"
+        )
+        self.assertEqual(second.sent_bodies, [])
+        self.assertEqual(self._row()["attempt_count"], 2)
+
     def test_prior_remote_acceptance_avoids_another_send(self) -> None:
         port = FakePort(lookup_results=[self._receipt("accepted_duplicate")])
         self.assertEqual(self._run(port), "delivered")

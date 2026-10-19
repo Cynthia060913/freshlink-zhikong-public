@@ -199,6 +199,14 @@ def deliver_once_candidate(
         # The send may have committed at B. Read by source before any retry.
         try:
             receipt = port.lookup(claim.source_event_id)
+        except PermissionError:
+            return _finish(
+                engine,
+                claim,
+                ("retry", "b_auth_unavailable"),
+                now=now,
+                max_attempts=max_attempts,
+            )
         except (TimeoutError, ConnectionError):  # fmt: skip
             receipt = None
     if receipt is None:
