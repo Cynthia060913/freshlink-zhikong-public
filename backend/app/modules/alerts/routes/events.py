@@ -35,6 +35,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy.exc import OperationalError
+from sqlmodel import Session
 
 from app.api.deps import CurrentUser, SessionDep
 from app.modules.alerts.models import (
@@ -48,6 +49,7 @@ from app.modules.alerts.models import (
 )
 from app.modules.alerts.services.events import (
     EventNotFound,
+    get_alert_status,
     get_event_by_source,
     list_attempts_for_event,
     receive_candidate,
@@ -99,6 +101,7 @@ def read_candidate_by_source(
 ) -> AlertEventPublic:
     try:
         row = get_event_by_source(session, source_event_id)
+        return _to_public(session, row)
     except EventNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except OperationalError as exc:
@@ -107,13 +110,14 @@ def read_candidate_by_source(
         # and NOT invalid (F03-RC2). The header must ride on the
         # HTTPException itself: FastAPI builds the error response from
         # the exception, so headers set on an injected Response are
-        # discarded on this path (PR #10 round-2 review).
+        # discarded on this path (PR #10 round-2 review). The status
+        # lookup joins the same guard: a failure there is equally
+        # retryable, not a 500.
         raise HTTPException(
             status_code=503,
             detail="retryable_failure: storage_unavailable",
             headers={"Retry-After": "30"},
         ) from exc
-    return _to_public(row)
 
 
 @router.post("/device-events", response_model=CandidateReceipt)
@@ -168,8 +172,10 @@ def _parse_json_column(raw: str | None, default: Any) -> Any:
         return default
 
 
-def _to_public(row: AlertEvent) -> AlertEventPublic:
-    """Full F03-RC2 traceability body included (PR #10 defect 2)."""
+def _to_public(session: Session, row: AlertEvent) -> AlertEventPublic:
+    """Full F03-RC2 traceability body included (PR #10 defect 2), plus
+    the current alert lifecycle status so a caller can verify that a
+    recovery actually reached ``resolved`` (S0 f98 §3)."""
 
     return AlertEventPublic(
         id=row.id,
@@ -190,6 +196,7 @@ def _to_public(row: AlertEvent) -> AlertEventPublic:
         evidence=_parse_json_column(row.evidence_json, None),
         content_digest=row.content_digest,
         related_source_event_id=row.related_source_event_id,
+        status=get_alert_status(session, row.id),
         created_at=row.created_at,
     )
 

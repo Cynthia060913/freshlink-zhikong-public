@@ -62,6 +62,17 @@ _CANDIDATE_SCHEMA_VERSION = "1.0"
 SeverityLevel = Literal["info", "warning", "critical"]
 
 
+# Alert lifecycle states (S0 f98 §3 decision 3). The event row itself
+# is append-only; lifecycle lives in a separate append-only
+# transition table, current status = latest transition's to_status
+# (``open`` when no transition exists yet). StrEnum (not Literal) so
+# it can back both table columns and JSON DTOs.
+class AlertStatus(enum.StrEnum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+
+
 class CandidateKind(enum.StrEnum):
     """C-side candidate kinds. ``humidity_*`` values are reserved."""
 
@@ -70,6 +81,10 @@ class CandidateKind(enum.StrEnum):
     HUMIDITY_HIGH = "humidity_high"
     HUMIDITY_LOW = "humidity_low"
     DATA_QUALITY = "data_quality"
+    # S0 f98 §3 decision 3: C posts a recovery as a brand-new
+    # source_event_id whose related_source_event_id points at the
+    # original anomaly; B resolves the alert in the same transaction.
+    TEMPERATURE_RECOVERED = "temperature_recovered"
 
 
 class DeviceEventKind(enum.StrEnum):
@@ -167,9 +182,31 @@ def canonical_payload_json(payload: SQLModel) -> str:
     Field order is normalized via ``sort_keys``; datetimes were already
     normalized to UTC by the DTO validators, so the same logical event
     always digests identically regardless of input key order.
+
+    Compat (PR #10 reviews 5563581508 / 5563695226): a NULL
+    ``related_source_event_id`` on a CANDIDATE stays OUT of the
+    canonical payload. The field was added to ``CandidateCreate`` for
+    recoveries only, and ``model_dump`` emitting it as ``null`` for
+    every ordinary candidate changed the digest of bodies that had
+    already been received and stored — replaying the exact old body
+    against an old row answered ``conflict`` instead of
+    ``accepted_duplicate`` (A's cross-version probe). Per the #5
+    compatibility rule we keep the pre-recovery field set for
+    empty-related candidates and do NOT rewrite old rows, source ids
+    or stored digests. A NON-EMPTY related id (recovery candidates)
+    IS part of the digest. ``DeviceEventCreate`` is untouched: it
+    always carried the field, so its digests are unchanged either way —
+    the exclusion is deliberately scoped to candidates instead of a
+    global ``exclude_none`` (which would silently alter every other
+    nullable field's digest).
     """
 
     data = payload.model_dump(mode="json")
+    if (
+        isinstance(payload, CandidateCreate)
+        and data.get("related_source_event_id") is None
+    ):
+        data.pop("related_source_event_id", None)
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
@@ -208,6 +245,10 @@ class CandidateCreate(SQLModel):
     rule_version: str | None = Field(default=None, max_length=64)
     algorithm_version: str | None = Field(default=None, max_length=64)
     evidence: dict[str, Any] | None = None
+    # Recovery candidates only (S0 f98 §3 decision 3): points at the
+    # ORIGINAL anomaly's source_event_id; part of the canonical
+    # payload and therefore of the digest.
+    related_source_event_id: str | None = Field(default=None, max_length=128)
 
     @field_validator("schema_version", mode="before")
     @classmethod
@@ -300,6 +341,32 @@ class CandidateCreate(SQLModel):
     @classmethod
     def _norm_algorithm_version(cls, value: object) -> str | None:
         return _strip_or_none(value, "algorithm_version")
+
+    @field_validator("related_source_event_id", mode="before")
+    @classmethod
+    def _norm_related(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("related_source_event_id must be text")
+        stripped = value.strip()
+        return stripped or None
+
+    @model_validator(mode="after")
+    def _recovery_kind_and_related(self) -> CandidateCreate:
+        if self.kind is CandidateKind.TEMPERATURE_RECOVERED and not (
+            self.related_source_event_id
+        ):
+            raise ValueError(
+                "temperature_recovered candidates must carry related_source_event_id"
+            )
+        if self.related_source_event_id and self.kind is not (
+            CandidateKind.TEMPERATURE_RECOVERED
+        ):
+            raise ValueError(
+                "related_source_event_id is only valid on temperature_recovered"
+            )
+        return self
 
     @model_validator(mode="after")
     def _payload_within_bound(self) -> CandidateCreate:
@@ -395,6 +462,35 @@ class AlertEvent(SQLModel, table=True):
     )
 
 
+class AlertStatusTransition(SQLModel, table=True):
+    """One append-only alert lifecycle transition (S0 f98 §3 decision 3).
+
+    ``alerts_event`` rows are immutable; the lifecycle of the ALERT an
+    event opened lives here. Current status = latest transition's
+    ``to_status`` by ``(created_at, id)``; no transition row means
+    ``open``. A recovery candidate commits its own event row and the
+    original alert's ``open/acknowledged -> resolved`` transition in
+    the SAME transaction; history (including the original anomaly and
+    this audit trail) is never rewritten or deleted, and a machine
+    ``resolved`` is not the same thing as a human ``closed``.
+    """
+
+    __tablename__ = "alerts_status_transition"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    alert_event_id: uuid.UUID = Field(foreign_key="alerts_event.id", index=True)
+    from_status: AlertStatus
+    to_status: AlertStatus
+    # source_event_id of the event that caused the transition (e.g.
+    # the recovery candidate), for traceability back to the trigger.
+    trigger_source_event_id: str | None = Field(default=None, max_length=128)
+    reason: str | None = Field(default=None, max_length=128)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class CandidateReceipt(SQLModel):
     """Uniform five-way receipt envelope (all ingestion outcomes)."""
 
@@ -435,6 +531,11 @@ class AlertEventPublic(SQLModel):
     evidence: dict[str, Any] | None = None
     content_digest: str
     related_source_event_id: str | None
+    # Current lifecycle status of the alert this event belongs to
+    # (S0 f98 §3; computed from the transition table, "open" when no
+    # transition exists). Lets C verify the original alert actually
+    # reached ``resolved`` after posting a recovery.
+    status: AlertStatus = AlertStatus.OPEN
     created_at: datetime
 
 

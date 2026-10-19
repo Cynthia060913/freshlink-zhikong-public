@@ -30,11 +30,14 @@ import json
 import uuid
 
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlmodel import Session, col, func, select
+from sqlmodel import Session, SQLModel, col, func, select
 
 from app.modules.alerts.models import (
     AlertEvent,
+    AlertStatus,
+    AlertStatusTransition,
     Batch,
+    CandidateKind,
     NotificationAttempt,
     Warehouse,
 )
@@ -114,8 +117,9 @@ def _classify_existing(
     return _conflict_receipt(stored, source_event_id, digest)
 
 
-def _insert_event(session: Session, row: AlertEvent) -> str | None:
-    """INSERT one row; return None on success, a failure tag on error.
+def _insert_event(session: Session, row: AlertEvent, *extra: SQLModel) -> str | None:
+    """INSERT one row (plus optional extra rows in the SAME
+    transaction); return None on success, a failure tag on error.
 
     A unique-violation on ``source_event_id`` is a concurrent replay
     of the same key: fall back to the stored row and classify by
@@ -127,9 +131,15 @@ def _insert_event(session: Session, row: AlertEvent) -> str | None:
     ``"refresh"``: the caller answers ``retryable_failure`` and the
     client retries the SAME ``source_event_id``, which then classifies
     as ``accepted_duplicate`` (PR #10 round-2 review).
+
+    Extra rows (e.g. a recovery's alert-status transition) are added
+    before the single commit, so the event and its side effects land
+    atomically or not at all (S0 f98 §3 decision 3).
     """
 
     session.add(row)
+    for extra_row in extra:
+        session.add(extra_row)
     try:
         session.commit()
     except IntegrityError:
@@ -170,11 +180,127 @@ def _candidate_row(payload: CandidateCreate, digest: str) -> AlertEvent:
         ),
         content_digest=digest,
         payload_json=canonical_payload_json(payload),
+        related_source_event_id=payload.related_source_event_id,
+    )
+
+
+def get_alert_status(session: Session, alert_event_id: uuid.UUID) -> AlertStatus:
+    """Current lifecycle status of one alert (S0 f98 §3 decision 3).
+
+    The event row is immutable; status is the latest transition's
+    ``to_status`` by ``(created_at, id)``, ``open`` while no
+    transition exists.
+    """
+
+    row = session.exec(
+        select(AlertStatusTransition)
+        .where(col(AlertStatusTransition.alert_event_id) == alert_event_id)
+        .order_by(
+            col(AlertStatusTransition.created_at).desc(),
+            col(AlertStatusTransition.id).desc(),
+        )
+        .limit(1)
+    ).first()
+    if row is None:
+        return AlertStatus.OPEN
+    return row.to_status
+
+
+def list_status_transitions(
+    session: Session, alert_event_id: uuid.UUID
+) -> list[AlertStatusTransition]:
+    """Full append-only transition history for one alert, oldest first."""
+
+    return list(
+        session.exec(
+            select(AlertStatusTransition)
+            .where(col(AlertStatusTransition.alert_event_id) == alert_event_id)
+            .order_by(
+                col(AlertStatusTransition.created_at), col(AlertStatusTransition.id)
+            )
+        ).all()
+    )
+
+
+def _recovery_transition(
+    session: Session, payload: CandidateCreate, source_event_id: str
+) -> AlertStatusTransition | None | str:
+    """Validate a recovery candidate against its ORIGINAL anomaly and
+    build the ``-> resolved`` transition (S0 f98 §3 decision 3).
+
+    Returns the transition to commit alongside the recovery row,
+    ``None`` when the original is already resolved (event lands, no
+    redundant transition), a permanent ``invalid`` reason code, or the
+    literal ``"retryable"`` when a read failed transiently. An unknown
+    original is an EXPLICIT rejection (C keeps the recovery pending
+    and re-posts after the original is accepted) — never a silently
+    stored dangling link like device events, and never a manufactured
+    "resolved" or closed alert.
+
+    The original must be a TEMPERATURE anomaly (``temperature_high`` /
+    ``temperature_low`` — a single recovery kind covers both; the
+    comparison comes from the original's immutable rule snapshot, not
+    from the recovery body) whose rule identity and severity the
+    recovery must PRESERVE: ``rule_snapshot_id``, ``rule_version`` and
+    ``severity`` must equal the original's (PR #10 reviews 5563581508 /
+    5563695226 — a ``data_quality`` anomaly or a recovery carrying a
+    different rule/severity must never resolve the alert). Mismatched
+    input is rejected BEFORE any write: no recovery row, no status
+    change. Unusable originals (rule fields NULL on both sides are a
+    match; a value on one side only is a mismatch) are rejected rather
+    than guessed.
+    """
+
+    related = payload.related_source_event_id
+    if not related:
+        return "recovery_missing_related"
+    try:
+        original = _get_by_source(session, related)
+        status = get_alert_status(session, original.id) if original else None
+    except OperationalError:
+        session.rollback()
+        return "retryable"
+    if original is None:
+        return "unknown_related_event"
+    # The original must be the SAME alert: warehouse/batch/metric all
+    # match, and it must be a temperature anomaly — not another
+    # recovery, not data_quality, not a humidity anomaly.
+    if (
+        original.warehouse_id != payload.warehouse_id
+        or original.batch_id != payload.batch_id
+        or original.metric_code != payload.metric_code
+        or original.kind
+        not in (str(CandidateKind.TEMPERATURE_HIGH), str(CandidateKind.TEMPERATURE_LOW))
+    ):
+        return "related_event_mismatch"
+    # f98 §3 decision 1: the recovery PRESERVES the original's rule
+    # identity and severity instead of introducing its own.
+    if (
+        original.rule_snapshot_id != payload.rule_snapshot_id
+        or original.rule_version != payload.rule_version
+        or original.severity != payload.severity
+    ):
+        return "related_rule_mismatch"
+    assert status is not None
+    if status == AlertStatus.RESOLVED:
+        return None
+    return AlertStatusTransition(
+        alert_event_id=original.id,
+        from_status=status,
+        to_status=AlertStatus.RESOLVED,
+        trigger_source_event_id=source_event_id,
+        reason="temperature_recovered",
     )
 
 
 def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateReceipt:
-    """Ingest one C-side alert candidate, five-way receipt envelope."""
+    """Ingest one C-side alert candidate, five-way receipt envelope.
+
+    Recovery candidates (``temperature_recovered``) additionally
+    validate the referenced original anomaly and commit the original
+    alert's ``open/acknowledged -> resolved`` transition in the same
+    transaction as the recovery row.
+    """
 
     source_event_id = payload.source_event_id
     digest = compute_content_digest(payload)
@@ -199,8 +325,17 @@ def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateRe
     if existing is not None:
         return _classify_existing(existing, source_event_id, digest)
 
+    transition: AlertStatusTransition | None = None
+    if payload.kind is CandidateKind.TEMPERATURE_RECOVERED:
+        outcome = _recovery_transition(session, payload, source_event_id)
+        if isinstance(outcome, str):
+            if outcome == "retryable":
+                return _retryable_receipt(source_event_id)
+            return _invalid_receipt(source_event_id, outcome)
+        transition = outcome
+
     row = _candidate_row(payload, digest)
-    failure = _insert_event(session, row)
+    failure = _insert_event(session, row, *([transition] if transition else ()))
     if failure in ("operational", "refresh"):
         return _retryable_receipt(source_event_id)
     if failure == "integrity":
