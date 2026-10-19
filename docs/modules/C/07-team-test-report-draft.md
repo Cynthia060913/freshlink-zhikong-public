@@ -2,6 +2,16 @@
 
 初版核对日期：2026-10-17；最新补证：2026-10-19。**状态：M03 底稿，未签收**。本文件汇集三人已公开的版本化证据，不能把不同 PR/机器/数据库的结果相加，不能代 A/B 签字。最终报告须在同一发布 SHA、部署配置和第二台电脑上复核后重写实际结果；本文件不证明 E1 或比赛验收。
 
+## 10 月 19 日 C 代码实测头补证（优先于下方旧快照）
+
+| 来源 | 已核实的版本和结果 | 限制与下一次实测 |
+| --- | --- | --- |
+| C 本人 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) | 分支 `feature/c-data-quality-bootstrap`，本地/远端完整 HEAD `df232b4ce2ada48fce266ed04fcf1071525d86ce`，已包含共同 main `e235a25650fce96b3ec92888e28a3d0702b16a06`，behind 0/ahead 78。本机 Windows/Codex 隔离 Python 3.13：F03 摘要/outbox/B HTTP **合成 39/39**、纯恢复窗口 **10/10**；Ruff、限定 Mypy/Ty、暂存差异检查通过。[同 HEAD Backend Actions run 39234760153](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39234760153) 为整仓 **475 passed/4 skipped**，五项适用工作流均 completed/success。 | 39 与 10 是不同限定测试组，475 是整仓数，不能相加。此头未在 C 本机以 Python 3.14/真实 PG 复测；没有正式 C Alembic、根路由/页面接线、真实 B HTTP、自动恢复投递或 E1。旧 `be795f…` 的 A PG 154/154 只证明旧代码头。 |
+| B [PR #10](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10) | 当前 B HEAD `3f43af70a29bfc0859fed711333cd38e7e505a05`，C 对该头[源码和回归审查提交 APPROVE](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5569259588)。C 新普通候选摘要对齐其旧行兼容规则：HTTP 正文保留 `related_source_event_id:null`，摘要排除该空字段；非空恢复关联仍计入摘要。 | 审查批准不等于 PR 合并、正式 B 迁移、真实规则联调、告警持久处置或通知实收。B 迁移尚未进入 main，C 正式迁移必须接唯一已合并链。 |
+| A 的三模块旧头探针 | [A 在 #7 的实际记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/7#issuecomment-6262487834)：A `c15fe46663410fa4112a2767b503bef356814508` + B `3f43af70a29bfc0859fed711333cd38e7e505a05` + 旧 C `be795f248350a24d73a02d7689585009af61e003`，真实 PG18.6/Uvicorn/JWT/HTTP 33 检查中 **32 通过、1 失败**；首失败是普通候选摘要不匹配，C 保持 retry 未伪报送达。 | 当前 C `df232b4…` 已修本地规范化并有固定测试，但 A 尚未在该精确组合重跑；不能把旧 32/33 改写成 33/33。该探针使用候选 DDL，不是正式迁移或完整 E1。 |
+
+新恢复窗口判据以原异常规则显式提供的恢复阈值为前提，要求至少三条不同来源、质量 `ok`、严格有序的采样，单次间隔最多 90 秒；重复/迟到不凑数，缺测/冲突/再异常重置。该纯决策尚未持久化或自动投递，也未将 B 告警置为 `resolved`。C 对当前源树的有限模式安全扫描为 494 个文本文件、9 个二进制未作文本扫描、0 个模式命中；这不是全面凭据审计。下列早前条目保留原来源时间，不作为当前 HEAD 的同版验收。
+
 ## 2026-10-19 补证与旧快照边界
 
 下方第 1—3 节是 10 月 17 日的来源快照，表中的旧 main、PR HEAD 和“未签收”判断不能当作今日实时状态。今日已核对的公共 main 为 **`e235a25650fce96b3ec92888e28a3d0702b16a06`**，固定 F01—F06/§3 目标包 `f98e65b4717334bae34f7495181c320ae5061860` 已由三方接受并经 PR #23 合入。C 已取得新版 main 并补本人云端基础启动记录；S0 是否关闭仍由 A 核对三方状态，[共同状态见 #5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5)。这项目标签收不表示正式 B/C 迁移、应用接线或 E1 已完成。
@@ -44,6 +54,7 @@
 | C-T05 | 无规则、缺温、坏单位、重发和冲突 → 不生成 C→B 候选；有效高温使用合成规则与外部分配 ID → JSON 保留规则/观测证据 | 固定候选单测通过；没有 B 端接收或投递 | `test_telemetry_candidate_contract_proposal.py`、[候选 JSON](examples/candidate-f03-rc2-c-proposal.json) |
 | C-T06 | 实际调用 A 的 `receive_telemetry` 生成封装，再写 C 隔离 SQLite 文件 → 保留可信时间和 exact raw，重投仅一业务观测，冲突不覆盖；坏时间/单位不进入评估 | 本人 3.13.9 明确跳过 2 项；[同代码 SHA 的远端 Python 3.14.8](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39040332878) 日志列出 `test_telemetry_a_storage_boundary.py ..`，两项实跑通过。没有 MQTT、正式 PG 或应用接线 | `test_telemetry_a_storage_boundary.py` |
 | C-T07 | 外部分配的异常来源 ID 与规范正文入隔离 outbox → 同正文重发一次、改正文留冲突证据且不覆盖；旧租约不能完成新任务；重开文件后同 ID/正文可重试，永久拒绝不再认领 | 本人 SQLite 文件 5 项通过；注入冲突审计写故障不会伪报成功；[Python 3.14.8 后端 CI](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39041469431) 日志列出新文件 `.....`。没有 B 接收、by-source 回查、正式 PG 并发或 worker | `test_telemetry_outbox_candidate.py` |
+| C-T08 | 原温度异常与显式恢复规则；三条同仓/批/设备且质量 `ok` 的严格有序采样 → 窗口具备冻结资格；2 条、91 秒上限、重复/迟到、缺测/冲突/再异常 → 不错误恢复 | 当前 C `df232b4ce2ada48fce266ed04fcf1071525d86ce` 本机纯窗口测试 **10/10**；未写入正式 PG 或自动发 B，不能声称告警已恢复 | [`test_telemetry_recovery_window_candidate.py`](https://github.com/Cynthia060913/freshlink-zhikong-public/blob/df232b4ce2ada48fce266ed04fcf1071525d86ce/backend/tests/modules/test_telemetry_recovery_window_candidate.py) |
 
 复现范围：在项目隔离 Python 3.13.9 环境，从 `backend` 明确加载十一组 C 单测，含 `test_telemetry_query_preview.py`、`test_telemetry_csv_preview.py`、`test_telemetry_storage_postgres_candidate.py`、`test_telemetry_a_storage_boundary.py` 和 `test_telemetry_outbox_candidate.py`；本人实际执行总计 106 项，其中 2 项 PG 专项因未启用精确测试库、2 项 A ingress 因需 Python 3.14 而跳过。一次通配收集额外导入 A 的 3.14 语法，在本机 3.13 收集失败，未计入通过；明确清单重跑通过。项目 Python 3.14.8 的同版后端总数与 A ingress/outbox 实际执行见上表 Actions。C 测试不会连接或清空真实数据库；不得以 `metadata.create_all` 建生产表。
 
