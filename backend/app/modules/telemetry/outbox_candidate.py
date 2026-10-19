@@ -32,7 +32,10 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
-from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
+from app.modules.telemetry.f03_body_candidate import (
+    f03_digest_candidate,
+    normalize_f03_body_candidate,
+)
 from app.modules.telemetry.history_candidate import _utc_bound
 from app.modules.telemetry.storage_candidate import metadata, observations
 
@@ -117,7 +120,11 @@ def _aware_now(value: datetime) -> datetime:
 
 
 def _frozen_body(
-    body: dict[str, Any], source_event_id: UUID, observation_id: UUID
+    body: dict[str, Any],
+    source_event_id: UUID,
+    observation_id: UUID,
+    *,
+    f03: bool = False,
 ) -> tuple[dict[str, Any], str]:
     if not isinstance(body, dict):
         raise ValueError("candidate body must be a JSON object")
@@ -138,7 +145,13 @@ def _frozen_body(
         raise ValueError("candidate body must contain finite JSON values") from exc
     if len(canonical.encode("utf-8")) > 65536:
         raise ValueError("candidate body exceeds isolated 64 KiB limit")
-    return json.loads(canonical), hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    frozen = json.loads(canonical)
+    digest = (
+        f03_digest_candidate(frozen).removeprefix("sha256:")
+        if f03
+        else hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    )
+    return frozen, digest
 
 
 def stage_candidate(
@@ -148,12 +161,13 @@ def stage_candidate(
     observation_id: UUID,
     body: dict[str, Any],
     now: datetime,
+    _f03: bool = False,
 ) -> StageStatus:
     """Freeze one event ID and its exact canonical body before any B call."""
     if not isinstance(source_event_id, UUID) or not isinstance(observation_id, UUID):
         raise ValueError("source_event_id and observation_id must be UUIDs")
     current = _aware_now(now)
-    frozen, digest = _frozen_body(body, source_event_id, observation_id)
+    frozen, digest = _frozen_body(body, source_event_id, observation_id, f03=_f03)
     related = frozen.get("related_source_event_id")
     if frozen.get("kind") == "temperature_recovered":
         if not isinstance(related, str):
@@ -241,15 +255,38 @@ def stage_f03_candidate(
     """Stage the complete B-compatible body before an eventual HTTP send.
 
     The old generic staging primitive remains for isolated outbox mechanics;
-    integration callers must use this wrapper so B's DTO defaults (including
-    a null recovery link on anomalies) cannot change the stored digest later.
+    integration callers must use this wrapper so B's schema 1.0 canonical
+    field set cannot change the stored digest later.
     """
+    frozen = normalize_f03_body_candidate(body)
+    related = frozen["related_source_event_id"]
+    if related is not None:
+        with engine.connect() as connection:
+            original = connection.execute(
+                select(outbox.c.body).where(outbox.c.source_event_id == UUID(related))
+            ).scalar_one_or_none()
+        if original is None or original.get("kind") not in (
+            "temperature_high",
+            "temperature_low",
+        ):
+            raise ValueError("recovery requires a local original temperature anomaly")
+        for key in (
+            "warehouse_id",
+            "batch_id",
+            "metric_code",
+            "rule_snapshot_id",
+            "rule_version",
+            "severity",
+        ):
+            if frozen[key] != original.get(key):
+                raise ValueError(f"recovery {key} must match the original anomaly")
     return stage_candidate(
         engine,
         source_event_id=source_event_id,
         observation_id=observation_id,
-        body=normalize_f03_body_candidate(body),
+        body=frozen,
         now=now,
+        _f03=True,
     )
 
 
