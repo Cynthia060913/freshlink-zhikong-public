@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.exc import OperationalError
 
-from app.modules.telemetry.outbox_candidate import outbox
+from app.modules.telemetry.outbox_candidate import outbox, outbox_conflicts
 from app.modules.telemetry.rule_evaluation_candidate import evaluate_one_batch_candidate
 from app.modules.telemetry.storage_candidate import (
     evaluation_jobs,
@@ -285,3 +285,44 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
         self.assertEqual(self._read(outbox), [])
         for row in self._read(observations):
             self.assertEqual(row["risk"]["state"], "unknown")
+
+    def test_interleaved_rule_versions_cannot_stage_two_events_for_one_batch(
+        self,
+    ) -> None:
+        observation_id, _ = self._ingest(13)
+        engine = self.engine
+        inner_result = None
+
+        class InterleavedSelector:
+            def select_rules_for_observation(self, **_kwargs) -> dict:
+                nonlocal inner_result
+                inner_result = evaluate_one_batch_candidate(
+                    engine,
+                    observation_id=observation_id,
+                    batch_id=BATCH,
+                    selector=Selector(_rule()),
+                    now=NOW,
+                )
+                return _rule(
+                    snapshot_id=str(uuid4()),
+                    rule_version="retroactive-v2",
+                    threshold=9.0,
+                )
+
+        outer = evaluate_one_batch_candidate(
+            self.engine,
+            observation_id=observation_id,
+            batch_id=BATCH,
+            selector=InterleavedSelector(),
+            now=NOW,
+        )
+        self.assertIsNotNone(inner_result)
+        self.assertEqual(inner_result.status, "candidate_staged")
+        self.assertEqual(outer.status, "held_unknown")
+        self.assertEqual(outer.reason, "candidate_body_conflict")
+        self.assertEqual(outer.source_event_id, inner_result.source_event_id)
+        self.assertEqual(len(self._read(outbox)), 1)
+        self.assertEqual(len(self._read(outbox_conflicts)), 1)
+        self.assertEqual(
+            self._read(observations)[0]["risk"]["rule_snapshot_id"], str(SNAPSHOT)
+        )

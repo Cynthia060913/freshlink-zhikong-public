@@ -19,7 +19,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.modules.telemetry.candidate_preview import (
-    ALGORITHM_VERSION,
     F03_SEVERITIES,
     _required_text,
     _required_utc,
@@ -292,15 +291,7 @@ def evaluate_one_batch_candidate(
             raise ValueError("stored quality differs from raw evidence")
         source_id = uuid5(
             _SOURCE_NAMESPACE,
-            ":".join(
-                (
-                    str(observation_id),
-                    str(batch_id),
-                    snapshot_id,
-                    "temperature_high",
-                    ALGORITHM_VERSION,
-                )
-            ),
+            f"{observation_id}:{batch_id}:temperature_high",
         )
         candidate = build_candidate_preview(
             processed,
