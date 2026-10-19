@@ -310,3 +310,37 @@ C 另提供未挂载的 `b_http_candidate.py`：按 B 给定的
 不误作候选已收。B 目前尚未挂共享根，也未确认服务间身份签发/刷新；
 在 A/B 接线及独立 PG/HTTP 验证前，此适配器测试只用本机合成 HTTP 回应，
 不能报告为 B 实际接收。
+
+## C 消费 F02 的一批次高温候选端口（2026-10-19，未挂生产调度）
+
+`backend/app/modules/telemetry/rule_evaluation_candidate.py` 从 C 已持久的
+`observations`/`evaluation_jobs` 读取观测，不信任设备自报批次；调用方必须从
+B 的可信设备/批次关联传 `batch_id`，并把 B 的
+`select_rules_for_observation(session, *, warehouse_id, batch_ids,
+metric_code, sampled_at) -> RuleSelection` 转为 `model_dump(mode="json")`
+后注入。仅支持**一批次、温度 `°C`、`temperature_high`、严格 `>`**。
+同一个业务观测只用 `sampled_at` UTC 选择历史规则，保留原始 `raw_text`、
+`raw_payload` 和原质量标记；真实高温且缺湿度时仍可生成高温候选，同时
+证据保留 `missing_metric:humidity`。无规则、无可用温度或不完整的非高温
+观测保持 `unknown`，不能显示为 normal。
+
+示意的 B→C 选择回复（仅端口输入样例，非真实服务回执）：
+
+```json
+{"status":"configured","rules":[{"batch_id":"33333333-3333-4333-8333-333333333333","warehouse_id":"22222222-2222-4222-8222-222222222222","rule_version":"temp-v1","snapshot_id":"88888888-8888-4888-8888-888888888888","metric_code":"temperature","unit":"°C","kind":"temperature_high","severity":"warning","comparison":">","threshold":8.0,"recovery":{"consecutive_samples":3},"effective_start_at":"2026-10-14T00:00:00Z","effective_end_at":null,"source":"warehouse-manager-ui"}],"reason_code":null}
+```
+
+选择器返回 `no_rule` 且空规则时，任务记 `no_rule` 而观测风险仍为 `unknown`；
+读库临时失败保留待评估任务以便重试；批次/仓库/单位/级别/时间窗不匹配则
+保守阻止候选。高温候选先以确定的 `source_event_id` 和完整 F03 正文冻结
+到 C outbox，再将任务和风险状态提交。两次事务之间崩溃时，下一轮先
+复用已冻结候选和正文，不重新选可能改变的规则，也不重复生成业务事件。
+本地五项独立 SQLite 回归覆盖高温缺测、无规则/非高温缺测、非法时间/单位、
+临时失败、规则不匹配及崩溃后的同 ID 重试。测试中 `metadata.create_all` 只作用于
+临时测试库；**没有正式 C Alembic、B 实际 SQLModel 调用、HTTP 投递、
+后台调度、PG 组合运行或 E1 结论**。
+
+正式接线仍需 B 先发布已审唯一迁移 head 并修复 PR #10 中同文旧行
+摘要重放和误恢复；A 协调共享根与调度入口。C 在实际 B 服务/PG 环境
+验证后才扩大到同观测多批次、恢复连续样本与生产任务领取。当前单批次
+候选不能代替完整告警生命周期或真实通知。
