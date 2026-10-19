@@ -250,6 +250,27 @@ F02 候选评估写入的 `risk.rule_version` 由 C 历史投影带入后续新�
 不悄悄覆盖。此一致性仅在隔离 SQLite 快照/CSV 测试通过，正式应用/PG
 与真实浏览器尚未验证。
 
+## A 持久接收队列到 C 入库的待接线端口（2026-10-19）
+
+已只读核对 A [PR #26 当前源码候选](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/26)
+的 `telemetry_inbox.py` 和 `telemetry_worker.py`：A 的
+`TelemetryDeliveryWorker(engine, sink: StoreSink)` 将可信
+`ReceptionEnvelope` 在 A 租约事务外传给 `sink`，只有取得匹配
+`reception_id` 的 C 持久回执后才清理 A 原文队列。C 已有
+`ingest_observation(c_engine, envelope) -> IngestResult`，回执字段
+`status/reception_id/observation_id` 与 A `ReceiptLike` 形状相符；
+同一 A 租约重试应沿用原 `reception_id`，C 对它幂等并保留 raw。
+
+集成方在 A、B、C 唯一迁移链和真实批次绑定获审后，可注入仅调用
+`ingest_observation` 的 C 存储端口；须给数据库查询和网络操作设置有界超时，
+不能在 MQTT 回调中同步跑 C，也不能把 A 的 QoS1 ACK 当作 C 已入库。
+A `invalid/conflict` 终态在 C 留原始拒绝证据，A 留元数据回执；C 暂时库
+失败保持 A 原包及原 ID 重试，C 已提交而 A 写回执失败时重放不得产生
+第二条观测。A PR #26 尚未合 main，C 没有在当前 PR #11 代码上实际
+运行 A 队列→C PG 组合；A 早期在 #6 的分段证据按其精确旧 SHA 引用，
+不自动视为本头 E1。A/B/C 正式接线后应在 #6 记录同一版本、原包/观测
+ID、重建及失败恢复的实际结果。
+
 ## C→B 持久候选投递协调层（2026-10-18，独立端口）
 
 `backend/app/modules/telemetry/delivery_candidate.py` 消费 C outbox 的不可变

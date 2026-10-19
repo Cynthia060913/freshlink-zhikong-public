@@ -229,6 +229,7 @@ export default function TelemetryPage() {
                   <th className="p-2">温度 °C</th>
                   <th className="p-2">湿度 %</th>
                   <th className="p-2">质量 / 风险</th>
+                  <th className="p-2">规则版本</th>
                   <th className="p-2">原始证据</th>
                 </tr>
               </thead>
@@ -244,6 +245,7 @@ export default function TelemetryPage() {
                       {item.quality.join(", ") || "无标记"} /{" "}
                       {item.risk_state || "unknown"}
                     </td>
+                    <td className="p-2">{item.rule_version ?? "未匹配"}</td>
                     <td className="p-2">
                       <Button
                         type="button"
