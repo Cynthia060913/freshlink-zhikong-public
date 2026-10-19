@@ -343,6 +343,13 @@ metric_code, sampled_at) -> RuleSelection` 转为 `model_dump(mode="json")`
 临时测试库；**没有正式 C Alembic、B 实际 SQLModel 调用、HTTP 投递、
 后台调度、PG 组合运行或 E1 结论**。
 
+另在现有 `test_telemetry_storage_postgres_candidate.py` 增加同一观测两
+评估者交错选择不同规则版本、唯一 outbox/冲突留证及新连接回读的 opt-in
+PostgreSQL 回归。它沿用严格 `test-db/freshlink_test/FreshLink-test` 守卫
+和每测试独立 schema；C 本机无受控 PG，此项**仅已被本机测试发现并跳过**，
+不得把跳过记作 PG 通过。待有隔离 PG 的同学在准确提交上实际运行并
+记录结果；此测试仍只建临时 schema，不建立正式共享迁移。
+
 正式接线仍需 B 先发布已审唯一迁移 head 并修复 PR #10 中同文旧行
 摘要重放和误恢复；A 协调共享根与调度入口。C 在实际 B 服务/PG 环境
 验证后才扩大到同观测多批次、恢复连续样本与生产任务领取。当前单批次

@@ -20,7 +20,8 @@ function display(value: string | number | null): string {
 
 function utcInput(value: string): string | undefined {
   // datetime-local has no timezone; this form explicitly interprets it as UTC.
-  return value ? `${value}:00Z` : undefined
+  // Browsers may include seconds (or fractions), so do not append another :00.
+  return value ? `${value}Z` : undefined
 }
 
 export default function TelemetryPage() {

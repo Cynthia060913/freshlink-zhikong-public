@@ -25,6 +25,8 @@ from app.modules.telemetry.history_candidate import (
     HistoryFiltersCandidate,
     list_history_candidate,
 )
+from app.modules.telemetry.outbox_candidate import outbox, outbox_conflicts
+from app.modules.telemetry.rule_evaluation_candidate import evaluate_one_batch_candidate
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
     read_snapshot_page_candidate,
@@ -117,6 +119,79 @@ class PostgresStorageCandidateTests(unittest.TestCase):
     def _count(self, table) -> int:
         with self.engine.connect() as connection:
             return int(connection.scalar(select(func.count()).select_from(table)))
+
+    def test_interleaved_rule_versions_leave_one_durable_pg_candidate(self) -> None:
+        """Two PG workers race on one observation without two business events."""
+        receipt = _reception(uuid4(), temperature=13)
+        ingested = ingest_observation(self.engine, receipt)
+        self.assertEqual(ingested.status, "accepted_new")
+        assert ingested.observation_id is not None
+        observation_id = ingested.observation_id
+        batch_id = UUID("33333333-3333-4333-8333-333333333333")
+        warehouse_id = _WAREHOUSE_ID
+        barrier = Barrier(2)
+
+        class Selector:
+            def __init__(self, version: str, threshold: float) -> None:
+                self.version = version
+                self.threshold = threshold
+
+            def select_rules_for_observation(self, **_kwargs) -> dict:
+                barrier.wait(timeout=10)
+                return {
+                    "status": "configured",
+                    "reason_code": None,
+                    "rules": [
+                        {
+                            "batch_id": str(batch_id),
+                            "warehouse_id": str(warehouse_id),
+                            "snapshot_id": str(uuid4()),
+                            "rule_version": self.version,
+                            "metric_code": "temperature",
+                            "unit": "°C",
+                            "kind": "temperature_high",
+                            "severity": "warning",
+                            "comparison": ">",
+                            "threshold": self.threshold,
+                            "effective_start_at": "2026-10-14T00:00:00Z",
+                            "effective_end_at": None,
+                        }
+                    ],
+                }
+
+        def evaluate(version: str, threshold: float):
+            return evaluate_one_batch_candidate(
+                self.engine,
+                observation_id=observation_id,
+                batch_id=batch_id,
+                selector=Selector(version, threshold),
+                now=_RECEIVED_AT,
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(evaluate, "temp-v1", 8.0)
+            second = pool.submit(evaluate, "temp-v2", 9.0)
+            results = (first.result(timeout=20), second.result(timeout=20))
+        self.assertEqual(
+            {result.status for result in results},
+            {"candidate_staged", "held_unknown"},
+        )
+        self.assertEqual(results[0].source_event_id, results[1].source_event_id)
+        self.base_engine.dispose()
+        with self.engine.connect() as connection:
+            frozen = connection.execute(select(outbox)).mappings().one()
+            stored = (
+                connection.execute(
+                    select(observations).where(observations.c.id == observation_id)
+                )
+                .mappings()
+                .one()
+            )
+        self.assertEqual(self._count(outbox), 1)
+        self.assertEqual(self._count(outbox_conflicts), 1)
+        self.assertEqual(frozen["source_event_id"], results[0].source_event_id)
+        self.assertEqual(stored["raw_text"], receipt.raw_text)
+        self.assertEqual(stored["risk"]["state"], "candidate")
 
     def test_authenticated_http_snapshot_csv_on_disposable_postgres(self) -> None:
         """Real PG UUID auth, fixed CSV membership and scoped errors.
