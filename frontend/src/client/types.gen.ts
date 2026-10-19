@@ -88,11 +88,17 @@ export type AlertEventPublic = {
      * Related Source Event Id
      */
     related_source_event_id: string | null;
+    status?: AlertStatus;
     /**
      * Created At
      */
     created_at: string;
 };
+
+/**
+ * AlertStatus
+ */
+export type AlertStatus = 'open' | 'acknowledged' | 'resolved';
 
 /**
  * BatchCreate
@@ -353,6 +359,10 @@ export type CandidateCreate = {
     evidence?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Related Source Event Id
+     */
+    related_source_event_id?: string | null;
 };
 
 /**
@@ -360,7 +370,7 @@ export type CandidateCreate = {
  *
  * C-side candidate kinds. ``humidity_*`` values are reserved.
  */
-export type CandidateKind = 'temperature_high' | 'temperature_low' | 'humidity_high' | 'humidity_low' | 'data_quality';
+export type CandidateKind = 'temperature_high' | 'temperature_low' | 'humidity_high' | 'humidity_low' | 'data_quality' | 'temperature_recovered';
 
 /**
  * CandidateReceipt
@@ -2552,6 +2562,166 @@ export type deviceControlReadCommandResponses = {
 };
 
 export type deviceControlReadCommandResponse = deviceControlReadCommandResponses[keyof deviceControlReadCommandResponses];
+
+export type telemetryListObservationsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Snapshot Id
+         */
+        snapshot_id?: string | null;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Device Id
+         */
+        device_id?: string | null;
+        /**
+         * Warehouse Id
+         */
+        warehouse_id?: string | null;
+        /**
+         * Sampled From
+         */
+        sampled_from?: string | null;
+        /**
+         * Sampled To
+         */
+        sampled_to?: string | null;
+        /**
+         * Received From
+         */
+        received_from?: string | null;
+        /**
+         * Received To
+         */
+        received_to?: string | null;
+        /**
+         * Quality In
+         */
+        quality_in?: Array<string> | null;
+    };
+    url: '/api/v1/telemetry/observations/';
+};
+
+export type telemetryListObservationsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type telemetryListObservationsError = telemetryListObservationsErrors[keyof telemetryListObservationsErrors];
+
+export type telemetryListObservationsResponses = {
+    /**
+     * Response Telemetry-List Observations
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type telemetryListObservationsResponse = telemetryListObservationsResponses[keyof telemetryListObservationsResponses];
+
+export type telemetryExportObservationsData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Snapshot Id
+         */
+        snapshot_id: string;
+        /**
+         * Device Id
+         */
+        device_id?: string | null;
+        /**
+         * Warehouse Id
+         */
+        warehouse_id?: string | null;
+        /**
+         * Sampled From
+         */
+        sampled_from?: string | null;
+        /**
+         * Sampled To
+         */
+        sampled_to?: string | null;
+        /**
+         * Received From
+         */
+        received_from?: string | null;
+        /**
+         * Received To
+         */
+        received_to?: string | null;
+        /**
+         * Quality In
+         */
+        quality_in?: Array<string> | null;
+    };
+    url: '/api/v1/telemetry/observations/export.csv';
+};
+
+export type telemetryExportObservationsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type telemetryExportObservationsError = telemetryExportObservationsErrors[keyof telemetryExportObservationsErrors];
+
+export type telemetryExportObservationsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type telemetryReadObservationData = {
+    body?: never;
+    path: {
+        /**
+         * Observation Id
+         */
+        observation_id: string;
+    };
+    query?: never;
+    url: '/api/v1/telemetry/observations/{observation_id}';
+};
+
+export type telemetryReadObservationErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type telemetryReadObservationError = telemetryReadObservationErrors[keyof telemetryReadObservationErrors];
+
+export type telemetryReadObservationResponses = {
+    /**
+     * Response Telemetry-Read Observation
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type telemetryReadObservationResponse = telemetryReadObservationResponses[keyof telemetryReadObservationResponses];
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;

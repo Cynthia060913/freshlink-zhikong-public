@@ -2,7 +2,7 @@
 
 import { type Client, type Options as Options2, type TDataShape, urlSearchParamsBodySerializer } from './client';
 import { client } from './client.gen';
-import type { alertEventsCreateCandidateData, alertEventsCreateCandidateErrors, alertEventsCreateCandidateResponses, alertEventsCreateDeviceEventData, alertEventsCreateDeviceEventErrors, alertEventsCreateDeviceEventResponses, alertEventsListAttemptsData, alertEventsListAttemptsErrors, alertEventsListAttemptsResponses, alertEventsReadCandidateBySourceData, alertEventsReadCandidateBySourceErrors, alertEventsReadCandidateBySourceResponses, batchesListBatchesEndpointData, batchesListBatchesEndpointErrors, batchesListBatchesEndpointResponses, batchesReadBatchData, batchesReadBatchErrors, batchesReadBatchResponses, batchesRegisterBatchData, batchesRegisterBatchErrors, batchesRegisterBatchResponses, deviceControlListCommandsData, deviceControlListCommandsErrors, deviceControlListCommandsResponses, deviceControlQueueCommandData, deviceControlQueueCommandErrors, deviceControlQueueCommandResponses, deviceControlReadCommandData, deviceControlReadCommandErrors, deviceControlReadCommandResponses, devicesBindDeviceData, devicesBindDeviceErrors, devicesBindDeviceResponses, devicesListDevicesData, devicesListDevicesErrors, devicesListDevicesResponses, devicesReadConnectivityEventsData, devicesReadConnectivityEventsErrors, devicesReadConnectivityEventsResponses, devicesReadDeviceData, devicesReadDeviceErrors, devicesReadDeviceResponses, devicesRegisterDeviceData, devicesRegisterDeviceErrors, devicesRegisterDeviceResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, ruleSnapshotsCreateSnapshotEndpointData, ruleSnapshotsCreateSnapshotEndpointErrors, ruleSnapshotsCreateSnapshotEndpointResponses, ruleSnapshotsListSnapshotsEndpointData, ruleSnapshotsListSnapshotsEndpointErrors, ruleSnapshotsListSnapshotsEndpointResponses, ruleSnapshotsReadCurrentSnapshotData, ruleSnapshotsReadCurrentSnapshotErrors, ruleSnapshotsReadCurrentSnapshotResponses, ruleSnapshotsReadSnapshotData, ruleSnapshotsReadSnapshotErrors, ruleSnapshotsReadSnapshotResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses, warehousesListWarehousesEndpointData, warehousesListWarehousesEndpointErrors, warehousesListWarehousesEndpointResponses, warehousesReadWarehouseData, warehousesReadWarehouseErrors, warehousesReadWarehouseResponses, warehousesRegisterWarehouseData, warehousesRegisterWarehouseErrors, warehousesRegisterWarehouseResponses } from './types.gen';
+import type { alertEventsCreateCandidateData, alertEventsCreateCandidateErrors, alertEventsCreateCandidateResponses, alertEventsCreateDeviceEventData, alertEventsCreateDeviceEventErrors, alertEventsCreateDeviceEventResponses, alertEventsListAttemptsData, alertEventsListAttemptsErrors, alertEventsListAttemptsResponses, alertEventsReadCandidateBySourceData, alertEventsReadCandidateBySourceErrors, alertEventsReadCandidateBySourceResponses, batchesListBatchesEndpointData, batchesListBatchesEndpointErrors, batchesListBatchesEndpointResponses, batchesReadBatchData, batchesReadBatchErrors, batchesReadBatchResponses, batchesRegisterBatchData, batchesRegisterBatchErrors, batchesRegisterBatchResponses, deviceControlListCommandsData, deviceControlListCommandsErrors, deviceControlListCommandsResponses, deviceControlQueueCommandData, deviceControlQueueCommandErrors, deviceControlQueueCommandResponses, deviceControlReadCommandData, deviceControlReadCommandErrors, deviceControlReadCommandResponses, devicesBindDeviceData, devicesBindDeviceErrors, devicesBindDeviceResponses, devicesListDevicesData, devicesListDevicesErrors, devicesListDevicesResponses, devicesReadConnectivityEventsData, devicesReadConnectivityEventsErrors, devicesReadConnectivityEventsResponses, devicesReadDeviceData, devicesReadDeviceErrors, devicesReadDeviceResponses, devicesRegisterDeviceData, devicesRegisterDeviceErrors, devicesRegisterDeviceResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, ruleSnapshotsCreateSnapshotEndpointData, ruleSnapshotsCreateSnapshotEndpointErrors, ruleSnapshotsCreateSnapshotEndpointResponses, ruleSnapshotsListSnapshotsEndpointData, ruleSnapshotsListSnapshotsEndpointErrors, ruleSnapshotsListSnapshotsEndpointResponses, ruleSnapshotsReadCurrentSnapshotData, ruleSnapshotsReadCurrentSnapshotErrors, ruleSnapshotsReadCurrentSnapshotResponses, ruleSnapshotsReadSnapshotData, ruleSnapshotsReadSnapshotErrors, ruleSnapshotsReadSnapshotResponses, telemetryExportObservationsData, telemetryExportObservationsErrors, telemetryExportObservationsResponses, telemetryListObservationsData, telemetryListObservationsErrors, telemetryListObservationsResponses, telemetryReadObservationData, telemetryReadObservationErrors, telemetryReadObservationResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses, warehousesListWarehousesEndpointData, warehousesListWarehousesEndpointErrors, warehousesListWarehousesEndpointResponses, warehousesReadWarehouseData, warehousesReadWarehouseErrors, warehousesReadWarehouseResponses, warehousesRegisterWarehouseData, warehousesRegisterWarehouseErrors, warehousesRegisterWarehouseResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -677,6 +677,50 @@ export class DeviceControlService {
             responseType: 'json',
             security: [{ scheme: 'bearer', type: 'http' }],
             url: '/api/v1/devices/{device_id}/commands/{command_id}',
+            ...options
+        });
+    }
+}
+
+export class TelemetryService {
+    /**
+     * List Observations
+     *
+     * Freeze a selection on first request; subsequent pages use signed cursors.
+     */
+    public static listObservations<ThrowOnError extends boolean = true>(options?: Options<telemetryListObservationsData, ThrowOnError>) {
+        return (options?.client ?? client).get<telemetryListObservationsResponses, telemetryListObservationsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/telemetry/observations/',
+            ...options
+        });
+    }
+
+    /**
+     * Export Observations
+     *
+     * Export exactly the authenticated snapshot membership and projection.
+     */
+    public static exportObservations<ThrowOnError extends boolean = true>(options: Options<telemetryExportObservationsData, ThrowOnError>) {
+        return (options.client ?? client).get<telemetryExportObservationsResponses, telemetryExportObservationsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/telemetry/observations/export.csv',
+            ...options
+        });
+    }
+
+    /**
+     * Read Observation
+     *
+     * Expose exact raw and reception evidence to an active logged-in user.
+     */
+    public static readObservation<ThrowOnError extends boolean = true>(options: Options<telemetryReadObservationData, ThrowOnError>) {
+        return (options.client ?? client).get<telemetryReadObservationResponses, telemetryReadObservationErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/telemetry/observations/{observation_id}',
             ...options
         });
     }
