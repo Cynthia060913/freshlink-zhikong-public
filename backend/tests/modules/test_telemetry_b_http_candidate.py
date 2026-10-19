@@ -223,12 +223,13 @@ class UrllibCandidateTransportTests(unittest.TestCase):
             )
 
     def test_redirect_and_network_failure_do_not_leak_acceptance(self) -> None:
+        redirect_body = io.BytesIO(b"")
         redirect = HTTPError(
             "https://alerts.example.test/api/v1/candidates",
             302,
             "redirect",
             {},
-            io.BytesIO(b""),
+            redirect_body,
         )
         path = "/api/v1/candidates"
         with self.assertRaises(ConnectionError):
@@ -237,12 +238,30 @@ class UrllibCandidateTransportTests(unittest.TestCase):
                 bearer=lambda: "x",
                 opener=FakeOpener(redirect),
             ).request("POST", path, b"{}")
+        self.assertTrue(redirect_body.closed)
         with self.assertRaises(ConnectionError):
             UrllibCandidateTransport(
                 base_url="https://alerts.example.test",
                 bearer=lambda: "x",
                 opener=FakeOpener(URLError("synthetic disconnect")),
             ).request("GET", "/api/v1/candidates/by-source/one")
+
+    def test_http_error_response_is_closed_after_reading(self) -> None:
+        error_body = io.BytesIO(b'{"status":"retryable_failure"}')
+        failure = HTTPError(
+            "https://alerts.example.test/api/v1/candidates",
+            503,
+            "unavailable",
+            {},
+            error_body,
+        )
+        result = UrllibCandidateTransport(
+            base_url="https://alerts.example.test",
+            bearer=lambda: "fixture-bearer",
+            opener=FakeOpener(failure),
+        ).request("POST", "/api/v1/candidates", b"{}")
+        self.assertEqual(result.status_code, 503)
+        self.assertTrue(error_body.closed)
 
 
 if __name__ == "__main__":

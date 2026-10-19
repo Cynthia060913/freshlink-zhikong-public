@@ -125,10 +125,13 @@ class UrllibCandidateTransport:
                 payload = response.read(_MAX_REPLY_BYTES + 1)
                 status = response.status
         except HTTPError as exc:
-            if 300 <= exc.code < 400:
-                raise ConnectionError("B candidate redirect refused") from exc
-            payload = exc.read(_MAX_REPLY_BYTES + 1)
-            status = exc.code
+            try:
+                if 300 <= exc.code < 400:
+                    raise ConnectionError("B candidate redirect refused") from exc
+                payload = exc.read(_MAX_REPLY_BYTES + 1)
+                status = exc.code
+            finally:
+                exc.close()
         except URLError as exc:
             raise ConnectionError("B candidate transport unavailable") from exc
         if len(payload) > _MAX_REPLY_BYTES:
