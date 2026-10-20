@@ -99,6 +99,13 @@ def stage_recovery_page_candidate(
             result = RecoveryStageResultCandidate(
                 "retryable_failure", reason="rule_unavailable"
             )
+        except SQLAlchemyError:
+            # A B-side historical lookup may use the shared database session.
+            # A transient read failure must not abort the whole page or turn
+            # this window into a permanent missing-rule decision.
+            result = RecoveryStageResultCandidate(
+                "retryable_failure", reason="rule_storage_unavailable"
+            )
         else:
             result = stage_eligible_recovery_candidate(
                 engine,

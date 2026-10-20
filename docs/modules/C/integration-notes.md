@@ -1,5 +1,30 @@
 # C 共享接线请求
 
+## 2026-10-20 当前 C→A 正式迁移交接清单（待 B01 安全复审）
+
+C 候选共有十张表，不能只导入 `storage_candidate`：其中九张属于
+`storage_candidate.metadata`（`telemetry_observation_candidate`、
+`telemetry_quality_tag_candidate`、`telemetry_reception_candidate`、
+`telemetry_reception_reuse_candidate`、`telemetry_evaluation_candidate`、
+`telemetry_candidate_outbox_candidate`、
+`telemetry_candidate_outbox_conflict_candidate`、
+`telemetry_snapshot_candidate`、`telemetry_snapshot_member_candidate`），
+另有 `recovery_progress_candidate.metadata` 的
+`telemetry_recovery_progress_candidate`。前九张中，outbox 两张要导入
+`outbox_candidate`、快照两张要导入 `snapshot_candidate` 才会登记到共享的
+候选 metadata；集成时应以实际 metadata 列表重新核对表数、外键、索引和
+唯一约束。两份 metadata 都须进入 Alembic 的比对视图，避免 `alembic check`
+把未登记表误判为多余对象。
+正式 C revision 只能接审查并合入 main 后的唯一 B01 head，由 A 协调
+`backend/app/alembic/env.py` 登记；不能从 PR #14 的旧 B856/C0dca 组合或
+测试 `create_all` 宣称生产迁移已验证。空库升级、A/B 旧数据保留、模型一致、
+重启留存、重复/冲突和失败回滚须在同一发布候选上分别实测。
+
+恢复扫描的历史 B 规则端口如在 SQL 读取时发生 `SQLAlchemyError`，C 当前将
+单个窗口记 `retryable_failure/rule_storage_unavailable`，保留原窗口和同一来源
+ID，继续处理页内其他窗口；下一轮从空 cursor 重扫。此行为仅在隔离端口测试，
+尚无真实 B 查询或生产调度证据。
+
 ## 2026-10-20 已持久恢复窗口 → 冻结 F03 outbox（隔离接线候选）
 
 `recovery_tick_candidate.py::stage_recovery_page_candidate` 是 C 自有的**单次**

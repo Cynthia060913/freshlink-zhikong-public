@@ -12,6 +12,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import create_engine, func, inspect, select, update
+from sqlalchemy.exc import OperationalError
 
 from app.modules.telemetry.delivery_candidate import (
     RemoteCandidateReceipt,
@@ -321,6 +322,20 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             ("retryable_failure", "rule_unavailable"),
         )
         self.assertEqual(rules.calls, [(_ORIGINAL, _BASE)])
+        rules.failure = OperationalError(
+            "historical rule SELECT", {}, RuntimeError("down")
+        )
+        read_failed = stage_recovery_page_candidate(
+            self.engine, historical_rules=rules, now=_BASE, limit=1
+        )
+        self.assertEqual(
+            (read_failed.results[0][1].status, read_failed.results[0][1].reason),
+            ("retryable_failure", "rule_storage_unavailable"),
+        )
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 1
+            )
         rules.failure, rules.selected = None, None
         missing = stage_recovery_page_candidate(
             self.engine, historical_rules=rules, now=_BASE, limit=1
