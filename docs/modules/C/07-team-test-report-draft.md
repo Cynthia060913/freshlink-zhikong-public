@@ -2,6 +2,38 @@
 
 初版核对日期：2026-10-17；最新补证：2026-10-20。**状态：M03 底稿，未签收**。本文件汇集三人已公开的版本化证据，不能把不同 PR/机器/数据库的结果相加，不能代 A/B 签字。最终报告须在同一发布 SHA、部署配置和第二台电脑上复核后重写实际结果；本文件不证明 E1 或比赛验收。
 
+## 10 月 20 日晚间同版边界与交付准备（本次最新核对）
+
+| 来源、精确版本 | 实际证据 | 仍未验证 |
+| --- | --- | --- |
+| C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 业务 `7565fbd2863e6ff4d9bfe1ac1d798506f89c8390`、文档 `e6bb8ef25974cdc6c709811c6424302caa68cb99` | 跨设备/冷库重用接收 ID 时，两条证据链均保守阻断恢复；C 本机隔离 Python3.13/SQLite **39/39**，Ruff/format/diff 通过。业务头 [Backend run39428737160](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39428737160) 和文档头 [run39429549594](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39429549594) 均在项目 Python3.14 报 **550 passed/4 skipped/108 warnings**，五项适用检查成功。C HTTP 筛选回归先前 `4860d328650170907113f35de8ac9a3d496b58bd` 的 [run39427662361](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39427662361) 为 **549 passed/4 skipped**。 | 这些是 C 候选源码/远端通用检查，不是 C 本人同头真实 PG、自动恢复投递或完整 E1；4 skipped 不算通过。 |
+| A 对 C `e6bb8ef25974cdc6c709811c6424302caa68cb99` 的独立 PG 增量复测 | A [在 C #9 的原始记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6292845397) 报告受控 PG18.6 独立 schema 中，四项坏接收防护和一项 JWT/SQLModel HTTP 筛选回归实际通过，0 失败/错误/跳过；C 源码与断言未改，只替换测试工厂；两个临时项目清理退出 0。 | 仅最新五项增量，不是 C 本人本机 PG、全套同版测试、正式 Alembic、浏览器或完整 E1。首次工具配置失败也在 A 原记录保留。 |
+| A [PR #38](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/38) `6a804c972fed16dfa67d496015116b9f7753e420` | A 在 [E1 #6 原记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6292497922) 报告其受控 Python3.14.8/PG18.6/Chromium 的干净运行 `884fd66786f0f7560074e1630db3e41101e57a6a`：真实 MQTT→A 持久接纳→C PG→浏览器历史/原文/同快照 CSV，共 47 条、页面与 CSV ID 顺序相同；控制 ACK 后确有已存降温仿真样本。C [精确头源码复审批准](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/38#pullrequestreview-5586477440)，本人只运行该脚本 4 项 CSV + 2 项降温基线自测；该头五项 Actions 成功。 | A 实链固定 C `e8a08e62b5902f75ece8195ef44d740fc8995abb`、B `8561ce1ec0ea4e996bccbdc5f46d473bb170fc09`；C 未重跑其 PG/MQTT/浏览器，也不能外推 C 晚间 `7565fbd…` 或 B 新头。A/C 仅临时隔离候选 DDL，非正式唯一迁移链；没有两通知、连续自动恢复或完整 E1。 |
+| B [PR #10](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10) `470566fb9b840f7a172fc1fa7eac1ca0321615a2` | C [精确头安全返修复审批准](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5586394948)：测试库改随机本轮专用名，默认不启用危险 PG 测试，CI 显式启用；[Backend run39436721712](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39436721712) **644 passed/0 skipped/80 warnings**。 | C 本人没有 PG 重跑；共享 CI 工作流仍需 A 核对。PR 仍待正式整合，SMTP 实收及第二独立渠道未获证，不能据此签 E1。 |
+
+此表按各自原始机器与精确 SHA 记账，**不把三个结果合并成同版通过**。下一次测试先由 A/B 发布审核后的唯一迁移链，再在包含最新 C 的同一组合复跑 PG、浏览器快照/CSV 和自动恢复；通知实收另由账号持有人提供脱敏证据。
+
+## 10 月 20 日 C 新业务头与 A 同版候选（优先于下方历史记录）
+
+| 来源与精确版本 | 本轮实际结果 | 未通过或未验证 |
+| --- | --- | --- |
+| C 本人 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) `6110f3b3c611d6790fd1eb8be29dfbcf38a1fc0b` | Windows 项目隔离 Python3.13/SQLite 恢复相关 **38/38**，新增三项非法接收/冲突/ID 重用保守阻断；Ruff lint/format 和暂存差异检查通过。同头 Python3.14 [Backend run39423643885](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39423643885) 整仓 **548 passed/4 skipped/103 warnings**，五项适用 Actions 完成成功。 | 本头本人未在 PG、正式页面或 B 服务实跑；4 skipped 不计作 C 正式 PG。已存坏证据查询不能防 A 队列未提交旧消息和检查/冻结竞态，自动恢复/完整 E1 未验。 |
+| A 对旧 C `e8a08e62b5902f75ece8195ef44d740fc8995abb` 的独立复测 | A 在 [C #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6287388032) 记录遥测 192/192、把三项扫描测试的 SQLite 工厂换成受控 PG 后 3/3；A [PR #37](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/37) `3d52239f30fccb06f19e93947c0fcded429ed1fa` 保留旧 e8 的 11 个 C blob 字节一致，组合专项与容器重建结果按 A 的精确记录引用；C [限界复核](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/37#pullrequestreview-5585082483)。 | A 的旧 C 头和 A 的环境，不能作为新 611 的 PG/正式迁移或完整 E1。新 611 的坏证据阻断未进入 A 组合。 |
+| A [PR #36](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/36) `3379c06a05828a47059844f8ce91c415782aa92f` | C [精确头 APPROVE](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/36#pullrequestreview-5583810362) 同设备未结前驱阻挡，六项该头 Actions 均成功；A 独立实际 PG 1001/0跳过按其 PR 说明。 | FIFO 不是连续 C 提交前沿；过期调用、后接纳旧时间、同刻 UUID 不同键、invalid/conflict 处理仍需同版复核。正式链 B01→A04→C 未发布。 |
+
+最小前沿/保守不自动恢复提案已写入 [S0 #5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6291022753)，不重签已完成的 S0 最低出口。B PR #10 安全/PG 返修仍待作者新头，C 在其完成后精确复审；两渠道真实收件、正式页面/CSV、第二机和最终 M03 仍未签收。下方旧头与曾经红灯保持历史真实性，但“当前”均仅指当节记录的时间。
+
+## 10 月 20 日最新 C 精确头与迁移顺序（优先于下方历史行）
+
+| 来源 | 已验证结果 | 仍需实测 |
+| --- | --- | --- |
+| C 本人 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 扫描业务 `d36a0aa54eee5a263c12e0a4025e1f412d63197d`、格式头 `78b98d8e700124ee55c7941813ec9e66557e3255` | 本人 Windows/Codex 隔离 Python3.13+SQLite 文件，恢复/outbox/扫描 **13/13**，包括分页后重开连接续扫、坏时间只重置一次、缺规则/缺表不推进；Ruff lint/format、语法及 diff 通过。同头[项目 Python3.14 Backend run39390566196](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39390566196) 整仓 **545 passed/4 skipped/103 warnings**，五项 Actions 成功。首 `d36a…` 的格式门禁红灯已在 `78b98…` 修正。 | 仅显式端口；无生产调度、跨进程锁、A inbox 晚提交补偿或本扫描同头真实 PG 专项。4 skipped 不算 PG；正式 C 迁移/主页面/B resolved/通知实收/E1 未验。 |
+| C 本人 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 代码头 `15c87c66de0eec2578248ce21ca95fc928c97a8a` | B 历史规则查询超时、断线、权限暂不可用明确为可重试，evaluation 保持 pending、raw 与风险 unknown，不写 F03；远端同头[项目 Python3.14 Backend run39385744813](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39385744813) 实际执行新增回归，整仓 542 passed/4 skipped/103 warnings；五项 Actions 完成成功。本人 Windows 隔离 Python3.13 做改动文件语法及 diff 检查。 | 新增 SQLAlchemy 用例未在本人隔离环境运行；4 skipped 不证明 C 正式 PG，B 正式 HTTP 故障映射、持续扫描、正式迁移、主应用页面与完整 E1 未验。 |
+| C 本人 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) `e4ab1927a88e22af4517b5b0ab9f780dd3935bcd`，业务增量 `644e9dafe56ce05266a7a7494c6727fb0a1950ed` | Windows 隔离 Python3.13 纯处理子集 97/97；新恢复窗口可信接收水位的 SQLite 文件连接重开回归在[项目 Python3.14 Backend run39383941930](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39383941930) 实际收集并通过。该整仓 run 542 passed/4 skipped/103 warnings；精确 e4ab 的五项 Actions 成功。高温/原始观测不删除，非法时间仍未知。 | 4 skipped 不算 C 正式 PG；没有正式 C Alembic、跨窗口调度、真实数据库容器重启、C 页面浏览器交互、B 真实恢复或完整 E1。SQLite 连接重开不是容器重建。 |
+| C 审查 A 六表 [PR #34](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/34#pullrequestreview-5581672494) `41b977170e49b530285d22774b6aae16697592c3` | 三文件实际复核，C 接受**候选**唯一序列 B01→A04→C 十表后继；A 本机受控 PG 994/0 的原始证据按 A 本人 #7/#5 保留。 | 该 PR 当前[远端 Backend run39382142884](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39382142884) 为 1 failed/989 passed/4 skipped，C 已 REQUEST_CHANGES；不得拿 A 本机 994/0 代替红灯或视为正式迁移发布。B PR #10 安全返修/最终头复审也未完成。 |
+
+下方 `15c87…`、`e4ab…`、`bc71…`、`df232…` 等行保持各自日期和环境的历史真实性，**不是当前 C 业务 HEAD**，不得与新 545 项结果相加。完整 C 状态以 [#9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6263404899) 为准。
+
 ## 10 月 20 日 C 候选恢复接线与待验边界
 
 | 来源 | 精确版本及实际结果 | 不可外推的范围 |

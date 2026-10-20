@@ -92,6 +92,7 @@ def _sample_from_saved(row: Any, *, batch_id: UUID) -> RecoverySampleCandidate:
         temperature_c=temperature,
         quality=tuple(quality),
         duplicate="new",  # Only accepted_new rows enter observations.
+        received_at=received_at,
     )
 
 

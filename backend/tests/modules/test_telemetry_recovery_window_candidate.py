@@ -173,6 +173,27 @@ class RecoveryWindowCandidateCase(unittest.TestCase):
                 self.rule,
             )
 
+    def test_receipt_watermark_prevents_bad_sample_replay_after_restart(self) -> None:
+        first = self.sample(1, second=10, received_at=_BASE + timedelta(seconds=10))
+        bad = self.sample(
+            2,
+            second=20,
+            sampled_at=None,
+            received_at=_BASE + timedelta(seconds=20),
+        )
+        later = self.sample(3, second=30, received_at=_BASE + timedelta(seconds=30))
+        window, decision = self.advance(first, bad, later)
+        self.assertEqual(
+            (decision, window.observation_ids), ("progress", (UUID(int=3),))
+        )
+        self.assertEqual(window.last_received_observation_id, UUID(int=3))
+        replay, decision = advance_recovery_window(window, bad, self.rule)
+        self.assertEqual((decision, replay), ("late", window))
+        same, decision = advance_recovery_window(window, later, self.rule)
+        self.assertEqual((decision, same), ("duplicate", window))
+        with self.assertRaisesRegex(ValueError, "received_at required"):
+            advance_recovery_window(window, self.sample(4, second=40), self.rule)
+
     def test_reused_observation_id_does_not_count_even_if_marked_new(self) -> None:
         window, _ = self.advance(self.sample(1, second=10))
         same, decision = advance_recovery_window(

@@ -218,8 +218,9 @@ def test_two_writers_cannot_exceed_shared_capacity(store):
 
 
 def test_two_concurrent_claims_never_share_a_live_lease(store):
-    for _ in range(2):
-        assert enqueue(store.engine, frame(store), now=T0).status == "queued"
+    other = second_device(store)
+    for device_store in (store, other):
+        assert enqueue(store.engine, frame(device_store), now=T0).status == "queued"
     gate = Barrier(2)
 
     def claim():
@@ -232,6 +233,132 @@ def test_two_concurrent_claims_never_share_a_live_lease(store):
     assert all(item is not None for item in claims)
     assert len({item.envelope.reception_id for item in claims}) == 2
     assert all(item.attempt == 1 for item in claims)
+
+
+def second_device(store):
+    other = replace(store, device_id=uuid4())
+    with store.engine.begin() as connection:
+        connection.execute(
+            Device.__table__.insert().values(
+                id=other.device_id,
+                code="other-inbox-fixture",
+                name="Other inbox fixture",
+                kind="temperature_sensor",
+                warehouse_id=store.warehouse_id,
+                created_at=T0,
+            )
+        )
+    return other
+
+
+def ordered_pair(store):
+    first = replace(frame(store), reception_id=UUID(int=1))
+    later = replace(frame(store), reception_id=UUID(int=2))
+    for envelope in (first, later):
+        assert enqueue(store.engine, envelope, now=T0).status == "queued"
+    return first, later
+
+
+def test_same_device_concurrent_claims_only_lease_oldest_unsettled_row(store):
+    first, _later = ordered_pair(store)
+    gate = Barrier(2)
+
+    def claim():
+        gate.wait(timeout=10)
+        return claim_next(store.engine, now=T0)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(claim) for _ in range(2)]
+        claims = [future.result(timeout=15) for future in futures]
+    leased = [item for item in claims if item is not None]
+    assert len(leased) == 1
+    assert leased[0].envelope == first
+    assert len(rows(store, inbox)) == 2
+
+
+def test_retry_backoff_cannot_be_overtaken_by_later_same_device(store):
+    first, later = ordered_pair(store)
+    claim = claim_next(store.engine, now=T0)
+    assert claim.envelope == first
+    assert (
+        deliver_claim(
+            store.engine,
+            claim,
+            lambda _e: SinkReceipt("retryable_failure", first.reception_id),
+            now=T0,
+        ).status
+        == "retry_scheduled"
+    )
+    assert claim_next(store.engine, now=T0 + timedelta(milliseconds=500)) is None
+    retry = claim_next(store.engine, now=T0 + timedelta(seconds=1))
+    assert retry.envelope == first and retry.attempt == 2
+    assert (
+        deliver_claim(
+            store.engine,
+            retry,
+            lambda _e: SinkReceipt("accepted_new", first.reception_id, uuid4()),
+            now=T0 + timedelta(seconds=1),
+        ).status
+        == "delivered"
+    )
+    assert claim_next(store.engine, now=T0 + timedelta(seconds=1)).envelope == later
+
+
+@pytest.mark.parametrize("state", ["blocked", "exhausted"])
+def test_unsettled_failed_predecessor_holds_same_device_not_other_devices(store, state):
+    first, _later = ordered_pair(store)
+    other = second_device(store)
+    other_frame = replace(frame(other), received_at=T0 + timedelta(seconds=2))
+    enqueue(store.engine, other_frame, now=T0 + timedelta(seconds=2))
+    with store.engine.begin() as connection:
+        connection.execute(
+            inbox.update()
+            .where(
+                inbox.c.reception_id == first.reception_id,
+            )
+            .values(state=state)
+        )
+    claim = claim_next(store.engine, now=T0 + timedelta(seconds=3))
+    assert claim.envelope == other_frame
+    assert claim_next(store.engine, now=T0 + timedelta(seconds=3)) is None
+    assert len(rows(store, inbox)) == 3
+    assert (
+        retry_pending(
+            store.engine,
+            first.reception_id,
+            actor_id=store.actor_id,
+            now=T0 + timedelta(seconds=3),
+        ).status
+        == "retry_requested"
+    )
+    assert claim_next(store.engine, now=T0 + timedelta(seconds=3)).envelope == first
+
+
+def test_expired_lease_reclaims_predecessor_not_later_row(store):
+    first, _later = ordered_pair(store)
+    old = claim_next(store.engine, now=T0)
+    fresh = create_engine(store.engine.url).execution_options(
+        schema_translate_map={None: store.schema}
+    )
+    try:
+        reclaimed = claim_next(fresh, now=T0 + timedelta(seconds=31))
+        assert reclaimed.envelope == first and reclaimed.attempt == 2
+        assert reclaimed.lease_id != old.lease_id
+        assert claim_next(fresh, now=T0 + timedelta(seconds=31)) is None
+    finally:
+        fresh.dispose()
+
+
+def test_received_time_precedes_uuid_order_without_cross_device_starvation(store):
+    later = replace(
+        frame(store), reception_id=UUID(int=1), received_at=T0 + timedelta(seconds=1)
+    )
+    first = replace(frame(store), reception_id=UUID(int=2))
+    enqueue(store.engine, later, now=T0 + timedelta(seconds=1))
+    enqueue(store.engine, first, now=T0 + timedelta(seconds=1))
+    claim = claim_next(store.engine, now=T0 + timedelta(seconds=1))
+    assert claim.envelope == first
+    assert claim_next(store.engine, now=T0 + timedelta(seconds=1)) is None
 
 
 def test_reopened_engine_reclaims_same_envelope_after_lease_timeout(store):

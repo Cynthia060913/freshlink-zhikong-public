@@ -14,7 +14,7 @@ try {
     $root=Get-FreshLinkRoot
     Set-Location -LiteralPath $root
     $docker=Assert-FreshLinkDocker
-    $source='6a29ecf3c43b0df41d1b2e8ba19f1bf34f634aa1'
+    $source='58f6bf76710bbbe68cde94dafea65bdf30232be2'
     # The recovery proof's B revision claim must match the actual mounted code.
     & git diff --quiet '8561ce1ec0ea4e996bccbdc5f46d473bb170fc09' -- backend/app/modules/alerts backend/tests/modules/alerts backend/app/alembic/versions/b01_alerts_storage.py
     if($LASTEXITCODE -ne 0){throw 'B proof source changed; review and repin it before running this combination.'}

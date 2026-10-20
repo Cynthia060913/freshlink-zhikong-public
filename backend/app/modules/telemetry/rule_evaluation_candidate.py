@@ -231,6 +231,14 @@ def evaluate_one_batch_candidate(
         return EvaluationResultCandidate(
             "retryable_failure", observation_id, reason="rule_store_unavailable"
         )
+    except PermissionError:
+        return EvaluationResultCandidate(
+            "retryable_failure", observation_id, reason="rule_auth_unavailable"
+        )
+    except (TimeoutError, ConnectionError):  # fmt: skip
+        return EvaluationResultCandidate(
+            "retryable_failure", observation_id, reason="rule_unavailable"
+        )
     if not isinstance(selection, dict):
         return EvaluationResultCandidate(
             "held_unknown", observation_id, reason="invalid_rule_selection"

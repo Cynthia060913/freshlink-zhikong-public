@@ -357,18 +357,40 @@ def _envelope(row: RowMapping) -> ReceptionEnvelope:
 
 
 def claim_next(engine: Engine, *, now: datetime | None = None) -> DeliveryClaim | None:
-    """Commit a lease/attempt before a C call; crashes do not reset its budget."""
+    """Lease only the earliest unsettled row per device, without holding C locks.
+
+    Backoff, live leases, blocked and exhausted predecessors all hold later
+    rows for that device; another device remains eligible. This is not a C
+    commit frontier: a lease cannot cancel an already running sink call, and
+    later admission of older timestamps still needs explicit reconciliation.
+    """
     at = _time(now)
+    predecessor = inbox.alias("unsettled_predecessor")
+    has_predecessor = (
+        select(1)
+        .select_from(predecessor)
+        .where(
+            predecessor.c.device_id == inbox.c.device_id,
+            or_(
+                predecessor.c.received_at < inbox.c.received_at,
+                (predecessor.c.received_at == inbox.c.received_at)
+                & (predecessor.c.reception_id < inbox.c.reception_id),
+            ),
+        )
+        .correlate(inbox)
+        .exists()
+    )
     with engine.begin() as connection:
         _guard(connection)
         row = (
             connection.execute(
                 select(inbox)
                 .where(
+                    ~has_predecessor,
                     or_(
                         (inbox.c.state == "queued") & (inbox.c.next_attempt_at <= at),
                         (inbox.c.state == "leased") & (inbox.c.lease_until <= at),
-                    )
+                    ),
                 )
                 .order_by(inbox.c.received_at, inbox.c.reception_id)
                 .with_for_update(skip_locked=True)

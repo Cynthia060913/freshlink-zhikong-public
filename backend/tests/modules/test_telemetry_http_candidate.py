@@ -84,18 +84,25 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         token = create_access_token(str(user.id), timedelta(minutes=10))
         return {"Authorization": f"Bearer {token}"}
 
-    def ingest(self, *, temperature: int = 5, unit: str = "°C") -> tuple[UUID, str]:
+    def ingest(
+        self,
+        *,
+        temperature: int = 5,
+        unit: str = "°C",
+        sampled_at: str = "2026-10-18T00:00:00Z",
+        received_at: datetime | None = None,
+    ) -> tuple[UUID, str]:
         payload = {
             "schema_version": "1.0",
             "device_id": str(DEVICE),
             "message_id": str(uuid4()),
-            "sampled_at": "2026-10-18T00:00:00Z",
+            "sampled_at": sampled_at,
             "metrics": [{"key": "temperature", "value": temperature, "unit": unit}],
         }
         raw = json.dumps(payload, ensure_ascii=False)
         result = ingest_observation(
             self.engine,
-            Reception(raw, uuid4(), datetime.now(UTC)),
+            Reception(raw, uuid4(), received_at or datetime.now(UTC)),
         )
         self.assertEqual(result.status, "accepted_new")
         assert result.observation_id is not None
@@ -219,6 +226,46 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         self.assertEqual(capacity.status_code, 429, capacity.text)
         self.assertEqual(capacity.headers["Retry-After"], "30")
 
+    def test_detail_exposes_linked_duplicate_and_conflict_without_replacing_raw(
+        self,
+    ) -> None:
+        first_at = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+        observation_id, original_raw = self.ingest(received_at=first_at)
+        duplicate = ingest_observation(
+            self.engine,
+            Reception(original_raw, uuid4(), first_at + timedelta(seconds=1)),
+        )
+        changed = json.loads(original_raw)
+        changed["metrics"][0]["value"] = 15
+        conflict = ingest_observation(
+            self.engine,
+            Reception(
+                json.dumps(changed, ensure_ascii=False),
+                uuid4(),
+                first_at + timedelta(seconds=2),
+            ),
+        )
+        self.assertEqual(duplicate.status, "accepted_duplicate")
+        self.assertEqual(conflict.status, "conflict")
+        self.assertEqual(duplicate.observation_id, observation_id)
+        self.assertEqual(conflict.observation_id, observation_id)
+
+        response = self.client.get(
+            BASE + f"/{observation_id}", headers=self.headers(self.user)
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["raw_text"], original_raw)
+        self.assertEqual(
+            [(row["outcome"], row["reason"]) for row in body["receptions"]],
+            [
+                ("accepted_new", ""),
+                ("accepted_duplicate", "duplicate_message"),
+                ("conflict", "conflicting_message"),
+            ],
+        )
+        self.assertEqual(body["receptions"][2]["received_at"], "2026-10-18T00:00:02Z")
+
     def test_invalid_time_range_and_storage_error_are_explicit(self) -> None:
         headers = self.headers(self.user)
         invalid = self.client.get(
@@ -235,3 +282,87 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         unavailable = self.client.get(BASE + "/", headers=headers)
         self.assertEqual(unavailable.status_code, 503, unavailable.text)
         self.assertEqual(unavailable.headers["Retry-After"], "30")
+
+    def test_time_and_quality_filters_match_csv_and_preserve_bad_unit(self) -> None:
+        start = datetime(2026, 10, 18, 1, tzinfo=UTC)
+        sampled_out_id, _ = self.ingest(
+            unit="°F",
+            sampled_at="2026-10-18T00:00:00Z",
+            received_at=start,
+        )
+        bad_id, raw = self.ingest(
+            temperature=12,
+            unit="=SUM(1,1)",
+            sampled_at="2026-10-18T01:00:00Z",
+            received_at=start + timedelta(minutes=1),
+        )
+        sampled_end_id, _ = self.ingest(
+            temperature=13,
+            unit="°F",
+            sampled_at="2026-10-18T02:00:00Z",
+            received_at=start + timedelta(minutes=2),
+        )
+        received_end_id, _ = self.ingest(
+            temperature=14,
+            unit="°F",
+            sampled_at="2026-10-18T01:30:00Z",
+            received_at=start + timedelta(hours=1),
+        )
+        headers = self.headers(self.user)
+        filters = {
+            "sampled_from": "2026-10-18T01:00:00Z",
+            "sampled_to": "2026-10-18T02:00:00Z",
+            "received_from": "2026-10-18T01:00:00Z",
+            "received_to": "2026-10-18T02:00:00Z",
+            "quality_in": "invalid_unit:temperature",
+        }
+        page = self.client.get(BASE + "/", params=filters, headers=headers)
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertEqual(page.json()["total"], 1)
+        item = page.json()["items"][0]
+        self.assertEqual(item["observation_id"], str(bad_id))
+        self.assertNotIn(
+            str(sampled_out_id),
+            [row["observation_id"] for row in page.json()["items"]],
+        )
+        self.assertNotIn(
+            str(sampled_end_id),
+            [row["observation_id"] for row in page.json()["items"]],
+        )
+        self.assertNotIn(
+            str(received_end_id),
+            [row["observation_id"] for row in page.json()["items"]],
+        )
+        self.assertIsNone(item["temperature_c"])
+        self.assertEqual(item["risk_state"], "unknown")
+
+        csv_response = self.client.get(
+            BASE + "/export.csv",
+            params={**filters, "snapshot_id": page.json()["snapshot_id"]},
+            headers=headers,
+        )
+        self.assertEqual(csv_response.status_code, 200, csv_response.text)
+        rows = list(csv.DictReader(StringIO(csv_response.content.decode("utf-8-sig"))))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["observation_id"], item["observation_id"])
+        self.assertEqual(rows[0]["sampled_at"], item["sampled_at"])
+        self.assertEqual(rows[0]["raw_temperature_unit"], "'=SUM(1,1)")
+        self.assertEqual(rows[0]["temperature_c"], "")
+        detail = self.client.get(BASE + f"/{bad_id}", headers=headers)
+        self.assertEqual(detail.status_code, 200, detail.text)
+        self.assertEqual(detail.json()["raw_text"], raw)
+
+        empty_filters = {**filters, "quality_in": "missing_metric:temperature"}
+        empty_page = self.client.get(BASE + "/", params=empty_filters, headers=headers)
+        self.assertEqual(empty_page.status_code, 200, empty_page.text)
+        self.assertEqual(empty_page.json()["total"], 0)
+        empty_csv = self.client.get(
+            BASE + "/export.csv",
+            params={**empty_filters, "snapshot_id": empty_page.json()["snapshot_id"]},
+            headers=headers,
+        )
+        self.assertEqual(empty_csv.status_code, 200, empty_csv.text)
+        self.assertEqual(
+            len(list(csv.DictReader(StringIO(empty_csv.content.decode("utf-8-sig"))))),
+            0,
+        )
