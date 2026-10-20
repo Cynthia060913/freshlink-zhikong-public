@@ -1,5 +1,35 @@
 # C 共享接线请求
 
+## 2026-10-20 恢复证据缺口与保守边界（C 候选）
+
+C 对 A [PR #36](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/36)
+精确 `3379c06a05828a47059844f8ce91c415782aa92f` 的同设备未结前驱阻挡
+已独立批准；这只减少队列内越序，不提供 C 已提交前沿。当前 C 扫描游标用
+`(first_received_at_utc, observation_id)`，与 A `(received_at, reception_id)`
+不是同一顺序键。过期调用正在 C 提交、后来才接纳更早可信时间、相同时间的
+不同 UUID、A 已有终态但 C 未形成新 observation 的 `invalid/conflict`，仍可能
+让三条好样本跨过一条坏证据。**持续自动恢复及向 B 投递须保持未接线。**
+
+C 本轮对**已持久在 C** 的 `invalid/conflict` reception 和 reception ID
+异文重用增加保守核对：原异常可信接收时刻起，只要同设备/仓存在此类坏证据，
+已存观测扫描及恢复 outbox 冻结均返回 `held_invalid_evidence`，不删除原文、
+不改原异常、不宣告正常。全局 reception ID 若被另一设备或冷库异文重用，
+原接收方与后来声称方都按坏证据核对，不能只冻结后来声称方。时间比较先解析
+UTC，不用宽度不一的 ISO 字符串
+字典序；候选只扫 C 自有接收表，尚非有界生产查询。这不能发现仍在 A 队列、
+尚未提交到 C 的前驱，也不能抵御检查与冻结之间的并发插入；测试在隔离
+SQLite，未构成 PG 事务/锁、正式迁移或 E1 结论。冻结后才到达的坏证据
+还需正式补偿/人工处理设计，不靠这项查询自动撤回 B 告警状态。
+
+建议 A/C 最小正式方案由 A 在入队事务中给每设备分配**单调接纳序号**，重试
+沿用原序号；A 的可审计 `committed_through(device_id, sequence)` 仅越过有 C
+持久回执的连续前缀，`invalid/conflict` 也作为未知/中断证据交 C，不能仅因
+A 删除 inbox 行视为恢复正常。C 的 reception 与观测保留该序号，恢复窗口
+按其推进并在冻结时复核前缀、原始证据及多批次身份；重放只消费一次。
+这涉及 A→C 公共字段/唯一迁移及跨事务原子性，**目前只是 #5 待确认提案**。
+在证明前沿、并发与晚提交补偿同版通过前，安全默认是 hold 自动恢复；可继续
+独立测试原始数据、质量、历史/CSV 和 C outbox 的非恢复部分。
+
 ## 2026-10-20 已存观测单窗口有界扫描候选
 
 `recovery_observation_scan_candidate.py::scan_saved_recovery_observations_candidate`

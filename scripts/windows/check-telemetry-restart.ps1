@@ -52,7 +52,7 @@ try {
     if($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Invalid A revision'}
     $dirty=@(& git status --porcelain)
     if($LASTEXITCODE -ne 0){throw 'Cannot verify worktree state'}
-    $source='e8a08e62b5902f75ece8195ef44d740fc8995abb'
+    $source='e6bb8ef25974cdc6c709811c6424302caa68cb99'
     & git cat-file -e ($source+':backend/app/modules/telemetry/storage_candidate.py')
     if($LASTEXITCODE -ne 0){throw 'Pinned public C object unavailable; fetch public C branch safely first'}
     $runId='telemetry-restart-'+(Get-Date -Format 'yyyyMMddHHmmss')+'-'+$PID
