@@ -140,6 +140,11 @@ async function run() {
     const filtered = await filteredResponse
     assert.equal(filtered.status(), 200)
     const first = await filtered.json()
+    fs.writeFileSync(path.join(results, "telemetry-query-summary.json"), JSON.stringify({
+      total: first.total, items: first.items?.length,
+      has_next_cursor: Boolean(first.next_cursor),
+      query: new URL(filtered.url()).search,
+    }, null, 2), {flag: "wx"})
     assert(first.total >= 25 && first.next_cursor)
     await expect(page.locator("tbody tr")).toHaveCount(20)
     await page.locator("tbody tr").first().getByRole("button", { name: "查看", exact: true }).click()

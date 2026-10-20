@@ -42,6 +42,7 @@ def run() -> None:
     import paho.mqtt.client as mqtt
     import uvicorn
     from paho.mqtt.enums import CallbackAPIVersion
+    from sqlalchemy import func
     from sqlmodel import Session, select
 
     from app.core.db import engine
@@ -63,7 +64,7 @@ def run() -> None:
         TelemetryReceiver,
     )
     from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
-    from app.modules.telemetry.storage_candidate import ingest_observation
+    from app.modules.telemetry.storage_candidate import ingest_observation, observations
     from app.modules.telemetry.storage_candidate import metadata as c_metadata
 
     sensor = UUID("11111111-1111-4111-8111-111111111111")
@@ -89,6 +90,7 @@ def run() -> None:
     workers = []
     failures = []
     samples = []
+    observed_ids = set()
     sample_lock = threading.Lock()
     subscribed = threading.Event()
 
@@ -129,11 +131,16 @@ def run() -> None:
             subscribed.set()
 
     def on_message(_client, _userdata, message):
-        value = json.loads(message.payload)["metrics"][0]["value"]
+        raw = json.loads(message.payload)
+        identity = UUID(raw["message_id"])
+        value = raw["metrics"][0]["value"]
         with sample_lock:
+            if identity in observed_ids:
+                return
             if len(samples) >= 500:
                 failures.append("sample_capacity")
             else:
+                observed_ids.add(identity)
                 samples.append(value)
 
     observer.on_connect = on_connect
@@ -252,12 +259,22 @@ def run() -> None:
             for worker in (heartbeat, control, telemetry, delivery, device):
                 workers.append(worker)
                 launch(lambda worker=worker: worker.run(max_seconds=180))
+
+            def enough_distinct_c_observations():
+                with engine.connect() as connection:
+                    return (
+                        connection.scalar(
+                            select(func.count()).select_from(observations)
+                        )
+                        >= 25
+                    )
+
             wait_until(
                 lambda: (
                     heartbeat.ready.is_set()
                     and control.ready.is_set()
                     and telemetry.ready.is_set()
-                    and delivery.completed >= 25
+                    and enough_distinct_c_observations()
                     and subscribed.is_set()
                     and bool(samples)
                     and api.get(f"/api/v1/devices/{actuator}", headers=headers).json()[
