@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'common.ps1')
 $savedLocation = Get-Location
 $reportPath = $null
-$result = [ordered]@{ stage = 'A01 frontend SDK/lint/build'; status = 'checking'; image = 'oven/bun:1.3.12'; registry = 'https://registry.npmjs.org'; dependency_storage = 'disposable Linux volume'; api_base = 'same-origin: explicit empty VITE_API_URL'; schema_sha256 = $null; bundle_directory = $null; error = $null }
+$result = [ordered]@{ stage = 'A01 frontend SDK/lint/build'; status = 'checking'; image = 'oven/bun:1.3.12'; registry = 'https://registry.npmjs.org'; dependency_storage = 'disposable Linux volume'; api_base = 'same-origin: explicit empty VITE_API_URL'; api_origin = 'same-origin (VITE_API_URL empty)'; schema_sha256 = $null; bundle_directory = $null; error = $null }
 try {
     $projectRoot = Get-FreshLinkRoot
     Set-Location -LiteralPath $projectRoot
