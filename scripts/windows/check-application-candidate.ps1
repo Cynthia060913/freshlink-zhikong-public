@@ -3,6 +3,7 @@
 param([Parameter(Mandatory=$true)][string]$BuildReport)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
+. (Join-Path $PSScriptRoot 'application-image-guards.ps1')
 $root=Get-FreshLinkRoot
 $saved=Get-Location
 $keys=@('IMAGE_PROOF_SOURCE','IMAGE_PROOF_IMAGE','IMAGE_PROOF_RESULTS')
@@ -40,7 +41,7 @@ try {
         if($service.Name -ne 'probe' -and $service.Value.PSObject.Properties['volumes']){throw 'Application source/data mounts forbidden'}
         if($service.Name -ne 'test-db' -and $service.Value.image -ne $build.image_id){throw 'Unexpected application image'}
     }
-    if($model.services.application.PSObject.Properties['command'] -or $model.services.application.PSObject.Properties['entrypoint']){throw 'Default application CMD must not be overridden'}
+    Assert-FreshLinkDefaultImageCommand $model.services.application
     $existing=@(& $docker ps -aq --filter ('label=com.docker.compose.project='+$run))
     if($LASTEXITCODE -or $existing.Count){throw 'Refusing pre-existing test project'}
     $owned=$true
@@ -50,6 +51,12 @@ try {
     if($LASTEXITCODE){throw 'Owned image migrations/seed failed'}
     & $docker @compose up -d --no-deps --pull never application
     if($LASTEXITCODE){throw 'Default image application failed to start'}
+    $applicationId=(& $docker @compose ps --quiet application|Out-String).Trim()
+    if($LASTEXITCODE -or $applicationId -notmatch '^[0-9a-f]{12,64}$'){throw 'Cannot identify exactly one running application'}
+    $container=& $docker container inspect $applicationId
+    if($LASTEXITCODE){throw 'Cannot inspect running application identity'}
+    $container=(($container -join "`n")|ConvertFrom-Json)[0]
+    Assert-FreshLinkRunningImageIdentity $image $container
     & $docker @compose run --rm --no-deps --pull never probe
     if($LASTEXITCODE){throw 'Image HTTP proof failed'}
     $report=Get-Content -LiteralPath (Join-Path $result 'application-http.json') -Raw|ConvertFrom-Json

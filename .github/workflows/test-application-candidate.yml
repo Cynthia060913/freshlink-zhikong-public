@@ -12,6 +12,8 @@ on:
       - scripts/windows/*source-candidate*.ps1
       - scripts/windows/*application-candidate.ps1
       - scripts/windows/common.ps1
+      - scripts/windows/application-image-guards.ps1
+      - scripts/windows/test-application-image-guards.ps1
       - compose.application-candidate-tests.yml
       - .github/workflows/test-application-candidate.yml
   workflow_dispatch:
@@ -32,6 +34,7 @@ jobs:
         shell: pwsh
         run: |
           try {
+            ./scripts/windows/test-application-image-guards.ps1
             ./scripts/windows/test-source-candidate-export.ps1
             $source=(& git rev-parse HEAD).Trim()
             ./scripts/windows/build-application-candidate.ps1 -Revision $source

@@ -19,9 +19,6 @@ RUN bun run build
 
 FROM python:3.14.8@sha256:12d187a59ecdeb95df0a78cd6107a84398455365a66cc2183db2be42b6067d33
 
-ARG FRESHLINK_SOURCE=unknown
-LABEL org.opencontainers.image.revision=${FRESHLINK_SOURCE}
-
 ENV PYTHONUNBUFFERED=1
 
 # Install uv
@@ -67,5 +64,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --package app
 
 WORKDIR /app/backend/
+
+ARG FRESHLINK_SOURCE=unknown
+LABEL org.opencontainers.image.revision=${FRESHLINK_SOURCE}
 
 CMD ["fastapi", "run", "--workers", "4"]
