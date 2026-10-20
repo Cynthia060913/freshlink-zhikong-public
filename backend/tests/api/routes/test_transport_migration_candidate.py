@@ -32,10 +32,14 @@ spec.loader.exec_module(candidate)
 TABLES = dict(inbox_metadata.tables) | dict(event_metadata.tables)
 
 
-def test_candidate_is_not_an_active_alembic_head():
+def active_revisions():
     config = Config(str(BACKEND / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND / "app/alembic"))
-    revisions = ScriptDirectory.from_config(config)
+    return ScriptDirectory.from_config(config)
+
+
+def test_candidate_is_not_an_active_alembic_head():
+    revisions = active_revisions()
     assert candidate.revision not in {
         item.revision for item in revisions.walk_revisions()
     }
@@ -115,10 +119,15 @@ def test_actual_postgres_candidate_roundtrip_and_cleanup():
     reception = uuid4()
     try:
         with base.begin() as connection:
-            original_version = connection.scalar(
-                sa.text("SELECT version_num FROM alembic_version")
+            original_versions = list(
+                connection.scalars(sa.text("SELECT version_num FROM alembic_version"))
             )
-            assert original_version == "b01_alerts_storage"
+            revisions = active_revisions()
+            heads = revisions.get_heads()
+            assert len(heads) == 1 and original_versions == heads
+            assert "b01_alerts_storage" in {
+                item.revision for item in revisions.iterate_revisions(heads[0], "base")
+            }
             original_tables = set(
                 sa.inspect(connection).get_table_names(schema="public")
             )
@@ -215,8 +224,12 @@ def test_actual_postgres_candidate_roundtrip_and_cleanup():
             assert connection.scalar(sa.select(guard.c.id)) == 1
         with base.connect() as connection:
             assert (
-                connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
-                == original_version
+                list(
+                    connection.scalars(
+                        sa.text("SELECT version_num FROM alembic_version")
+                    )
+                )
+                == original_versions
             )
             assert (
                 set(sa.inspect(connection).get_table_names(schema="public"))
