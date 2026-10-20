@@ -3,6 +3,26 @@ const assert = require("node:assert/strict")
 const fs = require("node:fs")
 const path = require("node:path")
 
+function parseCsv(text) {
+  const rows = []
+  let row = [], cell = "", quoted = false
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i]
+    if (char === '"') {
+      if (quoted && text[i + 1] === '"') { cell += '"'; i += 1 }
+      else quoted = !quoted
+    } else if (char === "," && !quoted) { row.push(cell); cell = "" }
+    else if (char === "\n" && !quoted) {
+      row.push(cell.endsWith("\r") ? cell.slice(0, -1) : cell)
+      rows.push(row); row = []; cell = ""
+    } else cell += char
+  }
+  assert.equal(quoted, false)
+  assert.equal(cell, "")
+  assert.equal(row.length, 0)
+  return rows
+}
+
 async function run() {
   const [origin, results, moduleRoot, executablePath] = process.argv.slice(2)
   const url = new URL(origin)
@@ -104,6 +124,77 @@ async function run() {
     assert.equal((await history.json()).count, 1)
     await readerPanel.getByRole("status").filter({ hasText: "设备回执：执行成功" }).scrollIntoViewIfNeeded()
     await readerPage.screenshot({ path: path.join(results, "reader-real-readonly.png"), fullPage: true })
+    // Real C page over the actual continuous MQTT -> A queue -> C PG path.
+    const ready = JSON.parse(fs.readFileSync(path.join(results, "ready.json"), "utf8"))
+    await page.goto(`${origin}/telemetry`)
+    await expect(page.getByRole("heading", { name: "遥测历史", exact: true })).toBeVisible()
+    await page.getByLabel("设备 ID", { exact: true }).fill(ready.sensor_id)
+    await page.getByLabel("冷库 ID", { exact: true }).fill(ready.warehouse_id)
+    const filteredResponse = page.waitForResponse((response) => {
+      const target = new URL(response.url())
+      return target.pathname === "/api/v1/telemetry/observations/"
+        && target.searchParams.get("device_id") === ready.sensor_id
+        && !target.searchParams.has("snapshot_id")
+    })
+    await page.getByRole("button", { name: "按筛选新建快照", exact: true }).click()
+    const filtered = await filteredResponse
+    assert.equal(filtered.status(), 200)
+    const first = await filtered.json()
+    assert(first.total >= 25 && first.next_cursor)
+    await expect(page.locator("tbody tr")).toHaveCount(20)
+    await page.locator("tbody tr").first().getByRole("button", { name: "查看", exact: true }).click()
+    await expect(page.getByRole("heading", { name: "观测原始证据", exact: true })).toBeVisible()
+    await expect(page.locator("pre")).toContainText(ready.sensor_id)
+    const allItems = [...first.items]
+    let current = first
+    for (let pages = 0; current.next_cursor; pages += 1) {
+      assert(pages < 20, "bounded snapshot pagination")
+      const nextResponse = page.waitForResponse((response) => {
+        const target = new URL(response.url())
+        return target.pathname === "/api/v1/telemetry/observations/"
+          && target.searchParams.get("cursor") === current.next_cursor
+      })
+      await page.getByRole("button", { name: "下一页", exact: true }).click()
+      const next = await nextResponse
+      assert.equal(next.status(), 200)
+      current = await next.json()
+      assert.equal(current.snapshot_id, first.snapshot_id)
+      assert.equal(current.total, first.total)
+      await expect(page.locator("tbody tr").first()).toContainText(current.items[0].sampled_at)
+      allItems.push(...current.items)
+    }
+    assert.equal(allItems.length, first.total)
+    assert.equal(new Set(allItems.map((item) => item.observation_id)).size, first.total)
+    assert(allItems.every((item) => item.device_id === ready.sensor_id
+      && item.warehouse_id === ready.warehouse_id && item.risk_state === "unknown"))
+    const temperatures = allItems.map((item) => item.temperature_c)
+    assert(temperatures.every(Number.isFinite))
+    assert(Math.min(...temperatures) < temperatures[0] - 0.05,
+      "C history must contain cooling after the actual command")
+    const downloadEvent = page.waitForEvent("download")
+    await page.getByRole("button", { name: "导出本次快照 CSV", exact: true }).click()
+    const download = await downloadEvent
+    assert.equal(await download.failure(), null)
+    const csvPath = path.join(results, "observations.csv")
+    assert(!fs.existsSync(csvPath))
+    await download.saveAs(csvPath)
+    const csv = fs.readFileSync(csvPath, "utf8")
+    assert(csv.startsWith("\uFEFF"))
+    const csvRows = parseCsv(csv.slice(1))
+    const idColumn = csvRows[0].indexOf("observation_id")
+    assert(idColumn >= 0)
+    assert.deepEqual(csvRows.slice(1).map((row) => row[idColumn]),
+      allItems.map((item) => item.observation_id))
+    const ownedSnapshotUrl = new URL(`${origin}/api/v1/telemetry/observations/export.csv`)
+    ownedSnapshotUrl.search = new URLSearchParams({device_id: ready.sensor_id,
+      warehouse_id: ready.warehouse_id, snapshot_id: first.snapshot_id}).toString()
+    const anonymousCsv = await context.request.get(ownedSnapshotUrl.href)
+    assert.equal(anonymousCsv.status(), 401)
+    const readerCsv = await readerContext.request.get(ownedSnapshotUrl.href, {
+      headers: {Authorization: `Bearer ${readerToken}`},
+    })
+    assert.equal(readerCsv.status(), 422)
+    await page.screenshot({path: path.join(results, "telemetry-real-history.png"), fullPage: true})
     fs.writeFileSync(path.join(results, "browser.json"), JSON.stringify({
       phase: "real_browser_http_mqtt_control_passed",
       command_id: submitted.command_id,
@@ -115,14 +206,30 @@ async function run() {
       reload_kept_real_receipt: true,
       reader_readonly_and_post_403: true,
       no_mocked_api: true,
-      not_tested: ["C history/CSV", "two real notifications", "full E1"],
+      telemetry_history_csv_passed: true,
+      telemetry_snapshot_total: first.total,
+      telemetry_snapshot_id: first.snapshot_id,
+      c_temperature_first: temperatures[0],
+      c_temperature_min: Math.min(...temperatures),
+      csv_same_snapshot_all_pages: true,
+      c_raw_detail_visible: true,
+      anonymous_csv_401_and_other_actor_422: true,
+      not_tested: ["formal A/C migration", "automatic evaluation/recovery", "two real notifications", "full E1"],
     }, null, 2), { flag: "wx" })
     console.log("PASS real browser login/control/receipt/reload/ordinary-user refusal; no API mocks")
   } finally {
     await browser.close()
   }
 }
-run().catch((error) => {
-  console.error(error.message)
-  process.exitCode = 1
-})
+if (process.argv[2] === "--csv-self-test") {
+  assert.deepEqual(parseCsv('"a","b"\r\n"x","y"\r\n'), [["a", "b"], ["x", "y"]])
+  assert.deepEqual(parseCsv('"a,b","quote""inside"\r\n'), [["a,b", 'quote"inside']])
+  assert.deepEqual(parseCsv('"line\nbreak",""\r\n'), [["line\nbreak", ""]])
+  assert.throws(() => parseCsv('"unfinished\n'))
+  console.log("PASS 4 CSV parser regression cases")
+} else {
+  run().catch((error) => {
+    console.error(error.message)
+    process.exitCode = 1
+  })
+}

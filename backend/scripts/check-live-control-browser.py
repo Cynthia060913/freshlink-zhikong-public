@@ -56,7 +56,15 @@ def run() -> None:
     from app.modules.iot.models import Device
     from app.modules.iot.proof_schema_guard import require_b01_candidate_schema
     from app.modules.iot.simulator_runtime import DeviceRuntime, RuntimeSettings
+    from app.modules.iot.telemetry_inbox_models import metadata as inbox_metadata
+    from app.modules.iot.telemetry_inbox_models import queue_guard
+    from app.modules.iot.telemetry_worker import (
+        TelemetryDeliveryWorker,
+        TelemetryReceiver,
+    )
     from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
+    from app.modules.telemetry.storage_candidate import ingest_observation
+    from app.modules.telemetry.storage_candidate import metadata as c_metadata
 
     sensor = UUID("11111111-1111-4111-8111-111111111111")
     actuator = UUID("66666666-6666-4666-8666-666666666666")
@@ -68,6 +76,12 @@ def run() -> None:
         raise RuntimeError("Refusing fake warehouse lookup")
     # Never invent substitute B DDL: Compose must have run actual candidate B01.
     require_b01_candidate_schema(engine)
+    # Candidate-only DDL in the already guarded, newly owned test DB. This is
+    # not a substitute for the still-unpublished A04/C formal migration chain.
+    c_metadata.create_all(engine)
+    inbox_metadata.create_all(engine, checkfirst=False)
+    with engine.begin() as connection:
+        connection.execute(queue_guard.insert().values(id=1))
     server = uvicorn.Server(
         uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning")
     )
@@ -196,6 +210,22 @@ def run() -> None:
                 password="fixture-controller-only",
                 warehouse_lookup_factory=warehouse_lookup_for_session,
             )
+            telemetry = TelemetryReceiver(
+                HeartbeatWorkerSettings.model_validate(
+                    {
+                        **common,
+                        "client_id": "browser-telemetry-receiver",
+                        "device_ids": [sensor],
+                    }
+                ),
+                password="fixture-controller-only",
+                warehouse_lookup_factory=warehouse_lookup_for_session,
+            )
+            delivery = TelemetryDeliveryWorker(
+                engine,
+                lambda envelope: ingest_observation(engine, envelope),
+                poll_seconds=0.1,
+            )
             device = DeviceRuntime(
                 RuntimeSettings.model_validate(
                     {
@@ -219,13 +249,15 @@ def run() -> None:
             )
             observer.connect("broker", 1883)
             observer.loop_start()
-            for worker in (heartbeat, control, device):
+            for worker in (heartbeat, control, telemetry, delivery, device):
                 workers.append(worker)
                 launch(lambda worker=worker: worker.run(max_seconds=180))
             wait_until(
                 lambda: (
                     heartbeat.ready.is_set()
                     and control.ready.is_set()
+                    and telemetry.ready.is_set()
+                    and delivery.completed >= 25
                     and subscribed.is_set()
                     and bool(samples)
                     and api.get(f"/api/v1/devices/{actuator}", headers=headers).json()[
@@ -237,7 +269,15 @@ def run() -> None:
             with sample_lock:
                 before = samples[-1]
             with (results / "ready.json").open("x", encoding="utf-8") as output:
-                json.dump({"source": source, "actuator_id": str(actuator)}, output)
+                json.dump(
+                    {
+                        "source": source,
+                        "actuator_id": str(actuator),
+                        "sensor_id": str(sensor),
+                        "warehouse_id": str(warehouse_id),
+                    },
+                    output,
+                )
             wait_until(lambda: (results / "browser.json").is_file(), timeout=120)
             browser = json.loads((results / "browser.json").read_text(encoding="utf-8"))
             require(
@@ -252,6 +292,14 @@ def run() -> None:
             require(len(detail["receipts"]) == 1, "receipt count")
             require(detail["receipts"][0]["outcome"] == "accepted", "receipt outcome")
             require(device.plant.state()["execution_count"] == 1, "execution count")
+            require(
+                browser.get("telemetry_history_csv_passed") is True,
+                "real telemetry page/fixed-snapshot CSV",
+            )
+            require(
+                delivery.completed >= browser["telemetry_snapshot_total"],
+                "C durable delivery count",
+            )
             with Session(engine) as session:
                 require(len(session.exec(select(DeviceCommand)).all()) == 1, "DB count")
             wait_until(lambda: bool(samples) and samples[-1] < before - 0.05)
@@ -263,12 +311,15 @@ def run() -> None:
                 "checked_at": datetime.now(UTC).isoformat(),
                 "command": detail,
                 "execution_count": 1,
+                "telemetry_history_csv_passed": True,
+                "c_durable_deliveries": delivery.completed,
                 "temperature_before": before,
                 "temperature_after": after,
                 "warehouse_lookup": "actual B HTTP/service; no dependency override",
-                "ddl_scope": "actual candidate B01 Alembic; not published B/C chain",
+                "ddl_scope": "actual B01 Alembic; guarded A/C candidate metadata, not formal published chain",
                 "not_tested": [
-                    "C persistence/history/CSV",
+                    "continuous evaluation and automatic recovery",
+                    "multi-batch evaluation",
                     "real notifications",
                     "formal B/C migrations",
                     "full E1",
