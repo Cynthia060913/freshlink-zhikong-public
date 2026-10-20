@@ -12,6 +12,12 @@
   [Backend run39427662361](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39427662361)
   **549 passed/4 skipped**，只证明该候选应用源码被项目 Python3.14 测试；
   C 本人 Windows 未安装项目 Python3.14/Docker，未运行实际浏览器/PG。
+- A 对精确 C `e6bb8ef25974cdc6c709811c6424302caa68cb99` 的
+  [独立 PG 增量复测](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6292845397)：
+  受控 PG18.6 独立 schema 中四项坏证据防护和一项真实 JWT/SQLModel
+  TestClient HTTP 筛选回归通过，0 失败/错误/跳过，C 业务源码/断言未改。
+  这是 A 的五项增量和其清理记录；首次工具配置失败也保留，不代替 C 本人
+  PG、本头全套测试、实际浏览器或正式 Alembic。
 - A [PR #38 精确头 `6a804c972fed16dfa67d496015116b9f7753e420`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/38)
   四文件已由 C [源码复审](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/38#pullrequestreview-5586477440)。
   本人从该精确 Git 树通过 `git show <SHA>:scripts/check-live-control-browser.cjs | node - --csv-self-test`
