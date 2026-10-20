@@ -1,5 +1,32 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-20 已存坏接收证据保守阻断（M03 底稿，未签收）
+
+- C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  业务头 `6110f3b3c611d6790fd1eb8be29dfbcf38a1fc0b`，基于共同 main
+  `75c1e86b984b8241bab1ecd5790a89225809d306`。本轮只改 C 的三个服务文件、
+  一个测试和 integration-notes；不改公共路由或正式迁移。
+- 对已进入 C 持久接收表但未形成新观测的 `invalid/conflict`，以及同
+  `reception_id` 异文重用，按解析后的可信 UTC 接收时间核对。原异常以后的
+  同设备/仓坏证据使扫描及冻结返回 `held_invalid_evidence`，不产生恢复 outbox；
+  原始接收/冲突记录保留，风险不判正常。三项新增回归覆盖扫描前坏接收、
+  窗口已 eligible 后晚到冲突、ID 异文重用。早于原异常的坏证据不在本窗口内。
+- 本人 Windows 项目隔离 Python3.13+临时 SQLite 文件，恢复相关
+  **38/38 OK**；Ruff lint/format、Git 暂存差异检查通过。精确头远端项目
+  Python3.14 [Backend run39423643885](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39423643885)
+  **548 passed/4 skipped/103 warnings**；pre-commit、Compose、Playwright、Zizmor
+  同头 completed/success。4 skipped 不算 C 正式 PG。
+- A 对 C 旧 `e8a08e62b5902f75ece8195ef44d740fc8995abb` 独立复测
+  [192/192 遥测、3/3 新扫描真实 PG 替换 fixture](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6287388032)，
+  均为 A 的隔离环境和旧 C 头，不能外推为本 `6110f3b` PG 通过。
+  C 对 A [PR #36 精确头批准](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/36#pullrequestreview-5583810362)
+  仅限同设备未结队列顺序；对 [PR #37 评论复核](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/37#pullrequestreview-5585082483)
+  确认 11 个 C 文件与旧 e8 字节一致，新 611 未进入其组合验证。
+- 尚未验证：A 队列中的未提交前驱、检查/冻结竞态、跨 worker 提交前沿、正式
+  C PG/迁移、自动恢复、真实 B resolved、完整 E1。缺这几项时不得把上述
+  合成三好样本或同头 CI 宣称自动恢复安全；最小接口提案见
+  [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6291022753)。
+
 ## 2026-10-20 已存观测单窗口扫描（M03 底稿，未签收）
 
 - C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
