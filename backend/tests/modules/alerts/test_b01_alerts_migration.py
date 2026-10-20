@@ -26,28 +26,35 @@ What is verified here and where:
 - **Model consistency** — the migrated schema matches
   ``SQLModel.metadata``/create_all for the six alerts tables down to
   column order, nullability, types, indexes and unique constraints.
-- **PostgreSQL live checks — dedicated throwaway DB** — when a
-  PostgreSQL server is reachable AND the explicit opt-in flag
-  ``B01_LIVE_PG_TESTS=1`` is set (set by this module tree's conftest),
-  the checks CREATE their own dedicated database
-  (``b01_live_pg_test``), migrate it up to B1 over the real PG chain,
-  assert the PG-only pieces for real, and DROP it afterwards. The
-  configured application database is never written to; the append-only
-  trigger probe runs entirely inside one transaction with an explicit
-  rollback, verified by counting zero leftover rows. Where no PG is
-  reachable the checks skip and are reported as untested there rather
-  than silently assumed.
+- **PostgreSQL live checks — dedicated throwaway DB** — only with the
+  explicit opt-in flag ``B01_LIVE_PG_TESTS=1`` passed by the CONTROLLED
+  TEST ENTRY (the CI ``test-backend`` job env; developers may export
+  it). Default OFF → skip, reported untested. with the flag set, a
+  non-PG or unreachable server FAILS instead of a green skip. The
+  checks create a RANDOM per-run database on that server, refuse to
+  reuse an existing name (nothing is dropped on collision), migrate
+  ONLY their own database up to B1 over the real PG chain, assert the
+  PG-only pieces for real, and drop exactly what this run created in
+  ``addClassCleanup`` teardown (registered right after each resource,
+  so mid-setup failures still clean up). The configured application
+  database is never written to; the append-only trigger probe runs
+  inside one transaction with an explicit rollback, verified by
+  counting zero leftover rows.
 """
 
 from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest import mock
 
 from alembic import command
 from alembic.config import Config
@@ -182,7 +189,11 @@ class ChainContainmentCase(unittest.TestCase):
     def test_every_head_descends_from_b01(self) -> None:
         script = ScriptDirectory(str(_BACKEND_DIR / "app" / "alembic"))
         heads = list(script.get_heads())
-        self.assertTrue(heads)
+        # The unique chain must have EXACTLY ONE head: several heads
+        # that all happen to descend from B01 would still be a fork.
+        self.assertEqual(
+            len(heads), 1, f"chain must have exactly one head, got {heads}"
+        )
         for head in heads:
             self.assertIn(
                 _HEAD,
@@ -430,13 +441,27 @@ class MigratedSchemaServesTheServicesCase(_SqliteMigrationCase):
 
 
 _LIVE_PG_FLAG = "B01_LIVE_PG_TESTS"
-_LIVE_PG_DB = "b01_live_pg_test"
+_LIVE_PG_DB_PREFIX = "b01_live_pg_test"
+
+
+def _dedicated_db_name() -> str:
+    """Random, traceable, per-run database name.
+
+    Never a fixed name: a name collision with a database that this run
+    did not create must be detectable (and refused), not reused.
+    """
+
+    return f"{_LIVE_PG_DB_PREFIX}_{os.getpid()}_{uuid.uuid4().hex[:12]}"
 
 
 def _server_reachable(url: object) -> bool:
+    # Pass the URL OBJECT to create_engine: str(URL) renders the
+    # password as ``***`` and would make reachability checks fail.
     try:
         engine = create_engine(
-            str(url), connect_args={"connect_timeout": 3}, isolation_level="AUTOCOMMIT"
+            url,  # type: ignore[arg-type]
+            connect_args={"connect_timeout": 3},
+            isolation_level="AUTOCOMMIT",
         )
         try:
             with engine.connect() as conn:
@@ -451,19 +476,25 @@ def _server_reachable(url: object) -> bool:
 class PostgresLiveChecksCase(unittest.TestCase):
     """Real-PG checks on a SELF-CREATED, DEDICATED throwaway database.
 
-    Opt-in (``B01_LIVE_PG_TESTS=1``, set by this module tree's
-    conftest) plus a reachable PostgreSQL server. The case CREATEs
-    ``b01_live_pg_test`` on that server, migrates it over the real PG
-    chain up to B1, asserts the PG-only migration pieces, and DROPs it
-    again in teardown. The configured application database itself is
-    never written to, so a misconfigured business URL cannot be
-    polluted. Where no server is reachable the case skips (reported
-    as untested there) rather than silently passing.
+    Explicit opt-in (``B01_LIVE_PG_TESTS=1`` passed by the CONTROLLED
+    TEST ENTRY — the CI ``test-backend`` job env; developers may export
+    it themselves). Default is OFF and the checks skip (reported
+    untested). With the flag set, an unavailable/non-PG server is a
+    FAILURE, never a green skip.
+
+    The case creates a RANDOM per-run database on that server, refuses
+    to reuse a database name that already exists (nothing is dropped
+    on a collision), migrates ONLY its own database over the real PG
+    chain up to B1, and drops exactly the database this run created in
+    class cleanup. All resources (engines, settings, database) are
+    registered with ``addClassCleanup`` immediately after acquisition,
+    so a mid-setup exception still cleans up. The configured
+    application database itself is never written to.
     """
 
     engine: Engine
     admin_engine: Engine
-    _saved_url: str
+    _saved_url: object
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -473,46 +504,64 @@ class PostgresLiveChecksCase(unittest.TestCase):
             )
         url = make_url(str(settings.DATABASE_URL))
         if url.get_backend_name() != "postgresql":
-            raise unittest.SkipTest("configured DATABASE_URL is not PostgreSQL")
+            raise AssertionError(
+                "B01_LIVE_PG_TESTS=1 but the configured DATABASE_URL is not "
+                "PostgreSQL — refusing to report a green skip"
+            )
         admin_url = url.set(database="postgres")
         if not _server_reachable(admin_url):
-            raise unittest.SkipTest(
-                "no reachable PostgreSQL server — dedicated-DB PG checks skipped"
+            raise AssertionError(
+                "B01_LIVE_PG_TESTS=1 but no PostgreSQL server is reachable "
+                "— refusing to report a green skip"
             )
-        # Dedicated throwaway DB on the test server (created here,
-        # dropped in tearDownClass). Never the configured app DB.
+        cls._saved_url = settings.DATABASE_URL
+        cls.addClassCleanup(cls._restore_settings, cls)
         cls.admin_engine = create_engine(
-            str(admin_url),
+            admin_url,
             connect_args={"connect_timeout": 3},
             isolation_level="AUTOCOMMIT",
         )
+        cls.addClassCleanup(cls._dispose_engine, cls.admin_engine)
+        name = _dedicated_db_name()
         with cls.admin_engine.connect() as conn:
-            conn.execute(text(f"DROP DATABASE IF EXISTS {_LIVE_PG_DB} WITH (FORCE)"))
-            conn.execute(text(f"CREATE DATABASE {_LIVE_PG_DB}"))
-        cls._saved_url = str(settings.DATABASE_URL)
-        dedicated = str(url.set(database=_LIVE_PG_DB))
-        # See _SqliteMigrationCase.setUp for the setattr/noqa story.
-        setattr(settings, "DATABASE_URL", dedicated)  # noqa: B010
+            existing = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :name"),
+                {"name": name},
+            ).scalar()
+        if existing:
+            raise RuntimeError(f"refusing to reuse an existing database named {name}")
+        with cls.admin_engine.connect() as conn:
+            conn.execute(text(f'CREATE DATABASE "{name}"'))
+        # Registered ONLY after our own database was created: the drop
+        # can never touch a database this run did not create.
+        cls.addClassCleanup(cls._drop_dedicated_db, cls, name)
+        dedicated = url.set(database=name)
         cls.engine = create_engine(dedicated)
+        cls.addClassCleanup(cls._dispose_engine, cls.engine)
+        # settings needs a STRING; render explicitly unmasked. In-memory
+        # only — never printed, logged, or written anywhere.
+        setattr(  # noqa: B010
+            settings,
+            "DATABASE_URL",
+            dedicated.render_as_string(hide_password=False),
+        )
         # Real full chain (base → … → b01) on the dedicated PG DB; the
         # target is pinned to B1 so a future C successor never makes
         # these checks run past B's revision.
         command.upgrade(_alembic_cfg(), _HEAD)
 
-    @classmethod
-    def tearDownClass(cls) -> None:
-        if getattr(cls, "engine", None) is not None:
-            cls.engine.dispose()
-        if os.environ.get(_LIVE_PG_FLAG) == "1" and hasattr(cls, "_saved_url"):
-            setattr(settings, "DATABASE_URL", cls._saved_url)  # noqa: B010
-        if getattr(cls, "admin_engine", None) is not None:
-            try:
-                with cls.admin_engine.connect() as conn:
-                    conn.execute(
-                        text(f"DROP DATABASE IF EXISTS {_LIVE_PG_DB} WITH (FORCE)")
-                    )
-            finally:
-                cls.admin_engine.dispose()
+    @staticmethod
+    def _restore_settings(cls: type[PostgresLiveChecksCase]) -> None:
+        setattr(settings, "DATABASE_URL", cls._saved_url)  # noqa: B010
+
+    @staticmethod
+    def _dispose_engine(engine: Engine) -> None:
+        engine.dispose()
+
+    @staticmethod
+    def _drop_dedicated_db(cls: type[PostgresLiveChecksCase], name: str) -> None:
+        with cls.admin_engine.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
 
     def test_alerts_tables_exist_on_migrated_postgres(self) -> None:
         tables = set(inspect(self.engine).get_table_names())
@@ -596,6 +645,108 @@ class PostgresLiveChecksCase(unittest.TestCase):
                 text("SELECT count(*) FROM alerts_warehouse WHERE code = 'wh-b01-pg'")
             ).scalar()
         self.assertEqual(leftovers, 0)
+
+
+def _fake_admin_engine(
+    executed: list[str],
+    exists: bool,
+    create_error: Exception | None = None,
+) -> mock.MagicMock:
+    """Admin-engine double that records SQL and can fail on CREATE."""
+
+    engine = mock.MagicMock(name="admin_engine")
+
+    @contextmanager
+    def connect() -> Iterator[mock.MagicMock]:
+        conn = mock.MagicMock(name="conn")
+
+        def execute(_statement: object, _parameters: object = None) -> mock.MagicMock:
+            sql = str(_statement)
+            executed.append(sql)
+            if "CREATE DATABASE" in sql and create_error is not None:
+                raise create_error
+            result = mock.MagicMock()
+            if "FROM pg_database" in sql:
+                result.scalar.return_value = 1 if exists else None
+            return result
+
+        conn.execute.side_effect = execute
+        yield conn
+
+    engine.connect = connect
+    return engine
+
+
+class LivePgGuardCase(unittest.TestCase):
+    """Mock regressions for the dedicated-DB safety guards.
+
+    Proves, without any real server, that: opt-in OFF never connects;
+    a pre-existing same-named database is refused and NOT dropped or
+    migrated; a failed CREATE never leads to a DROP of an unknown
+    database.
+    """
+
+    def setUp(self) -> None:
+        self._env = os.environ.pop(_LIVE_PG_FLAG, None)
+        self._saved = settings.DATABASE_URL
+        # Clearly fake test-only credentials; never a real account.
+        setattr(  # noqa: B010
+            settings,
+            "DATABASE_URL",
+            "postgresql://b01_guard_test:b01_guard_test@localhost:5432/app",
+        )
+        self._module = sys.modules[__name__]
+
+    def tearDown(self) -> None:
+        PostgresLiveChecksCase.doClassCleanups()
+        for name in ("engine", "admin_engine", "_saved_url"):
+            if name in PostgresLiveChecksCase.__dict__:
+                delattr(PostgresLiveChecksCase, name)
+        setattr(settings, "DATABASE_URL", self._saved)  # noqa: B010
+        if self._env is None:
+            os.environ.pop(_LIVE_PG_FLAG, None)
+        else:
+            os.environ[_LIVE_PG_FLAG] = self._env
+
+    def test_opt_in_off_never_connects_or_creates(self) -> None:
+        os.environ.pop(_LIVE_PG_FLAG, None)
+        with mock.patch.object(self._module, "create_engine") as engine_factory:
+            with self.assertRaises(unittest.SkipTest):
+                PostgresLiveChecksCase.setUpClass()
+        engine_factory.assert_not_called()
+
+    def test_existing_same_named_db_is_refused_and_never_dropped(self) -> None:
+        os.environ[_LIVE_PG_FLAG] = "1"
+        executed: list[str] = []
+        fake = _fake_admin_engine(executed, exists=True)
+        with (
+            mock.patch.object(self._module, "create_engine", return_value=fake),
+            mock.patch.object(self._module, "_server_reachable", return_value=True),
+        ):
+            with self.assertRaises(RuntimeError):
+                PostgresLiveChecksCase.setUpClass()
+            PostgresLiveChecksCase.doClassCleanups()
+        executed_upper = " ".join(executed).upper()
+        self.assertIn("FROM PG_DATABASE", executed_upper)
+        self.assertNotIn("DROP DATABASE", executed_upper)
+        self.assertNotIn("CREATE DATABASE", executed_upper)
+
+    def test_failed_create_never_drops_an_unknown_db(self) -> None:
+        os.environ[_LIVE_PG_FLAG] = "1"
+        executed: list[str] = []
+        fake = _fake_admin_engine(
+            executed, exists=False, create_error=RuntimeError("create failed")
+        )
+        with (
+            mock.patch.object(self._module, "create_engine", return_value=fake),
+            mock.patch.object(self._module, "_server_reachable", return_value=True),
+        ):
+            with self.assertRaises(RuntimeError):
+                PostgresLiveChecksCase.setUpClass()
+            PostgresLiveChecksCase.doClassCleanups()
+        executed_upper = " ".join(executed).upper()
+        self.assertIn("CREATE DATABASE", executed_upper)
+        self.assertNotIn("DROP DATABASE", executed_upper)
 
 
 if __name__ == "__main__":
