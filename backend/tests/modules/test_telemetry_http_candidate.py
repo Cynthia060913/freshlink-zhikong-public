@@ -19,6 +19,9 @@ from app.api.deps import get_db
 from app.core.security import create_access_token
 from app.models import User
 from app.modules.telemetry.http_candidate import router
+from app.modules.telemetry.reception_audit_candidate import (
+    router as reception_audit_router,
+)
 from app.modules.telemetry.storage_candidate import ingest_observation, metadata
 
 DEVICE = UUID("11111111-1111-4111-8111-111111111111")
@@ -51,13 +54,17 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         self.disabled = User(
             email="c-disabled@example.test", hashed_password="test", is_active=False
         )
+        self.superuser = User(
+            email="c-auditor@example.test", hashed_password="test", is_superuser=True
+        )
         with Session(self.engine) as session:
-            session.add_all([self.user, self.other, self.disabled])
+            session.add_all([self.user, self.other, self.disabled, self.superuser])
             session.commit()
-            for user in (self.user, self.other, self.disabled):
+            for user in (self.user, self.other, self.disabled, self.superuser):
                 session.refresh(user)
         app = FastAPI()
         app.include_router(router, prefix="/api/v1")
+        app.include_router(reception_audit_router, prefix="/api/v1")
 
         def test_db():
             # Production PostgreSQL accepts the template JWT's UUID text in
@@ -265,6 +272,117 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
             ],
         )
         self.assertEqual(body["receptions"][2]["received_at"], "2026-10-18T00:00:02Z")
+
+    def test_rejected_audit_is_privileged_bounded_and_keeps_orphan_raw(self) -> None:
+        first_at = datetime(2026, 10, 18, tzinfo=UTC)
+        original_id = uuid4()
+        original_payload = {
+            "schema_version": "1.0",
+            "device_id": str(DEVICE),
+            "message_id": str(uuid4()),
+            "sampled_at": "2026-10-18T00:00:00Z",
+            "metrics": [{"key": "temperature", "value": 5, "unit": "°C"}],
+        }
+        original_raw = json.dumps(original_payload, ensure_ascii=False)
+        original = ingest_observation(
+            self.engine, Reception(original_raw, original_id, first_at)
+        )
+        self.assertEqual(original.status, "accepted_new")
+
+        invalid_payload = {**original_payload, "schema_version": "not-supported"}
+        invalid_raw = json.dumps(invalid_payload, ensure_ascii=False)
+        invalid = ingest_observation(
+            self.engine,
+            Reception(invalid_raw, uuid4(), first_at + timedelta(seconds=1)),
+        )
+        self.assertEqual(invalid.status, "invalid")
+        self.assertIsNone(invalid.observation_id)
+
+        conflict_payload = {
+            **original_payload,
+            "metrics": [{"key": "temperature", "value": 15, "unit": "°C"}],
+        }
+        conflict_raw = json.dumps(conflict_payload, ensure_ascii=False)
+        conflict = ingest_observation(
+            self.engine,
+            Reception(conflict_raw, uuid4(), first_at + timedelta(seconds=2)),
+        )
+        self.assertEqual(conflict.status, "conflict")
+
+        other_device = uuid4()
+        other_warehouse = uuid4()
+        reused_raw = json.dumps(
+            {**original_payload, "device_id": str(other_device)}, ensure_ascii=False
+        )
+        reused = ingest_observation(
+            self.engine,
+            Reception(
+                reused_raw,
+                original_id,
+                first_at + timedelta(seconds=3),
+                authenticated_device_id=other_device,
+                warehouse_id=other_warehouse,
+            ),
+        )
+        self.assertEqual(reused.status, "conflict")
+        self.assertEqual(reused.reason, "reception_id_reuse")
+
+        path = "/api/v1/telemetry/receptions/rejected"
+        scope = {"device_id": str(DEVICE), "warehouse_id": str(WAREHOUSE)}
+        self.assertEqual(self.client.get(path, params=scope).status_code, 401)
+        self.assertEqual(
+            self.client.get(
+                path, params=scope, headers=self.headers(self.user)
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.get(
+                path, params=scope, headers=self.headers(self.disabled)
+            ).status_code,
+            400,
+        )
+        headers = self.headers(self.superuser)
+        self.assertEqual(
+            self.client.get(
+                path, params={**scope, "limit": 51}, headers=headers
+            ).status_code,
+            422,
+        )
+        first = self.client.get(path, params={**scope, "limit": 1}, headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.headers["Cache-Control"], "no-store")
+        self.assertIsNotNone(first.json()["next_after"])
+        items = first.json()["items"]
+        cursor = first.json()["next_after"]
+        while cursor is not None:
+            page = self.client.get(
+                path,
+                params={**scope, "limit": 1, "after": cursor},
+                headers=headers,
+            )
+            self.assertEqual(page.status_code, 200, page.text)
+            items.extend(page.json()["items"])
+            cursor = page.json()["next_after"]
+        self.assertEqual(len(items), 3)
+        self.assertEqual(
+            {(row["outcome"], row["reason"], row["raw_text"]) for row in items},
+            {
+                ("invalid", "invalid_schema_version", invalid_raw),
+                ("conflict", "conflicting_message", conflict_raw),
+                ("conflict", "reception_id_reuse", reused_raw),
+            },
+        )
+        self.assertTrue(all(row["raw_text"] != original_raw for row in items))
+        claimant_scope = {
+            "device_id": str(other_device),
+            "warehouse_id": str(other_warehouse),
+        }
+        claimant = self.client.get(path, params=claimant_scope, headers=headers)
+        self.assertEqual(claimant.status_code, 200, claimant.text)
+        self.assertEqual(len(claimant.json()["items"]), 1)
+        self.assertEqual(claimant.json()["items"][0]["raw_text"], reused_raw)
+        self.assertEqual(claimant.json()["items"][0]["original_device_id"], str(DEVICE))
 
     def test_invalid_time_range_and_storage_error_are_explicit(self) -> None:
         headers = self.headers(self.user)
