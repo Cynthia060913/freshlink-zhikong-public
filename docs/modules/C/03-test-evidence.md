@@ -1,5 +1,29 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-21 同连接恢复冻结端口（M03 增量，未签收）
+
+- C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  业务提交 `6e2c1de71fb71c3bb67c9731a311c6d1729c62d8`，严格 PG 专项测试
+  后继 `3dd61a3291420e8435cae55b90619a86a463f06c`。候选
+  `stage_eligible_recovery_on_connection_candidate` 在调用者已打开的一个
+  `Connection`/事务内核对已存证据、原异常和窗口并冻结 F03 outbox；重复/冲突
+  使用 SAVEPOINT，不提交外层事务。独立 Engine 包装没有 A 设备锁，不能据此
+  启用自动恢复。A 接纳前沿、晚到失效和 B 更正语义仍待跨模块确认。
+- 本人 Windows 项目隔离 Python3.13/SQLite 的 outbox 8/8、恢复 outbox
+  18/18、delivery 18/18、进度 4/4、规则 7/7，共 **55/55**；Ruff lint/format、
+  语法编译、差异检查通过。回滚测试证明原事件送达状态与新恢复候选随调用方
+  事务撤销，冲突记录也不提前提交。本机严格 opt-in PG **5/5 skipped**，
+  没有连接或清空 PostgreSQL。
+- 精确业务头项目 Python3.14
+  [Backend run39483084679](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39483084679)
+  **557 passed/4 skipped/115 warnings**；精确 PG 测试头
+  [Backend run39483603059](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39483603059)
+  **557 passed/5 skipped/115 warnings**。两头各自适用的 pre-commit、Compose、
+  Playwright、Zizmor 均 completed/success。新增第五项仍被正确跳过，
+  **没有真实 PG 回滚测试通过证据**；A 已在 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6299384034)
+  收到精确入口和复验要求。正式唯一迁移、A 锁/前沿、B 并发修复和 E1
+  不因本端口或全绿通用 CI 获得验收。
+
 ## 2026-10-21 最新已存观测候选（M03 增量，未签收）
 
 - C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
