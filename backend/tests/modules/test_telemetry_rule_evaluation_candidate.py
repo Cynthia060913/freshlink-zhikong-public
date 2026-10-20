@@ -254,6 +254,25 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
         self.assertEqual(first.status, "retryable_failure")
         self.assertEqual(self._read(evaluation_jobs)[0]["state"], "pending")
         self.assertEqual(self._read(outbox), [])
+        for error, expected_reason in (
+            (TimeoutError("B timed out"), "rule_unavailable"),
+            (ConnectionError("B disconnected"), "rule_unavailable"),
+            (PermissionError("B auth unavailable"), "rule_auth_unavailable"),
+        ):
+            failed = evaluate_one_batch_candidate(
+                self.engine,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                selector=Selector(error),
+                now=NOW,
+            )
+            self.assertEqual(
+                (failed.status, failed.reason),
+                ("retryable_failure", expected_reason),
+            )
+            self.assertEqual(self._read(evaluation_jobs)[0]["state"], "pending")
+            self.assertEqual(self._read(observations)[0]["risk"]["state"], "unknown")
+            self.assertEqual(self._read(outbox), [])
         selector = Selector(_rule())
         staged = evaluate_one_batch_candidate(
             self.engine,

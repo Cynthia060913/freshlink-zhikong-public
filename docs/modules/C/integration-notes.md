@@ -1,5 +1,47 @@
 # C 共享接线请求
 
+## 2026-10-20 已存观测单窗口有界扫描候选
+
+`recovery_observation_scan_candidate.py::scan_saved_recovery_observations_candidate`
+以原异常 `source_event_id`、可信 B 批次 ID 和原异常时刻的历史规则为输入，
+从 C 已存原始观测按 `(first_received_at_utc, observation_id)` 排序，每轮最多
+处理 100 条。恢复窗口的可信接收水位即持久扫描游标：进程/连接重开后重入，
+已处理行不会重复增加样本；缺/非法设备采样时间只按未知质量重置一次，不判正常。
+缺规则不推进，存储故障可重试，原异常或规则证据冲突时阻断；合格后交现有
+`stage_recovery_page_candidate` 冻结恢复候选，仍需 C outbox 与 B 来源回读。
+
+本入口仅手动调用、每个原异常需单 worker 串行执行；尚无后台调度、跨进程
+领取/锁、同观测多批次评价或正式 PG 迁移。A/C 正式接线必须验证 A inbox
+对同一设备的可信接收顺序及晚提交处理：如果较早 `received_at` 的观测在较晚
+观测之后才入库，当前水位会把它视为迟到并拒绝用来证明恢复。须选定串行
+提交或可审计的提交序号/补偿策略后，才能宣称持续自动恢复。
+
+## 2026-10-20 B F02 读取失败的 C 候选处理
+
+`rule_evaluation_candidate.py::evaluate_one_batch_candidate` 消费注入的
+`F02SelectionPort` 时，将数据库读取故障、权限/认证暂不可用、超时和连接中断
+分别返回 `retryable_failure`，保留 evaluation `pending`、原始观测和未知风险，
+不生成 F03 候选；恢复后仍对同一观测和可信批次重试。非法规则 envelope
+继续阻断为 `held_unknown`，明确 `no_rule` 仍保持未知，不把它们当暂时故障。
+本次只调整 C 隔离消费端口和回归；B 的正式 HTTP/数据库异常映射及 A 的
+持续任务领取仍需同版接线测试。多批次同观测需独立 evaluation 状态，当前
+`telemetry_evaluation_candidate` 仅以 observation ID 为键，不适合扩大范围。
+
+## 2026-10-20 可信接收顺序水位（C 隔离候选，待正式迁移）
+
+`recovery_observation_candidate.py` 从已存 C observation 读取 A 可信
+`first_received_at_utc`，与 observation UUID 组成稳定顺序键。
+`recovery_progress_candidate.py` 在原异常窗口内持久记录
+`last_received_at_utc` 和 `last_received_observation_id`；窗口按此键逐条推进，
+较早或同一观测的重放不能在重启后再次清空后来积累的恢复证据。
+即使设备 `sampled_at` 非法/缺失，该行的可信接收水位仍会被记录，质量保持未知且
+本次恢复窗口重置一次，不计入三条合格样本。此处不改变原始观测或高温值。
+调用方须按 `(first_received_at_utc, observation_id)` 升序扫描；同刻使用 UUID
+稳定打破平局。没有可信接收时间的旧纯判据仍可单独测试，但已写入水位的窗口
+拒绝再用缺少 `received_at` 的样本更新。正式 C 十表迁移需要包含这两列；
+本次仅更改隔离候选 metadata/服务/回归，未在共享 Alembic 激活迁移、调度或
+主程序接线。尚未实现跨窗口的持久扫描游标及多批次独立 evaluation 状态。
+
 ## 2026-10-20 当前 C→A 正式迁移交接清单（待 B01 安全复审）
 
 C 候选共有十张表，不能只导入 `storage_candidate`：其中九张属于

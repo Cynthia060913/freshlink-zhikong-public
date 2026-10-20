@@ -51,6 +51,8 @@ recovery_progress = Table(
     Column("min_samples", Integer, nullable=False),
     Column("max_gap_seconds", Integer, nullable=False),
     Column("last_sampled_at_utc", String(35)),
+    Column("last_received_at_utc", String(35)),
+    Column("last_received_observation_id", Uuid(as_uuid=True)),
     Column("last_matching_at_utc", String(35)),
     Column("observation_ids", JSON, nullable=False),
     Column("eligible", Boolean, nullable=False),
@@ -82,6 +84,12 @@ def _stored_window(row: Any) -> RecoveryWindowCandidate:
             if row["last_sampled_at_utc"] is not None
             else None
         ),
+        last_received_at=(
+            datetime.fromisoformat(row["last_received_at_utc"].replace("Z", "+00:00"))
+            if row["last_received_at_utc"] is not None
+            else None
+        ),
+        last_received_observation_id=row["last_received_observation_id"],
         observation_ids=tuple(UUID(value) for value in row["observation_ids"]),
         last_matching_at=(
             datetime.fromisoformat(row["last_matching_at_utc"].replace("Z", "+00:00"))
@@ -155,6 +163,8 @@ def advance_persisted_recovery_window(
         initial.last_sampled_at is not None
         or initial.observation_ids
         or initial.eligible
+        or initial.last_received_at is not None
+        or initial.last_received_observation_id is not None
     ):
         raise ValueError("initial recovery window must be empty")
     anomaly_time = _utc_text(initial.anomaly_sampled_at)
@@ -184,6 +194,8 @@ def advance_persisted_recovery_window(
                             min_samples=rule.min_samples,
                             max_gap_seconds=rule.max_gap_seconds,
                             last_sampled_at_utc=None,
+                            last_received_at_utc=None,
+                            last_received_observation_id=None,
                             last_matching_at_utc=None,
                             observation_ids=[],
                             eligible=False,
@@ -218,6 +230,12 @@ def advance_persisted_recovery_window(
                             if after.last_sampled_at is not None
                             else None
                         ),
+                        last_received_at_utc=(
+                            _utc_text(after.last_received_at)
+                            if after.last_received_at is not None
+                            else None
+                        ),
+                        last_received_observation_id=after.last_received_observation_id,
                         last_matching_at_utc=(
                             _utc_text(after.last_matching_at)
                             if after.last_matching_at is not None
