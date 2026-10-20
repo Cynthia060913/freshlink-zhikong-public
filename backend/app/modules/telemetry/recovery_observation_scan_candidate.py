@@ -149,9 +149,7 @@ def scan_saved_recovery_observations_candidate(
                         ),
                     ),
                 )
-                .order_by(
-                    observations.c.first_received_at_utc, observations.c.id
-                )
+                .order_by(observations.c.first_received_at_utc, observations.c.id)
                 .limit(limit + 1)
             ).all()
     except SQLAlchemyError:
