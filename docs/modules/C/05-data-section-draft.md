@@ -1,5 +1,25 @@
 # C 数据处理与验证章节草稿
 
+## 当前可引用范围（2026-10-20；候选头 `7565fbd2863e6ff4d9bfe1ac1d798506f89c8390`）
+
+本章供 M03 数据与测试部分汇编，**不等于最终发布版的实测结论**。现行开发入口是
+[公开仓库 C PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)；
+旧私有仓库链接和下方按旧日期写的“未实现”只对应当时版本，不是当前代码状态。
+最终稿必须按正式合并 SHA、同版运行与团队证据重新核对。
+
+| 范围 | 此头已有的候选能力 | 尚不能写成已验收 |
+| --- | --- | --- |
+| 观测与质量 | 保留 exact raw text、可信接收封装、规范化值、质量与每次 reception；隔离事务表支持同消息/接收 ID 幂等和冲突审计；高温不删除，坏单位/缺测为 unknown | 正式唯一 Alembic 迁移、主程序 MQTT→C 连续真实入库及生产 PG 重启 |
+| 查询与导出 | C 相对鉴权 HTTP 候选、历史/详情、同 actor/筛选的固定成员快照分页和 14 列 CSV；手动新建快照；坏单位原文可在详情读回，CSV 人工查看防公式前缀 | 公共根路由/导航、持续实时刷新和坏接收的页面状态、同版正式 PG 页面与 CSV |
+| 异常与恢复 | 消费 B 历史规则的温度候选与持久 outbox；已存坏 reception、冲突和全局接收 ID 跨设备异文复用会保守 hold 恢复 | A/C 提交前沿、跨事务并发、后台调度、多批次独立评价、B 实际接收/恢复及 E1 |
+
+固定的七条遥测与筛选样例为**人工构造**，只用于接口和失败边界复现；不计作真实冷库采样、品质标签或算法效果。精确 C 头本人 Windows 隔离 Python3.13/SQLite 恢复相关
+**39/39**、Ruff lint/format 与 Git 差异检查通过；候选 HTTP 测试因本机没有
+Python3.14 未在本机运行。远端 Python3.14 [Backend run39428737160](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39428737160)
+为 **550 passed/4 skipped/108 warnings**，同头五项适用 Actions 成功；4 skipped
+不得算正式 C PostgreSQL 验证。原始证据及分段限制见
+[C 测试证据](03-test-evidence.md)和[#9 状态](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6263404899)。
+
 状态：2026-10-12 C4 模块素材，供团队 M03 软件设计文档选用；**不是**完整系统验收报告、真实采集统计或 M06 模型性能报告。正式发布时以同一实际发布 SHA 复核代码、截图、表格和本文。对应主任务 [#9](https://github.com/Cynthia060913/freshlink-zhikong/issues/9)、草稿 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong/pull/11)。
 
 2026-10-16 当前补注：新库 [C PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 已推进至 `bdab8a81a0b92bae4a3292585e329e4de66da598`。除下文历史纯预览外，C 自有**隔离候选表**已有事务写入、SQL 历史读回、固定成员快照和同快照 CSV 字节，真实接收 ID 复用的不同原文也另存拒绝证据；详见 [最新测试证据](03-test-evidence.md#当前可交接证据索引2026-10-16)。这仍不是正式 PostgreSQL 迁移、应用入口/权限、正式查询下载或 E1。下文早期各节的“没有跨重启事务幂等/数据库查询”等是当时纯函数版本，不能当作当前候选代码状态；最终 M03 须在合并后的真实发布 SHA 上重写实测段落。

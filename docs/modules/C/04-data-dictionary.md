@@ -1,5 +1,9 @@
 # C 固定样例数据字典与来源
 
+当前入口（2026-10-20）：[新库 C PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+`7565fbd2863e6ff4d9bfe1ac1d798506f89c8390`。下方旧 SHA 和“尚无跨重启幂等/CSV 字节流”等句子是**固定纯函数样例的历史描述**；现有 C
+隔离候选另有事务 observation/reception、持久快照、CSV 与恢复证据。正式迁移、公共挂载、生产 PG 页面、真实 MQTT/E1 仍未完成。该文件只为七条人工样例定义字段与来源，不把候选代码、CI 绿灯或样例当作真实采集数据。
+
 状态：C4 数据章节的可复核草稿，依据 C 分支提交 `eb469d0304e7e18beb306c673514a4521751f3fa`。本文件只描述[七条固定合成观测](examples/telemetry-contract-proposal.json)及[预验收向量](examples/query-csv-acceptance.json)。这些记录为接口与失败场景测试手工构造，UUID、时间和温度均是样例；不是设备实采、苹果品质标注、实验数据集或业务数据库记录。不得用它们推断保质期、真实品质概率、节能收益或模型泛化效果。
 
 ## 来源和处理链
