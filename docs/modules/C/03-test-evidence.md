@@ -1,5 +1,31 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-20 现行 C 头与可信接收水位（M03 底稿，未签收）
+
+- 本人 im1yt 的 [Draft PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  当前已上传完整 `e4ab1927a88e22af4517b5b0ab9f780dd3935bcd`，共同 main
+  `75c1e86b984b8241bab1ecd5790a89225809d306` 已安全纳入；C 业务增量为
+  `644e9dafe56ce05266a7a7494c6727fb0a1950ed`，e4ab 仅修测试文件排版。
+  旧 `bc71…` 是下节当时证据，不能再称当前 HEAD。
+- C 隔离候选恢复进度表持久记录 A 可信接收时间与 observation UUID 的水位。
+  非法/缺失设备采样时间仍保留 raw、质量未知，重置窗口一次；SQLite 文件连接
+  重开后，旧坏观测重放不再清空后续有效样本。新增一项纯判据和一项隔离数据库
+  回归，**尚无正式 C 迁移、持久跨窗口扫描或数据库容器重启实测**。
+- 本人 Windows Codex 隔离 Python 3.13 纯处理子集 **97/97 OK**；完整后端依赖、
+  Docker 和 PostgreSQL 未在此环境运行。暂存快照 509 文件/9 二进制未文本扫/
+  0 发现；文本扫描不是完整安全审计。
+- [精确头 Backend run 39383941930](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39383941930)
+  在项目 Python 3.14 运行整仓 **542 passed / 4 skipped / 103 warnings**；
+  pre-commit、Compose、Playwright、Zizmor 也均完成成功。4 项跳过不算 C 正式 PG；
+  通用 Compose/Playwright 不等于 C 页面或 E1。前一 `644e9da…` 的 Ruff 排版
+  红灯已在 e4ab 修复，保留历史失败记录。
+- B PR #10 仍停在 `2a5575923e765baf4134eabe25e3f73dbcff08be`，安全 PG 返修
+  未见新头。A PR #34 的 `41b977170e49b530285d22774b6aae16697592c3`
+  是未激活六表迁移候选，远端 Backend 1 failed/989 passed/4 skipped，
+  C 已提交[修改请求](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/34#pullrequestreview-5581672494)。
+  C 在 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6285216749)
+  接受候选唯一顺序 B01→A04→C 十表后继；尚无 C01 活动迁移或完整 E1。
+
 ## 2026-10-20 最新 C 精确头（M03 底稿，未签收）
 
 - C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)

@@ -2,6 +2,15 @@
 
 初版核对日期：2026-10-17；最新补证：2026-10-20。**状态：M03 底稿，未签收**。本文件汇集三人已公开的版本化证据，不能把不同 PR/机器/数据库的结果相加，不能代 A/B 签字。最终报告须在同一发布 SHA、部署配置和第二台电脑上复核后重写实际结果；本文件不证明 E1 或比赛验收。
 
+## 10 月 20 日最新 C 精确头与迁移顺序（优先于下方历史行）
+
+| 来源 | 已验证结果 | 仍需实测 |
+| --- | --- | --- |
+| C 本人 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) `e4ab1927a88e22af4517b5b0ab9f780dd3935bcd`，业务增量 `644e9dafe56ce05266a7a7494c6727fb0a1950ed` | Windows 隔离 Python3.13 纯处理子集 97/97；新恢复窗口可信接收水位的 SQLite 文件连接重开回归在[项目 Python3.14 Backend run39383941930](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39383941930) 实际收集并通过。该整仓 run 542 passed/4 skipped/103 warnings；精确 e4ab 的五项 Actions 成功。高温/原始观测不删除，非法时间仍未知。 | 4 skipped 不算 C 正式 PG；没有正式 C Alembic、跨窗口调度、真实数据库容器重启、C 页面浏览器交互、B 真实恢复或完整 E1。SQLite 连接重开不是容器重建。 |
+| C 审查 A 六表 [PR #34](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/34#pullrequestreview-5581672494) `41b977170e49b530285d22774b6aae16697592c3` | 三文件实际复核，C 接受**候选**唯一序列 B01→A04→C 十表后继；A 本机受控 PG 994/0 的原始证据按 A 本人 #7/#5 保留。 | 该 PR 当前[远端 Backend run39382142884](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39382142884) 为 1 failed/989 passed/4 skipped，C 已 REQUEST_CHANGES；不得拿 A 本机 994/0 代替红灯或视为正式迁移发布。B PR #10 安全返修/最终头复审也未完成。 |
+
+下方 `bc71…`、`df232…` 等行保持各自日期和环境的历史真实性，**不是当前 C HEAD**，不得与新 542 项结果相加。完整 C 状态以 [#9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6263404899) 为准。
+
 ## 10 月 20 日 C 候选恢复接线与待验边界
 
 | 来源 | 精确版本及实际结果 | 不可外推的范围 |
