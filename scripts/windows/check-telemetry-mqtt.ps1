@@ -15,6 +15,9 @@ try {
     Set-Location -LiteralPath $root
     $docker=Assert-FreshLinkDocker
     $source='6a29ecf3c43b0df41d1b2e8ba19f1bf34f634aa1'
+    # The recovery proof's B revision claim must match the actual mounted code.
+    & git diff --quiet '8561ce1ec0ea4e996bccbdc5f46d473bb170fc09' -- backend/app/modules/alerts backend/tests/modules/alerts backend/app/alembic/versions/b01_alerts_storage.py
+    if($LASTEXITCODE -ne 0){throw 'B proof source changed; review and repin it before running this combination.'}
     $revision=& git rev-parse HEAD
     if($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'A revision cannot be verified'}
     $dirty=@(& git status --porcelain)
@@ -50,7 +53,7 @@ try {
     Write-Output 'PASS persistent A admission -> receiver restart -> C retry -> lost A checkpoint recovery after real lease expiry.'
     Write-Output 'PASS actual PostgreSQL saved samples -> historical B rule -> frozen C recovery -> authenticated B ASGI resolved readback (not TCP HTTP).'
     Write-Output ('Evidence: '+$results)
-    Write-Output 'NOT CHECKED: formal shared migrations/deployment, DB/broker restart, C HTTP, B evaluation/notifications, browser or full E1.'
+    Write-Output 'NOT CHECKED: formal C migration/deployment, DB/broker restart, TCP HTTP, continuous evaluation/recovery scheduling, real notifications, browser or full E1.'
     $exitCode=0
 } catch {Write-Output ('STOP: '+$_.Exception.Message)}
 finally {
