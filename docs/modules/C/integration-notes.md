@@ -1,5 +1,21 @@
 # C 共享接线请求
 
+## 2026-10-20 已存观测单窗口有界扫描候选
+
+`recovery_observation_scan_candidate.py::scan_saved_recovery_observations_candidate`
+以原异常 `source_event_id`、可信 B 批次 ID 和原异常时刻的历史规则为输入，
+从 C 已存原始观测按 `(first_received_at_utc, observation_id)` 排序，每轮最多
+处理 100 条。恢复窗口的可信接收水位即持久扫描游标：进程/连接重开后重入，
+已处理行不会重复增加样本；缺/非法设备采样时间只按未知质量重置一次，不判正常。
+缺规则不推进，存储故障可重试，原异常或规则证据冲突时阻断；合格后交现有
+`stage_recovery_page_candidate` 冻结恢复候选，仍需 C outbox 与 B 来源回读。
+
+本入口仅手动调用、每个原异常需单 worker 串行执行；尚无后台调度、跨进程
+领取/锁、同观测多批次评价或正式 PG 迁移。A/C 正式接线必须验证 A inbox
+对同一设备的可信接收顺序及晚提交处理：如果较早 `received_at` 的观测在较晚
+观测之后才入库，当前水位会把它视为迟到并拒绝用来证明恢复。须选定串行
+提交或可审计的提交序号/补偿策略后，才能宣称持续自动恢复。
+
 ## 2026-10-20 B F02 读取失败的 C 候选处理
 
 `rule_evaluation_candidate.py::evaluate_one_batch_candidate` 消费注入的

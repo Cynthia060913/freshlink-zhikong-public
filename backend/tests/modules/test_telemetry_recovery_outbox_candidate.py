@@ -22,11 +22,15 @@ from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.recovery_observation_candidate import (
     advance_saved_recovery_observation_candidate,
 )
+from app.modules.telemetry.recovery_observation_scan_candidate import (
+    scan_saved_recovery_observations_candidate,
+)
 from app.modules.telemetry.recovery_outbox_candidate import (
     stage_eligible_recovery_candidate,
 )
 from app.modules.telemetry.recovery_progress_candidate import (
     advance_persisted_recovery_window,
+    load_recovery_progress,
     recovery_progress,
 )
 from app.modules.telemetry.recovery_progress_candidate import (
@@ -566,6 +570,111 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             self.assertEqual(
                 connection.scalar(select(func.count()).select_from(outbox)), 2
             )
+
+    def test_saved_observation_scan_pages_and_resumes_from_durable_watermark(
+        self,
+    ) -> None:
+        ids = [self.ingest(second, 6.5) for second in (10, 50, 130)]
+        first = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+            limit=2,
+        )
+        self.assertEqual(first.status, "ok")
+        self.assertTrue(first.has_more)
+        self.assertEqual([item[0] for item in first.results], ids[:2])
+        self.engine.dispose()
+        self.engine = create_engine(f"sqlite+pysqlite:///{self.db}")
+        second = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+            limit=2,
+        )
+        self.assertEqual(second.status, "eligible")
+        self.assertEqual([item[0] for item in second.results], ids[2:])
+        progress = load_recovery_progress(self.engine, _ORIGINAL)
+        assert progress is not None
+        self.assertEqual(progress.observation_ids, tuple(ids))
+        self.assertEqual(progress.last_received_observation_id, ids[-1])
+        replay = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+        )
+        self.assertEqual(replay.status, "eligible")
+        self.assertEqual(replay.results, ())
+
+    def test_saved_observation_scan_consumes_bad_time_once_without_recovery(
+        self,
+    ) -> None:
+        raw = json.dumps(
+            {
+                "schema_version": "1.0",
+                "device_id": str(_DEVICE),
+                "message_id": str(uuid4()),
+                "sampled_at": "invalid-time",
+                "metrics": [{"key": "temperature", "value": 6.5, "unit": "°C"}],
+            },
+            ensure_ascii=False,
+        )
+        bad = ingest_observation(
+            self.engine,
+            Reception(raw, uuid4(), _BASE + timedelta(seconds=20)),
+        )
+        self.assertEqual(bad.status, "accepted_new")
+        first = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+        )
+        self.assertEqual(first.status, "ok")
+        self.assertEqual(first.results[0][1].decision, "reset")
+        progress = load_recovery_progress(self.engine, _ORIGINAL)
+        assert progress is not None
+        self.assertEqual(progress.observation_ids, ())
+        self.assertEqual(progress.last_received_observation_id, bad.observation_id)
+        ids = [self.ingest(second, 6.5) for second in (30, 60, 90)]
+        done = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+        )
+        self.assertEqual(done.status, "eligible")
+        self.assertEqual([item[0] for item in done.results], ids)
+        self.assertEqual(
+            load_recovery_progress(self.engine, _ORIGINAL).observation_ids,
+            tuple(ids),
+        )
+
+    def test_saved_observation_scan_waits_for_rule_and_never_creates_schema(
+        self,
+    ) -> None:
+        self.ingest(10, 6.5)
+        waiting = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=None,
+        )
+        self.assertEqual(waiting.status, "waiting_rule")
+        self.assertIsNone(load_recovery_progress(self.engine, _ORIGINAL))
+        with self.engine.begin() as connection:
+            progress_metadata.drop_all(connection)
+        unavailable = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+        )
+        self.assertEqual(unavailable.status, "retryable_failure")
+        self.assertFalse(inspect(self.engine).has_table(recovery_progress.name))
 
     def test_tick_cursor_does_not_hide_a_waiting_window(self) -> None:
         self.progress(10, 50, 130)
