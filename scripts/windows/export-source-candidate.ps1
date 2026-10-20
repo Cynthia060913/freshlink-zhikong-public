@@ -5,7 +5,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 $repo=(Resolve-Path -LiteralPath $Repository).Path
-$git=(Get-Command git.exe -ErrorAction Stop).Source
+$git=(Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 
 function Quote-ProcessArgument([string]$Value) {
     # Windows PowerShell 5.1 lacks ProcessStartInfo.ArgumentList. No shell is used.

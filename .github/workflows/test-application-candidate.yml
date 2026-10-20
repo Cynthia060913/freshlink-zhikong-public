@@ -31,6 +31,7 @@ jobs:
       - name: Build only pinned Git archive and verify image source
         shell: pwsh
         run: |
+          ./scripts/windows/test-source-candidate-export.ps1
           $source=(& git rev-parse HEAD).Trim()
           ./scripts/windows/build-application-candidate.ps1 -Revision $source
           if ($LASTEXITCODE -ne 0) { throw 'Archive image build failed' }
