@@ -37,6 +37,7 @@ export interface TelemetryDetail {
   normalized: unknown
   quality: string[]
   risk: unknown
+  reception_reuse_conflict_count: number
   receptions: Array<{
     reception_id: string
     received_at: string

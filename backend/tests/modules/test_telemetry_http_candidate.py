@@ -272,6 +272,27 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
             ],
         )
         self.assertEqual(body["receptions"][2]["received_at"], "2026-10-18T00:00:02Z")
+        self.assertEqual(body["reception_reuse_conflict_count"], 0)
+
+        claimant_device = uuid4()
+        reused = ingest_observation(
+            self.engine,
+            Reception(
+                json.dumps({**changed, "device_id": str(claimant_device)}),
+                UUID(body["receptions"][0]["reception_id"]),
+                first_at + timedelta(seconds=3),
+                authenticated_device_id=claimant_device,
+                warehouse_id=uuid4(),
+            ),
+        )
+        self.assertEqual(reused.status, "conflict")
+        refreshed = self.client.get(
+            BASE + f"/{observation_id}", headers=self.headers(self.user)
+        )
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+        self.assertEqual(refreshed.json()["raw_text"], original_raw)
+        self.assertEqual(refreshed.json()["reception_reuse_conflict_count"], 1)
+        self.assertEqual(len(refreshed.json()["receptions"]), 3)
 
     def test_rejected_audit_is_privileged_bounded_and_keeps_orphan_raw(self) -> None:
         first_at = datetime(2026, 10, 18, tzinfo=UTC)

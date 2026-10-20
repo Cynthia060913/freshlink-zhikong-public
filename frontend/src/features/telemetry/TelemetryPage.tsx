@@ -311,6 +311,12 @@ export default function TelemetryPage() {
               <p className="mt-3 text-sm">
                 与此观测关联的接收记录：{detail.data.receptions.length} 次
               </p>
+              {detail.data.reception_reuse_conflict_count > 0 && (
+                <p role="alert" className="mt-2 text-sm text-destructive">
+                  接收 ID 异文复用：{detail.data.reception_reuse_conflict_count}
+                  次。原始复用记录需由管理员审计；原观测风险不能代表这些冲突数据。
+                </p>
+              )}
               {detail.data.receptions.some(
                 (attempt) =>
                   attempt.outcome === "conflict" ||
