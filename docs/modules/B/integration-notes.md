@@ -102,3 +102,34 @@ A 实际整合后，B 模块才能进一步落地 service.py / routes.py。
 - 存储与回读：`alerts_event` 新列 `severity/observation_ids_json/rule_snapshot_id/rule_version/algorithm_version/evidence_json`；`GET /candidates/by-source/{sid}` 返回完整追溯正文（缺陷 2 的回读要求）。迁移（alembic）待接已合并唯一 A→B→C 链时补。
 - 存储故障分类（缺陷 3）：前置读取、幂等查找、并发冲突后回读任一 `OperationalError` → `retryable_failure(503, Retry-After: 30, reason=storage_unavailable)`；by-source 读取故障同映射 503，`not_found(404)` 语义不变。
 - 规则版本替换（缺陷 4）：写侧重叠检查改用与读取端相同的后继派生半开窗口，开放链 S1→S2→S3 的第三次替换不再误判重叠；乱序或未声明的真实重叠仍拒绝。
+
+## 6. B2 告警生命周期状态与 A 接力项（2026-10-20，PR #10 `2a41929`）
+
+### 6.1 已做（B 模块内，已推 PR #10 分支）
+- 路由：`GET /alerts/{alert_event_id}/status`（任意活跃用户）；
+  `POST /alerts/{alert_event_id}/acknowledge`（**仅超级用户**，open→acknowledged，
+  幂等重复不新增迁移行，resolved 409 零写入）。
+- 服务：`acknowledge_alert`；DTO：`AlertLifecyclePublic`、
+  `AlertStatusTransitionPublic`；聚合于 `app/modules/alerts/routes/__init__.py`
+  的 aggregate（不加任何全局前缀）。
+- 测试：`backend/tests/modules/alerts/test_lifecycle.py` 6 项 HTTP 回归。
+
+### 6.2 仍需 A 接力的共享根动作
+1. `backend/app/api/main.py` 增加一行（挂在 `device_control_router` 之后即可）：
+   ```python
+   from app.modules.alerts.routes import router as alerts_router
+
+   api_router.include_router(alerts_router)
+   ```
+   挂载后 `/api/v1` 前缀由既有外层加一次；OpenAPI 将变化，需同步
+   `scripts/generate-client.sh` 重新生成 `frontend/openapi.json` 与 SDK
+   （B 本地无 bun 时无法生成，故挂载 PR 由 A 执行并附生成产物最稳）。
+2. 导航：`frontend/src/components/Sidebar/AppSidebar.tsx` 增 `alerts`
+   条目（指向 `/alerts`），权限与设备页一致（登录可见）。
+3. 前端处置页面：B 将在 `frontend/src/features/alerts/` 开发列表/详情/确认；
+   所需路由文件位置请 A 在根路由候选（PR14）中预留 `/alerts` 路径或告知
+   B 可直接新增 `frontend/src/routes/_layout/alerts.tsx`。
+
+### 6.3 权限约定（已实现，供 A 接根时核对）
+- 读：任何活跃用户；确认：`get_current_active_superuser`；普通账号确认返回
+  403 且零写入（与 A 的"普通账号只读且实际 POST 403"一致）。
