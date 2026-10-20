@@ -104,6 +104,56 @@ async function run() {
     assert.equal((await history.json()).count, 1)
     await readerPanel.getByRole("status").filter({ hasText: "设备回执：执行成功" }).scrollIntoViewIfNeeded()
     await readerPage.screenshot({ path: path.join(results, "reader-real-readonly.png"), fullPage: true })
+    // A-owned shared navigation proof. Synthetic candidate enters through real
+    // authenticated B HTTP, not direct SQL or an intercepted API response.
+    // Deliberately do NOT exercise administrator ACK while B's race is open.
+    const warehouses = await context.request.get(`${origin}/api/v1/warehouses/`, { headers })
+    assert.equal(warehouses.status(), 200)
+    const warehouseRows = await warehouses.json()
+    assert(Array.isArray(warehouseRows) && warehouseRows.length === 1)
+    const warehouseId = warehouseRows[0].id
+    const batch = await context.request.post(`${origin}/api/v1/warehouses/${warehouseId}/batches`, {
+      headers, data: { code: "alerts-browser-synthetic", product: "apple" },
+    })
+    assert.equal(batch.status(), 201)
+    const sourceId = "alerts-browser-synthetic-anomaly"
+    const candidate = await context.request.post(`${origin}/api/v1/candidates`, {
+      headers,
+      data: {
+        schema_version: "1.0", source_event_id: sourceId,
+        warehouse_id: warehouseId, batch_id: (await batch.json()).id,
+        observation_ids: ["synthetic-browser-observation"], metric_code: "temperature",
+        sampled_at: new Date().toISOString(), value: 11, unit: "°C",
+        kind: "temperature_high", severity: "warning", rule_version: "v1",
+        algorithm_version: "synthetic-browser-proof/1",
+        evidence: { comparison: ">", threshold: 8, synthetic_input: true },
+      },
+    })
+    assert.equal(candidate.status(), 201)
+    const eventId = (await candidate.json()).event_id
+    for (const targetPage of [page, readerPage]) {
+      await targetPage.keyboard.press("Escape")
+      await expect(targetPage.getByRole("dialog")).toHaveCount(0)
+      await targetPage.getByRole("link", { name: "告警处置", exact: true }).click()
+      await expect(targetPage).toHaveURL(`${origin}/alerts`)
+      const row = targetPage.getByRole("row").filter({ hasText: sourceId })
+      await expect(row).toContainText("温度超上限")
+      await row.getByRole("button", { name: "查看 / 处置", exact: true }).click()
+      await expect(targetPage.getByRole("dialog")).toContainText(eventId)
+    }
+    await expect(page.getByRole("dialog").getByRole("button", { name: "确认告警", exact: true })).toBeEnabled()
+    await expect(readerPage.getByRole("dialog")).toContainText("当前为只读访问")
+    await expect(readerPage.getByRole("dialog").getByRole("button", { name: "确认告警", exact: true })).toHaveCount(0)
+    const deniedAck = await readerContext.request.post(`${origin}/api/v1/alerts/${eventId}/acknowledge`, {
+      headers: { Authorization: `Bearer ${readerToken}` },
+    })
+    assert.equal(deniedAck.status(), 403)
+    const unchanged = await context.request.get(`${origin}/api/v1/alerts/${eventId}/status`, { headers })
+    assert.equal(unchanged.status(), 200)
+    const lifecycle = await unchanged.json()
+    assert.equal(lifecycle.status, "open")
+    assert.deepEqual(lifecycle.transitions, [])
+    await readerPage.screenshot({ path: path.join(results, "alerts-reader-real-readonly.png"), fullPage: true })
     fs.writeFileSync(path.join(results, "browser.json"), JSON.stringify({
       phase: "real_browser_http_mqtt_control_passed",
       command_id: submitted.command_id,
@@ -114,8 +164,12 @@ async function run() {
       real_same_id_replay: true,
       reload_kept_real_receipt: true,
       reader_readonly_and_post_403: true,
+      alerts_navigation_list_detail_and_reader_post_403: true,
+      alerts_synthetic_source: sourceId,
+      alerts_event_id: eventId,
+      alerts_denied_write_left_zero_transitions: true,
       no_mocked_api: true,
-      not_tested: ["C history/CSV", "two real notifications", "full E1"],
+      not_tested: ["administrator ACK and recovery concurrency", "C history/CSV", "two real notifications", "full E1"],
     }, null, 2), { flag: "wx" })
     console.log("PASS real browser login/control/receipt/reload/ordinary-user refusal; no API mocks")
   } finally {

@@ -96,9 +96,139 @@ export type AlertEventPublic = {
 };
 
 /**
+ * AlertEventSummary
+ *
+ * One row of the disposition list (anomaly events only).
+ *
+ * Recovery candidates and device lifecycle events are NOT alerts
+ * themselves; they are traceability/ingestion records. The list
+ * carries the current lifecycle ``status`` so the console can filter
+ * by ``open / acknowledged / resolved`` without fetching each
+ * alert's history.
+ */
+export type AlertEventSummary = {
+    /**
+     * Alert Event Id
+     */
+    alert_event_id: string;
+    /**
+     * Source Event Id
+     */
+    source_event_id: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Severity
+     */
+    severity: string | null;
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string | null;
+    /**
+     * Batch Id
+     */
+    batch_id: string | null;
+    /**
+     * Device Id
+     */
+    device_id: string | null;
+    /**
+     * Metric Code
+     */
+    metric_code: string | null;
+    /**
+     * Sampled At
+     */
+    sampled_at: string;
+    /**
+     * Value
+     */
+    value: number | null;
+    /**
+     * Unit
+     */
+    unit: string | null;
+    status: AlertStatus;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * AlertEventsPublic
+ *
+ * Paginated alert list envelope (data + total count).
+ */
+export type AlertEventsPublic = {
+    /**
+     * Data
+     */
+    data: Array<AlertEventSummary>;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * AlertLifecyclePublic
+ *
+ * Current status plus the full ordered transition history.
+ */
+export type AlertLifecyclePublic = {
+    /**
+     * Alert Event Id
+     */
+    alert_event_id: string;
+    status: AlertStatus;
+    /**
+     * Transition Created
+     */
+    transition_created?: boolean;
+    /**
+     * Transitions
+     */
+    transitions?: Array<AlertStatusTransitionPublic>;
+};
+
+/**
  * AlertStatus
  */
 export type AlertStatus = 'open' | 'acknowledged' | 'resolved';
+
+/**
+ * AlertStatusTransitionPublic
+ *
+ * Read-only shape of one lifecycle transition (append-only audit).
+ */
+export type AlertStatusTransitionPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Alert Event Id
+     */
+    alert_event_id: string;
+    from_status: AlertStatus;
+    to_status: AlertStatus;
+    /**
+     * Trigger Source Event Id
+     */
+    trigger_source_event_id?: string | null;
+    /**
+     * Reason
+     */
+    reason?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
 
 /**
  * BatchCreate
@@ -2459,6 +2589,108 @@ export type alertEventsListAttemptsResponses = {
 };
 
 export type alertEventsListAttemptsResponse = alertEventsListAttemptsResponses[keyof alertEventsListAttemptsResponses];
+
+export type alertLifecycleListAlertsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * State
+         */
+        state?: AlertStatus | null;
+        /**
+         * Severity
+         */
+        severity?: string | null;
+    };
+    url: '/api/v1/alerts/';
+};
+
+export type alertLifecycleListAlertsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type alertLifecycleListAlertsError = alertLifecycleListAlertsErrors[keyof alertLifecycleListAlertsErrors];
+
+export type alertLifecycleListAlertsResponses = {
+    /**
+     * Successful Response
+     */
+    200: AlertEventsPublic;
+};
+
+export type alertLifecycleListAlertsResponse = alertLifecycleListAlertsResponses[keyof alertLifecycleListAlertsResponses];
+
+export type alertLifecycleReadAlertStatusData = {
+    body?: never;
+    path: {
+        /**
+         * Alert Event Id
+         */
+        alert_event_id: string;
+    };
+    query?: never;
+    url: '/api/v1/alerts/{alert_event_id}/status';
+};
+
+export type alertLifecycleReadAlertStatusErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type alertLifecycleReadAlertStatusError = alertLifecycleReadAlertStatusErrors[keyof alertLifecycleReadAlertStatusErrors];
+
+export type alertLifecycleReadAlertStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: AlertLifecyclePublic;
+};
+
+export type alertLifecycleReadAlertStatusResponse = alertLifecycleReadAlertStatusResponses[keyof alertLifecycleReadAlertStatusResponses];
+
+export type alertLifecycleAcknowledgeAlertEndpointData = {
+    body?: never;
+    path: {
+        /**
+         * Alert Event Id
+         */
+        alert_event_id: string;
+    };
+    query?: never;
+    url: '/api/v1/alerts/{alert_event_id}/acknowledge';
+};
+
+export type alertLifecycleAcknowledgeAlertEndpointErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type alertLifecycleAcknowledgeAlertEndpointError = alertLifecycleAcknowledgeAlertEndpointErrors[keyof alertLifecycleAcknowledgeAlertEndpointErrors];
+
+export type alertLifecycleAcknowledgeAlertEndpointResponses = {
+    /**
+     * Successful Response
+     */
+    200: AlertLifecyclePublic;
+};
+
+export type alertLifecycleAcknowledgeAlertEndpointResponse = alertLifecycleAcknowledgeAlertEndpointResponses[keyof alertLifecycleAcknowledgeAlertEndpointResponses];
 
 export type deviceControlListCommandsData = {
     body?: never;

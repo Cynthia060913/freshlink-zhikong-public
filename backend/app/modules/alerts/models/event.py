@@ -539,6 +539,59 @@ class AlertEventPublic(SQLModel):
     created_at: datetime
 
 
+class AlertEventSummary(SQLModel):
+    """One row of the disposition list (anomaly events only).
+
+    Recovery candidates and device lifecycle events are NOT alerts
+    themselves; they are traceability/ingestion records. The list
+    carries the current lifecycle ``status`` so the console can filter
+    by ``open / acknowledged / resolved`` without fetching each
+    alert's history.
+    """
+
+    alert_event_id: uuid.UUID
+    source_event_id: str
+    kind: str
+    severity: str | None
+    warehouse_id: uuid.UUID | None
+    batch_id: uuid.UUID | None
+    device_id: str | None
+    metric_code: str | None
+    sampled_at: datetime
+    value: float | None
+    unit: str | None
+    status: AlertStatus
+    created_at: datetime
+
+
+class AlertEventsPublic(SQLModel):
+    """Paginated alert list envelope (data + total count)."""
+
+    data: list[AlertEventSummary]
+    count: int
+
+
+class AlertStatusTransitionPublic(SQLModel):
+    """Read-only shape of one lifecycle transition (append-only audit)."""
+
+    id: uuid.UUID
+    alert_event_id: uuid.UUID
+    from_status: AlertStatus
+    to_status: AlertStatus
+    trigger_source_event_id: str | None = None
+    reason: str | None = None
+    created_at: datetime
+
+
+class AlertLifecyclePublic(SQLModel):
+    """Current status plus the full ordered transition history."""
+
+    alert_event_id: uuid.UUID
+    status: AlertStatus
+    transition_created: bool = False
+    transitions: list[AlertStatusTransitionPublic] = Field(default_factory=list)
+
+
 class NotificationAttempt(SQLModel, table=True):
     """One ``send`` attempt against one alert event, for audit/retry.
 
