@@ -10,7 +10,7 @@ from io import StringIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import create_engine, event, func, select, update
 from sqlalchemy.exc import OperationalError
 
 from app.modules.telemetry.csv_preview import PREVIEW_COLUMNS
@@ -204,6 +204,64 @@ class SnapshotCandidateTests(unittest.TestCase):
         with self.engine.connect() as connection:
             self.assertEqual(
                 connection.scalar(select(func.count()).select_from(snapshot_members)), 5
+            )
+
+    def test_missing_or_reordered_members_fail_page_and_csv(self) -> None:
+        for minute in (1, 2, 3):
+            created = ingest_observation(
+                self.engine,
+                reception(
+                    f"2026-10-16T00:0{minute}:00Z",
+                    8 + minute,
+                    NOW - timedelta(minutes=5 - minute),
+                ),
+            )
+            self.assertEqual(created.status, "accepted_new")
+        filters = HistoryFiltersCandidate(warehouse_id=WAREHOUSE)
+        missing = create_snapshot_candidate(
+            self.engine,
+            actor_id=ACTOR,
+            filters=filters,
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                snapshot_members.delete().where(
+                    snapshot_members.c.snapshot_id == missing,
+                    snapshot_members.c.ordinal == 1,
+                )
+            )
+        for after in (-1, 0):
+            with self.subTest(after=after):
+                with self.assertRaisesRegex(ValueError, "invalid_snapshot_members"):
+                    self._read(missing, limit=2, after_ordinal=after)
+        with self.assertRaisesRegex(ValueError, "invalid_snapshot_members"):
+            self._csv(missing)
+
+        reordered = create_snapshot_candidate(
+            self.engine,
+            actor_id=ACTOR,
+            filters=filters,
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(snapshot_members)
+                .where(
+                    snapshot_members.c.snapshot_id == reordered,
+                    snapshot_members.c.ordinal == 1,
+                )
+                .values(ordinal=4)
+            )
+        with self.assertRaisesRegex(ValueError, "invalid_snapshot_members"):
+            self._read(reordered, limit=2)
+        with self.assertRaisesRegex(ValueError, "invalid_snapshot_members"):
+            self._csv(reordered)
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(observations)), 3
             )
 
     def test_scope_expiry_limit_and_empty_snapshot_are_explicit(self) -> None:

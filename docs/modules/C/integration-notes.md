@@ -1,6 +1,42 @@
 # C 共享接线请求
 
+## 2026-10-20 当前 C→A 正式迁移交接清单（待 B01 安全复审）
+
+C 候选共有十张表，不能只导入 `storage_candidate`：其中九张属于
+`storage_candidate.metadata`（`telemetry_observation_candidate`、
+`telemetry_quality_tag_candidate`、`telemetry_reception_candidate`、
+`telemetry_reception_reuse_candidate`、`telemetry_evaluation_candidate`、
+`telemetry_candidate_outbox_candidate`、
+`telemetry_candidate_outbox_conflict_candidate`、
+`telemetry_snapshot_candidate`、`telemetry_snapshot_member_candidate`），
+另有 `recovery_progress_candidate.metadata` 的
+`telemetry_recovery_progress_candidate`。前九张中，outbox 两张要导入
+`outbox_candidate`、快照两张要导入 `snapshot_candidate` 才会登记到共享的
+候选 metadata；集成时应以实际 metadata 列表重新核对表数、外键、索引和
+唯一约束。两份 metadata 都须进入 Alembic 的比对视图，避免 `alembic check`
+把未登记表误判为多余对象。
+正式 C revision 只能接审查并合入 main 后的唯一 B01 head，由 A 协调
+`backend/app/alembic/env.py` 登记；不能从 PR #14 的旧 B856/C0dca 组合或
+测试 `create_all` 宣称生产迁移已验证。空库升级、A/B 旧数据保留、模型一致、
+重启留存、重复/冲突和失败回滚须在同一发布候选上分别实测。
+
+恢复扫描的历史 B 规则端口如在 SQL 读取时发生 `SQLAlchemyError`，C 当前将
+单个窗口记 `retryable_failure/rule_storage_unavailable`，保留原窗口和同一来源
+ID，继续处理页内其他窗口；下一轮从空 cursor 重扫。此行为仅在隔离端口测试，
+尚无真实 B 查询或生产调度证据。
+
 ## 2026-10-20 已持久恢复窗口 → 冻结 F03 outbox（隔离接线候选）
+
+`recovery_tick_candidate.py::stage_recovery_page_candidate` 是 C 自有的**单次**
+有界扫描入口：按原异常 UUID 稳定分页，只处理已持久且 eligible 的窗口；
+原异常尚未由 B 回读确认为 delivered 时不查询规则。调用方注入
+`HistoricalRecoveryRulePort.for_original(original_source_event_id,
+anomaly_sampled_at)`，返回 B 在**原异常采样时刻**的规则选择（无规则返回
+`None`）。规则查询拒绝/超时分类为可重试；无规则保持 waiting_rule。
+`next_after` 可扫完本轮，下一轮必须从空 cursor 重扫等待项；即使单项等待也
+不会遮住同页后续窗口。此入口不安装后台调度、不调用真实 B、不发送 outbox，
+不承诺自动告警恢复。A 的共享运行入口和 B 历史规则适配在正式链就绪后接入，
+由 C 补同版 PG/HTTP/断线重启证据。
 
 `recovery_outbox_candidate.py::stage_eligible_recovery_candidate` 读取 C 已
 持久的原温度高异常、连续恢复窗口及窗口中每条原始观测，并消费 B 在**原异常
@@ -16,6 +52,9 @@
 调用或 HTTP 投递，也不将 B 告警自动设为 resolved。正式接线须由 C 在
 已合并 B01 后提交唯一 C 迁移，A 协调调度入口；恢复 outbox 的实际 B 接受
 及原告警 resolved 必须按来源回读确认，失败时保留同 ID 重试证据。
+本模块合成 B 端口测试已覆盖：恢复候选首次被接受但原告警仍 open 时，
+本地 outbox 留 pending/retry；下次按同 source ID 回读原告警 resolved 后
+才标记 delivered，过程中只模拟一次发送。该测试没有联系真实 B 服务。
 
 ## 2026-10-19 恢复进度隔离持久端口（待正式迁移和业务接线）
 
@@ -476,3 +515,20 @@ PostgreSQL 回归。它沿用严格 `test-db/freshlink_test/FreshLink-test` 守�
 摘要重放和误恢复；A 协调共享根与调度入口。C 在实际 B 服务/PG 环境
 验证后才扩大到同观测多批次、恢复连续样本与生产任务领取。当前单批次
 候选不能代替完整告警生命周期或真实通知。
+
+## C 已存观测推进恢复窗口端口（独立候选）
+
+`recovery_observation_candidate.py::advance_saved_recovery_observation_candidate`
+按原异常 `source_event_id`、**可信关联的** `batch_id` 和一条已存 C 观测 ID
+显式调用。先核对原 F03 冻结正文/摘要、原观测设备与冷库、原采样时间及数值；
+原规则必须由 B 按**原异常采样时刻**选回。再从保留的原始载荷重新计算
+归一化与质量，拒绝被改写的存储证据，并经持久窗口的版本检查推进。
+同一观测重放不会增加样本；错误单位、缺失温度会重置连续窗口；缺历史
+规则、缺表或读库故障分别等待、返回可重试结果，均不会宣告恢复。
+
+本端口没有调用 B、后台扫描、共享根挂载或正式迁移；调用者要先从可信
+设备/批次绑定取得 `batch_id`，把 B 的历史规则选择结果注入，并按观测
+接收顺序逐条调用。窗口合格后仍须按现有 `stage_recovery_page_candidate`
+冻结候选、C outbox 可靠投递及 B 原告警 resolved 回读。正式 PG 接线时
+需把观测读取与窗口推进置于审核后的事务/锁边界，复核并发原文修改和
+设备绑定变更；当前 SQLite 文件库测试不证明这些生产并发性质。

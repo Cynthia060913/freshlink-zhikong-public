@@ -1,6 +1,17 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
-初版核对日期：2026-10-17；最新补证：2026-10-19。**状态：M03 底稿，未签收**。本文件汇集三人已公开的版本化证据，不能把不同 PR/机器/数据库的结果相加，不能代 A/B 签字。最终报告须在同一发布 SHA、部署配置和第二台电脑上复核后重写实际结果；本文件不证明 E1 或比赛验收。
+初版核对日期：2026-10-17；最新补证：2026-10-20。**状态：M03 底稿，未签收**。本文件汇集三人已公开的版本化证据，不能把不同 PR/机器/数据库的结果相加，不能代 A/B 签字。最终报告须在同一发布 SHA、部署配置和第二台电脑上复核后重写实际结果；本文件不证明 E1 或比赛验收。
+
+## 10 月 20 日 C 候选恢复接线与待验边界
+
+| 来源 | 精确版本及实际结果 | 不可外推的范围 |
+| --- | --- | --- |
+| C 本人 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) | `bc71b76368c69952657c318297452482f49881c0`（共同 main 基础 `e235a25650fce96b3ec92888e28a3d0702b16a06`）。Windows/Codex 隔离 Python 3.13 + SQLite 文件库，C 存储、连续恢复、F03、outbox、投递与规则相关 **71/71 OK**；新模块 Ruff lint/format、Mypy strict、Ty、暂存文本扫描通过。持久窗口重读观测证据后，原异常本地 `delivered` 才冻结稳定 ID 的恢复 F03；重开库再调用为 duplicate，变更历史规则或污染观测保持阻断。同 SHA 的五项远端 Actions 已 completed/success；[Backend run 39283815955](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39283815955) 是整仓 **488 passed / 4 skipped / 103 warnings、93% 覆盖率**。 | 这是**显式调用**的隔离端口和合成规则，不是自动调度、正式 C Alembic、同头真实 PostgreSQL 专项、B HTTP 接收/原告警 resolved 或 E1。Backend 数字为整仓，不是 C 专项；4 项跳过不计作实跑。 |
+| C 本机扩展收集的环境限制 | 同头 `test_telemetry*.py` 通配运行**共 173 项，含 2 个导入错误、6 个环境跳过**：共同 main `backend/app/modules/iot/ingress.py:121` 的多异常省略括号是 [Python 3.14 合法语法](https://docs.python.org/3.14/whatsnew/3.14.html#pep-758-allow-except-and-except-expressions-without-brackets)，本机隔离 Python 3.13 无法解析；另一项因隔离环境缺 FastAPI。已在 [A #7 更正原误判](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/7#issuecomment-6271798057)；无 A 源码修复请求。 | 173 项不可写成“全通过”；本机没有 Docker、psycopg 或真实 PG，不声称本人同头 PG/整仓验证。项目 3.14 CI 实跑结果见上行。 |
+| A 对较早 C 头的独立 PG 复测 | A 在 [C #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6270680816)报精确 C `78e61cd347646911b3e6a6c94d0998aa23545af4` 遥测 177/177、0 跳过，新增持久恢复进度 PG 探针 5/5。 | A 的受控环境和旧 C 头；不能挪为 `bc71…` 的同头 C 本人 PG 测试或完整自动恢复。 |
+| B 迁移依赖 | B [PR #10](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10) 当前 `2a5575923e765baf4134eabe25e3f73dbcff08be` 仍 draft、未合 main；A [审查](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5573636005)记录默认启用并强删固定 PG 测试库、密码 URL 导致两项 PG 误跳过等待修。 | 下方旧 B856/3f43 的测试、批准或候选迁移证据不能替代对 B 最终修复头的 C 复审和唯一链发布。 |
+
+当前 [C #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6263404899)保留未完成范围：正式 C 迁移、实际 A 观测与 B 历史规则自动恢复、主程序鉴权查询/CSV/页面、通知实收、E1、第二机和最终 M03。下方各节保持各自**当时**的版本/测试证据；表内写“当前”的旧记录只指其所在日期，不代表 10 月 20 日实时 HEAD。
 
 ## 10 月 19 日 C 代码实测头补证（优先于下方旧快照）
 
@@ -12,7 +23,7 @@
 | B [PR #10](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10) | 当前 B HEAD `3f43af70a29bfc0859fed711333cd38e7e505a05`，C 对该头[源码和回归审查提交 APPROVE](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5569259588)。C 新普通候选摘要对齐其旧行兼容规则：HTTP 正文保留 `related_source_event_id:null`，摘要排除该空字段；非空恢复关联仍计入摘要。 | 审查批准不等于 PR 合并、正式 B 迁移、真实规则联调、告警持久处置或通知实收。B 迁移尚未进入 main，C 正式迁移必须接唯一已合并链。 |
 | A 的三模块旧头探针 | [A 在 #7 的实际记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/7#issuecomment-6262487834)：A `c15fe46663410fa4112a2767b503bef356814508` + B `3f43af70a29bfc0859fed711333cd38e7e505a05` + 旧 C `be795f248350a24d73a02d7689585009af61e003`，真实 PG18.6/Uvicorn/JWT/HTTP 33 检查中 **32 通过、1 失败**；首失败是普通候选摘要不匹配，C 保持 retry 未伪报送达。 | 当前 C `df232b4…` 已修本地规范化并有固定测试，但 A 尚未在该精确组合重跑；不能把旧 32/33 改写成 33/33。该探针使用候选 DDL，不是正式迁移或完整 E1。 |
 
-新恢复窗口判据以原异常规则显式提供的恢复阈值为前提，要求至少三条不同来源、质量 `ok`、严格有序的采样，单次间隔最多 90 秒；重复/迟到不凑数，缺测/冲突/再异常重置。该纯决策尚未持久化或自动投递，也未将 B 告警置为 `resolved`。C 对当前源树的有限模式安全扫描为 494 个文本文件、9 个二进制未作文本扫描、0 个模式命中；这不是全面凭据审计。下列早前条目保留原来源时间，不作为当前 HEAD 的同版验收。
+10 月 19 日旧 C `df232b4…` 的恢复窗口判据以原异常规则显式提供的恢复阈值为前提，要求至少三条不同来源、质量 `ok`、严格有序的采样，单次间隔最多 90 秒；重复/迟到不凑数，缺测/冲突/再异常重置。该**当时的纯决策**尚未持久化或自动投递；10 月 20 日的独立持久窗口及显式 outbox 接线进度见上表，仍未令 B 告警自动 `resolved`。此前 C 对当时源树的有限模式安全扫描为 494 个文本文件、9 个二进制未作文本扫描、0 个模式命中；这不是当前树的全面凭据审计。下列早前条目保留原来源时间，不作为当前 HEAD 的同版验收。
 
 ## 2026-10-19 补证与旧快照边界
 
