@@ -25,6 +25,8 @@ from .batch import (
 from .event import (
     AlertEvent,
     AlertEventPublic,
+    AlertEventsPublic,
+    AlertEventSummary,
     AlertLifecyclePublic,
     AlertStatus,
     AlertStatusTransition,
@@ -58,6 +60,8 @@ from .warehouse import (
 __all__ = [
     "AlertEvent",
     "AlertEventPublic",
+    "AlertEventSummary",
+    "AlertEventsPublic",
     "AlertLifecyclePublic",
     "AlertStatus",
     "AlertStatusTransition",

@@ -96,7 +96,13 @@ def _create_alert(client: TestClient, *, source: str = "anom-life-1") -> dict[st
     return {"warehouse_id": wid, "batch_id": bid, "event_id": r.json()["event_id"]}
 
 
-def _send_recovery(client: TestClient, ids: dict[str, Any], *, source: str) -> Any:
+def _send_recovery(
+    client: TestClient,
+    ids: dict[str, Any],
+    *,
+    source: str,
+    related: str = "anom-life-1",
+) -> Any:
     recovery = _rc2(
         source_event_id=source,
         warehouse_id=uuid.UUID(ids["warehouse_id"]),
@@ -104,7 +110,7 @@ def _send_recovery(client: TestClient, ids: dict[str, Any], *, source: str) -> A
         kind=CandidateKind.TEMPERATURE_RECOVERED,
         sampled_at="2026-10-14T00:05:00Z",
         value=7.0,
-        related_source_event_id="anom-life-1",
+        related_source_event_id=related,
     )
     return client.post("/candidates", json=recovery.model_dump(mode="json"))
 
@@ -198,6 +204,73 @@ class LifecycleRouteCase(_IsolatedCase):
         # No row written by the denied attempt.
         after = admin.get(f"/alerts/{ids['event_id']}/status").json()
         self.assertEqual(after["transitions"], [])
+
+
+class AlertListCase(_IsolatedCase):
+    def test_list_shows_alert_kinds_only_with_current_status(self) -> None:
+        client = _client()
+        acked = _create_alert(client, source="anom-list-1")
+        resolved = _create_alert(client, source="anom-list-2")
+        client.post(f"/alerts/{acked['event_id']}/acknowledge")
+        rec = _send_recovery(
+            client, resolved, source="rec-list-1", related="anom-list-2"
+        )
+        self.assertEqual(rec.status_code, 201, rec.text)
+
+        r = client.get("/alerts/")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["count"], 2)
+        by_id = {row["alert_event_id"]: row for row in body["data"]}
+        self.assertEqual(by_id[acked["event_id"]]["status"], "acknowledged")
+        self.assertEqual(by_id[resolved["event_id"]]["status"], "resolved")
+        # The recovery candidate itself is traceability, not an alert.
+        self.assertEqual(
+            {row["source_event_id"] for row in body["data"]},
+            {"anom-list-1", "anom-list-2"},
+        )
+
+    def test_list_filters_by_state_and_severity(self) -> None:
+        client = _client()
+        acked = _create_alert(client, source="anom-filter-1")
+        resolved = _create_alert(client, source="anom-filter-2")
+        client.post(f"/alerts/{acked['event_id']}/acknowledge")
+        rec = _send_recovery(
+            client, resolved, source="rec-filter-1", related="anom-filter-2"
+        )
+        self.assertEqual(rec.status_code, 201, rec.text)
+
+        def ids_for(**query: str) -> set[str]:
+            r = client.get("/alerts/", params=query)
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["count"], len(r.json()["data"]))
+            return {row["alert_event_id"] for row in r.json()["data"]}
+
+        self.assertEqual(ids_for(state="open"), set())
+        self.assertEqual(ids_for(state="acknowledged"), {acked["event_id"]})
+        self.assertEqual(ids_for(state="resolved"), {resolved["event_id"]})
+        self.assertEqual(
+            ids_for(severity="warning"), {acked["event_id"], resolved["event_id"]}
+        )
+        self.assertEqual(ids_for(severity="critical"), set())
+        self.assertEqual(ids_for(state="resolved", severity="critical"), set())
+
+    def test_list_paginates_with_total_count(self) -> None:
+        client = _client()
+        _create_alert(client, source="anom-page-1")
+        _create_alert(client, source="anom-page-2")
+
+        r = client.get("/alerts/", params={"skip": 1, "limit": 1})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["count"], 2)
+        self.assertEqual(len(body["data"]), 1)
+
+    def test_list_rejects_unknown_state(self) -> None:
+        client = _client()
+        self.assertEqual(
+            client.get("/alerts/", params={"state": "closed"}).status_code, 422
+        )
 
 
 if __name__ == "__main__":

@@ -16,13 +16,17 @@ root; B never writes the global prefix here — see ``routes/__init__``).
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
 from app.modules.alerts.models import (
+    AlertEventsPublic,
+    AlertEventSummary,
     AlertLifecyclePublic,
+    AlertStatus,
     AlertStatusTransitionPublic,
 )
 from app.modules.alerts.services.events import (
@@ -31,7 +35,9 @@ from app.modules.alerts.services.events import (
     acknowledge_alert,
     get_alert_status,
     get_event,
+    list_alert_events,
     list_status_transitions,
+    statuses_for_events,
 )
 
 router = APIRouter(prefix="/alerts", tags=["alert-lifecycle"])
@@ -49,6 +55,48 @@ def _lifecycle(
             AlertStatusTransitionPublic.model_validate(row)
             for row in list_status_transitions(session, alert_event_id)
         ],
+    )
+
+
+@router.get("/", response_model=AlertEventsPublic)
+def list_alerts(
+    session: SessionDep,
+    _current_user: CurrentUser,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    state: AlertStatus | None = None,
+    severity: str | None = None,
+) -> AlertEventsPublic:
+    """Disposition list: anomalies newest first, optional state/severity.
+
+    Only events that open an alert appear here; recovery candidates and
+    device lifecycle events are excluded (see ``list_alert_events``).
+    """
+
+    rows, total = list_alert_events(
+        session, skip=skip, limit=limit, state=state, severity=severity
+    )
+    statuses = statuses_for_events(session, [row.id for row in rows])
+    return AlertEventsPublic(
+        data=[
+            AlertEventSummary(
+                alert_event_id=row.id,
+                source_event_id=row.source_event_id,
+                kind=row.kind,
+                severity=row.severity,
+                warehouse_id=row.warehouse_id,
+                batch_id=row.batch_id,
+                device_id=row.device_id,
+                metric_code=row.metric_code,
+                sampled_at=row.sampled_at,
+                value=row.value,
+                unit=row.unit,
+                status=statuses.get(row.id, AlertStatus.OPEN),
+                created_at=row.created_at,
+            )
+            for row in rows
+        ],
+        count=total,
     )
 
 
