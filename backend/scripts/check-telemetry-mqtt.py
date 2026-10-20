@@ -67,7 +67,7 @@ def run():
     if target.exists():
         raise RuntimeError("Refusing evidence overwrite")
     source_revision = os.environ["TELEMETRY_C_REVISION"]
-    if source_revision != "78e61cd347646911b3e6a6c94d0998aa23545af4":
+    if source_revision != "bc71b76368c69952657c318297452482f49881c0":
         raise RuntimeError("C source must match this proof's pinned revision")
     require_b01_candidate_schema(engine)
     # C-only candidate metadata; never called by application startup.

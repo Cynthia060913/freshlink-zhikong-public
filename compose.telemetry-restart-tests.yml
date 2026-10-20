@@ -36,7 +36,7 @@ services:
       PYTHONPATH: /tmp/telemetry-proof/backend
       TELEMETRY_A_REVISION: ${TELEMETRY_A_REVISION:?Use check-telemetry-restart.ps1}
       TELEMETRY_A_DIRTY: ${TELEMETRY_A_DIRTY:?Use check-telemetry-restart.ps1}
-      TELEMETRY_C_REVISION: "78e61cd347646911b3e6a6c94d0998aa23545af4"
+      TELEMETRY_C_REVISION: "bc71b76368c69952657c318297452482f49881c0"
       TELEMETRY_RESTART_STAGE: prepare
     volumes:
       - ./backend:/source/backend:ro
