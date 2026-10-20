@@ -298,7 +298,54 @@ def run() -> None:
                     },
                     output,
                 )
-            wait_until(lambda: (results / "browser.json").is_file(), timeout=120)
+
+            def browser_finished():
+                marker = results / "control-checkpoint.json"
+                settled = results / "telemetry-after-control.json"
+                if marker.is_file() and not settled.exists():
+                    checkpoint = json.loads(marker.read_text(encoding="utf-8"))
+                    checked_id = UUID(checkpoint["command_id"])
+                    saved = api.get(
+                        f"/api/v1/devices/{actuator}/commands/{checked_id}",
+                        headers=headers,
+                    ).json()
+                    require(
+                        saved["status"] == "acknowledged",
+                        "actual command before C history",
+                    )
+                    ack_at = datetime.fromisoformat(
+                        saved["ack_received_at"].replace("Z", "+00:00")
+                    )
+                    with engine.connect() as connection:
+                        stored = (
+                            connection.execute(
+                                select(observations)
+                                .where(
+                                    observations.c.device_id == sensor,
+                                    observations.c.first_received_at_utc > ack_at,
+                                )
+                                .order_by(observations.c.first_received_at_utc.desc())
+                                .limit(20)
+                            )
+                            .mappings()
+                            .all()
+                        )
+                    for row in stored:
+                        value = row["normalized"].get("metrics", {}).get("temperature")
+                        if isinstance(value, (int, float)) and value < before - 0.1:
+                            with settled.open("x", encoding="utf-8") as output:
+                                json.dump(
+                                    {
+                                        "observation_id": str(row["id"]),
+                                        "temperature_c": value,
+                                        "command_id": str(checked_id),
+                                    },
+                                    output,
+                                )
+                            break
+                return (results / "browser.json").is_file()
+
+            wait_until(browser_finished, timeout=120)
             browser = json.loads((results / "browser.json").read_text(encoding="utf-8"))
             require(
                 browser["phase"] == "real_browser_http_mqtt_control_passed",

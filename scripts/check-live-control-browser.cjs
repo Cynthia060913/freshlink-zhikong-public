@@ -126,6 +126,12 @@ async function run() {
     await readerPage.screenshot({ path: path.join(results, "reader-real-readonly.png"), fullPage: true })
     // Real C page over the actual continuous MQTT -> A queue -> C PG path.
     const ready = JSON.parse(fs.readFileSync(path.join(results, "ready.json"), "utf8"))
+    fs.writeFileSync(path.join(results, "control-checkpoint.json"),
+      JSON.stringify({command_id: submitted.command_id}), {flag: "wx"})
+    await expect.poll(() => fs.existsSync(path.join(results, "telemetry-after-control.json")),
+      {timeout: 20000, intervals: [100, 200, 500]}).toBe(true)
+    const afterControl = JSON.parse(fs.readFileSync(path.join(results, "telemetry-after-control.json"), "utf8"))
+    assert.equal(afterControl.command_id, submitted.command_id)
     await page.goto(`${origin}/telemetry`)
     await expect(page.getByRole("heading", { name: "遥测历史", exact: true })).toBeVisible()
     await page.getByLabel("设备 ID", { exact: true }).fill(ready.sensor_id)
