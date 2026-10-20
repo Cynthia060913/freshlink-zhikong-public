@@ -132,6 +132,8 @@ async function run() {
     assert.equal(candidate.status(), 201)
     const eventId = (await candidate.json()).event_id
     for (const targetPage of [page, readerPage]) {
+      await targetPage.keyboard.press("Escape")
+      await expect(targetPage.getByRole("dialog")).toHaveCount(0)
       await targetPage.getByRole("link", { name: "告警处置", exact: true }).click()
       await expect(targetPage).toHaveURL(`${origin}/alerts`)
       const row = targetPage.getByRole("row").filter({ hasText: sourceId })
