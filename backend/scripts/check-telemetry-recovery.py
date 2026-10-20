@@ -41,7 +41,7 @@ from app.modules.telemetry.recovery_tick_candidate import stage_recovery_page_ca
 from app.modules.telemetry.rule_evaluation_candidate import evaluate_one_batch_candidate
 from app.modules.telemetry.storage_candidate import ingest_observation, metadata
 
-C_REVISION = "e6bb8ef25974cdc6c709811c6424302caa68cb99"
+C_REVISION = "58f6bf76710bbbe68cde94dafea65bdf30232be2"
 
 
 class ActualBRulePort:

@@ -226,6 +226,46 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         self.assertEqual(capacity.status_code, 429, capacity.text)
         self.assertEqual(capacity.headers["Retry-After"], "30")
 
+    def test_detail_exposes_linked_duplicate_and_conflict_without_replacing_raw(
+        self,
+    ) -> None:
+        first_at = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
+        observation_id, original_raw = self.ingest(received_at=first_at)
+        duplicate = ingest_observation(
+            self.engine,
+            Reception(original_raw, uuid4(), first_at + timedelta(seconds=1)),
+        )
+        changed = json.loads(original_raw)
+        changed["metrics"][0]["value"] = 15
+        conflict = ingest_observation(
+            self.engine,
+            Reception(
+                json.dumps(changed, ensure_ascii=False),
+                uuid4(),
+                first_at + timedelta(seconds=2),
+            ),
+        )
+        self.assertEqual(duplicate.status, "accepted_duplicate")
+        self.assertEqual(conflict.status, "conflict")
+        self.assertEqual(duplicate.observation_id, observation_id)
+        self.assertEqual(conflict.observation_id, observation_id)
+
+        response = self.client.get(
+            BASE + f"/{observation_id}", headers=self.headers(self.user)
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["raw_text"], original_raw)
+        self.assertEqual(
+            [(row["outcome"], row["reason"]) for row in body["receptions"]],
+            [
+                ("accepted_new", ""),
+                ("accepted_duplicate", "duplicate_message"),
+                ("conflict", "conflicting_message"),
+            ],
+        )
+        self.assertEqual(body["receptions"][2]["received_at"], "2026-10-18T00:00:02Z")
+
     def test_invalid_time_range_and_storage_error_are_explicit(self) -> None:
         headers = self.headers(self.user)
         invalid = self.client.get(
