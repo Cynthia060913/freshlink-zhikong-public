@@ -1,5 +1,26 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-21 最新已存观测候选（M03 增量，未签收）
+
+- C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  功能提交 `f0e31c0ca01362009903b8a18166720236eb62cb`，Biome 排版修复后精确
+  HEAD `9a121597a18293798ad63dc10b8e98287492c84b`。有范围、鉴权的候选
+  `GET /telemetry/observations/latest` 按可信首次接收 UTC 取一条已存观测；
+  重复投递不替换最新值，轮询不创建历史快照。C 页面每 10 秒重读已提交的
+  设备/冷库范围；空、失败、超过 60 秒或时钟不一致显示风险未知，仍不能推断
+  其他设备或批次正常。历史/CSV 沿用原固定快照。
+- 本人 Windows 项目隔离 Python3.13 的历史服务单测 **4/4 OK**，Ruff lint/format、
+  语法编译和 Git diff 检查通过。HTTP 用例因项目 Python3.14 语法在本机未跑。
+  精确修复头项目 Python3.14
+  [Backend run39480816473](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39480816473)
+  **554 passed/4 skipped/115 warnings**；pre-commit、Compose、
+  [Playwright run39480816789](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39480816789)、
+  Zizmor 同头 completed/success。初始 f0 功能头的 pre-commit 因两处前端
+  排版失败，已由 9a 修复，不能把初始头记为全绿。现有 Playwright 用例并未
+  验证此候选页面交互；4 skipped 不计正式 C PG 测试。
+- 尚未验证：正式迁移/重启、共同根与导航接线、同版真实浏览器刷新和权限、
+  多设备/多批次业务风险、自动恢复、两渠道实收、完整 E1 与 M03 成品。
+
 ## 2026-10-21 C 拒收审计与详情风险提示（M03 底稿，未签收）
 
 - 本人 C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
