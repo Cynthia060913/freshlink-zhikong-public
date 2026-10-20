@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, func, select, update
+from sqlalchemy import create_engine, func, inspect, select, update
 
 from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.recovery_outbox_candidate import (
@@ -22,6 +22,9 @@ from app.modules.telemetry.recovery_progress_candidate import (
 )
 from app.modules.telemetry.recovery_progress_candidate import (
     metadata as progress_metadata,
+)
+from app.modules.telemetry.recovery_tick_candidate import (
+    stage_recovery_page_candidate,
 )
 from app.modules.telemetry.recovery_window_candidate import (
     RecoveryRuleCandidate,
@@ -40,6 +43,7 @@ _WAREHOUSE = UUID("22222222-2222-4222-8222-222222222222")
 _BATCH = UUID("33333333-3333-4333-8333-333333333333")
 _ORIGINAL = UUID("77777777-7777-4777-8777-777777777777")
 _SNAPSHOT = UUID("88888888-8888-4888-8888-888888888888")
+_SECOND = UUID("99999999-9999-4999-8999-999999999999")
 
 
 @dataclass
@@ -53,6 +57,23 @@ class Reception:
     @property
     def raw_payload(self) -> dict:
         return json.loads(self.raw_text)
+
+
+@dataclass
+class HistoricalRules:
+    selected: dict | None = None
+    failure: Exception | None = None
+
+    def __post_init__(self) -> None:
+        self.calls: list[tuple[UUID, datetime]] = []
+
+    def for_original(
+        self, original_source_event_id: UUID, anomaly_sampled_at: datetime
+    ) -> dict | None:
+        self.calls.append((original_source_event_id, anomaly_sampled_at))
+        if self.failure is not None:
+            raise self.failure
+        return self.selected
 
 
 def _selection() -> dict:
@@ -246,6 +267,85 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             self.assertEqual(
                 connection.scalar(select(func.count()).select_from(outbox)), 1
             )
+
+    def test_tick_waits_for_original_and_retries_rule_lookup(self) -> None:
+        self.progress(10, 50, 130)
+        rules = HistoricalRules(_selection())
+        pending = stage_recovery_page_candidate(
+            self.engine, historical_rules=rules, now=_BASE, limit=1
+        )
+        self.assertEqual(pending.results[0][1].status, "waiting_original")
+        self.assertEqual(rules.calls, [])
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(state="delivered")
+            )
+        rules.failure = TimeoutError("B unavailable")
+        timed_out = stage_recovery_page_candidate(
+            self.engine, historical_rules=rules, now=_BASE, limit=1
+        )
+        self.assertEqual(
+            (timed_out.results[0][1].status, timed_out.results[0][1].reason),
+            ("retryable_failure", "rule_unavailable"),
+        )
+        self.assertEqual(rules.calls, [(_ORIGINAL, _BASE)])
+        rules.failure, rules.selected = None, None
+        missing = stage_recovery_page_candidate(
+            self.engine, historical_rules=rules, now=_BASE, limit=1
+        )
+        self.assertEqual(missing.results[0][1].status, "waiting_rule")
+        rules.selected = _selection()
+        staged = stage_recovery_page_candidate(
+            self.engine, historical_rules=rules, now=_BASE, limit=1
+        )
+        again = stage_recovery_page_candidate(
+            self.engine, historical_rules=rules, now=_BASE, limit=1
+        )
+        self.assertEqual(staged.results[0][1].status, "staged")
+        self.assertEqual(again.results[0][1].status, "duplicate")
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 2
+            )
+
+    def test_tick_cursor_does_not_hide_a_waiting_window(self) -> None:
+        self.progress(10, 50, 130)
+        with self.engine.begin() as connection:
+            row = connection.execute(select(recovery_progress)).mappings().one()
+            copy = dict(row)
+            copy["original_source_event_id"] = _SECOND
+            connection.execute(recovery_progress.insert().values(**copy))
+        rules = HistoricalRules(_selection())
+        first = stage_recovery_page_candidate(
+            self.engine, historical_rules=rules, now=_BASE, limit=1
+        )
+        self.assertEqual(first.next_after, _ORIGINAL)
+        self.assertEqual(first.results[0][1].status, "waiting_original")
+        second = stage_recovery_page_candidate(
+            self.engine,
+            historical_rules=rules,
+            now=_BASE,
+            after=first.next_after,
+            limit=1,
+        )
+        self.assertEqual(second.next_after, None)
+        self.assertEqual(second.results[0][0], _SECOND)
+        self.assertEqual(second.results[0][1].status, "waiting_original")
+        self.assertEqual(rules.calls, [])
+
+    def test_tick_missing_table_is_retryable_without_implicit_schema(self) -> None:
+        empty_db = Path(self.directory.name) / "unmigrated.db"
+        engine = create_engine(f"sqlite+pysqlite:///{empty_db}")
+        try:
+            page = stage_recovery_page_candidate(
+                engine, historical_rules=HistoricalRules(_selection()), now=_BASE
+            )
+            self.assertEqual(page.status, "retryable_failure")
+            self.assertFalse(inspect(engine).has_table(recovery_progress.name))
+        finally:
+            engine.dispose()
 
 
 if __name__ == "__main__":

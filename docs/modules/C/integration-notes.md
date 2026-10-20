@@ -2,6 +2,17 @@
 
 ## 2026-10-20 已持久恢复窗口 → 冻结 F03 outbox（隔离接线候选）
 
+`recovery_tick_candidate.py::stage_recovery_page_candidate` 是 C 自有的**单次**
+有界扫描入口：按原异常 UUID 稳定分页，只处理已持久且 eligible 的窗口；
+原异常尚未由 B 回读确认为 delivered 时不查询规则。调用方注入
+`HistoricalRecoveryRulePort.for_original(original_source_event_id,
+anomaly_sampled_at)`，返回 B 在**原异常采样时刻**的规则选择（无规则返回
+`None`）。规则查询拒绝/超时分类为可重试；无规则保持 waiting_rule。
+`next_after` 可扫完本轮，下一轮必须从空 cursor 重扫等待项；即使单项等待也
+不会遮住同页后续窗口。此入口不安装后台调度、不调用真实 B、不发送 outbox，
+不承诺自动告警恢复。A 的共享运行入口和 B 历史规则适配在正式链就绪后接入，
+由 C 补同版 PG/HTTP/断线重启证据。
+
 `recovery_outbox_candidate.py::stage_eligible_recovery_candidate` 读取 C 已
 持久的原温度高异常、连续恢复窗口及窗口中每条原始观测，并消费 B 在**原异常
 采样时刻**对应的历史规则选择。只有本地原异常经 B 来源回读确认 `delivered`、
