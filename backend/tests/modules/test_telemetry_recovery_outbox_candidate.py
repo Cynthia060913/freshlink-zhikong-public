@@ -8,10 +8,15 @@ import unittest
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import create_engine, func, inspect, select, update
 
+from app.modules.telemetry.delivery_candidate import (
+    RemoteCandidateReceipt,
+    deliver_once_candidate,
+)
 from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.recovery_outbox_candidate import (
     stage_eligible_recovery_candidate,
@@ -74,6 +79,31 @@ class HistoricalRules:
         if self.failure is not None:
             raise self.failure
         return self.selected
+
+
+class RecoveryReceiptPort:
+    def __init__(self, recovery_id: UUID, digest: str) -> None:
+        self.recovery_id = recovery_id
+        self.digest = digest
+        self.original_status: Literal["open", "resolved"] = "open"
+        self.sent = 0
+
+    def lookup(self, source_event_id: UUID) -> RemoteCandidateReceipt | None:
+        if source_event_id == _ORIGINAL:
+            return RemoteCandidateReceipt(
+                _ORIGINAL, "accepted_duplicate", alert_status=self.original_status
+            )
+        if source_event_id == self.recovery_id and self.sent:
+            return RemoteCandidateReceipt(
+                self.recovery_id, "accepted_duplicate", self.digest
+            )
+        return None
+
+    def send(self, body: dict) -> RemoteCandidateReceipt:
+        if body["source_event_id"] != str(self.recovery_id):
+            raise AssertionError("unexpected recovery source")
+        self.sent += 1
+        return RemoteCandidateReceipt(self.recovery_id, "accepted_new", self.digest)
 
 
 def _selection() -> dict:
@@ -346,6 +376,59 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             self.assertFalse(inspect(engine).has_table(recovery_progress.name))
         finally:
             engine.dispose()
+
+    def test_staged_recovery_retries_same_source_until_b_reports_resolved(self) -> None:
+        self.progress(10, 50, 130)
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(state="delivered")
+            )
+        staged = stage_recovery_page_candidate(
+            self.engine,
+            historical_rules=HistoricalRules(_selection()),
+            now=_BASE + timedelta(minutes=3),
+        ).results[0][1]
+        self.assertEqual(staged.status, "staged")
+        assert staged.source_event_id is not None
+        with self.engine.connect() as connection:
+            digest = connection.execute(
+                select(outbox.c.body_sha256).where(
+                    outbox.c.source_event_id == staged.source_event_id
+                )
+            ).scalar_one()
+        b = RecoveryReceiptPort(staged.source_event_id, digest)
+        first = deliver_once_candidate(
+            self.engine,
+            source_event_id=staged.source_event_id,
+            now=_BASE + timedelta(minutes=3),
+            port=b,
+        )
+        self.assertEqual(first, "retry")
+        b.original_status = "resolved"
+        second = deliver_once_candidate(
+            self.engine,
+            source_event_id=staged.source_event_id,
+            now=_BASE + timedelta(minutes=3, seconds=31),
+            port=b,
+        )
+        self.assertEqual(second, "delivered")
+        self.assertEqual(b.sent, 1)
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    select(outbox).where(
+                        outbox.c.source_event_id == staged.source_event_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            self.assertEqual(row["state"], "delivered")
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 2
+            )
 
 
 if __name__ == "__main__":

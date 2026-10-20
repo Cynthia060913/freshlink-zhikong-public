@@ -27,6 +27,9 @@ anomaly_sampled_at)`，返回 B 在**原异常采样时刻**的规则选择（�
 调用或 HTTP 投递，也不将 B 告警自动设为 resolved。正式接线须由 C 在
 已合并 B01 后提交唯一 C 迁移，A 协调调度入口；恢复 outbox 的实际 B 接受
 及原告警 resolved 必须按来源回读确认，失败时保留同 ID 重试证据。
+本模块合成 B 端口测试已覆盖：恢复候选首次被接受但原告警仍 open 时，
+本地 outbox 留 pending/retry；下次按同 source ID 回读原告警 resolved 后
+才标记 delivered，过程中只模拟一次发送。该测试没有联系真实 B 服务。
 
 ## 2026-10-19 恢复进度隔离持久端口（待正式迁移和业务接线）
 
