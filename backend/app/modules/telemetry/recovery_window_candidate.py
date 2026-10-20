@@ -66,6 +66,8 @@ class RecoveryWindowCandidate:
     observation_ids: tuple[UUID, ...] = ()
     last_matching_at: datetime | None = None
     eligible: bool = False
+    last_received_at: datetime | None = None
+    last_received_observation_id: UUID | None = None
 
     def __post_init__(self) -> None:
         _utc(self.anomaly_sampled_at)
@@ -73,6 +75,12 @@ class RecoveryWindowCandidate:
             _utc(self.last_sampled_at)
         if self.last_matching_at is not None:
             _utc(self.last_matching_at)
+        if self.last_received_at is not None:
+            _utc(self.last_received_at)
+        if (self.last_received_at is None) != (
+            self.last_received_observation_id is None
+        ):
+            raise ValueError("recovery receipt watermark must have both parts")
 
 
 @dataclass(frozen=True)
@@ -85,6 +93,7 @@ class RecoverySampleCandidate:
     temperature_c: float | None
     quality: tuple[str, ...]
     duplicate: Literal["new", "duplicate", "conflict"]
+    received_at: datetime | None = None
 
 
 def advance_recovery_window(
@@ -106,6 +115,40 @@ def advance_recovery_window(
         or sample.batch_id != window.batch_id
     ):
         return window, "unrelated"
+    received_at = _utc(sample.received_at) if sample.received_at is not None else None
+    if window.last_received_at is not None and received_at is None:
+        raise ValueError("received_at required after a receipt watermark is stored")
+    if received_at is not None and window.last_received_at is not None:
+        previous_id = window.last_received_observation_id
+        if previous_id is None:
+            raise ValueError("recovery receipt watermark is incomplete")
+        if (received_at, sample.observation_id.int) <= (
+            _utc(window.last_received_at),
+            previous_id.int,
+        ):
+            return (
+                window,
+                "duplicate" if sample.observation_id == previous_id else "late",
+            )
+    advanced, decision = _advance_evidence(window, sample, rule)
+    if received_at is None or sample.duplicate == "duplicate":
+        return advanced, decision
+    return (
+        replace(
+            advanced,
+            last_received_at=received_at,
+            last_received_observation_id=sample.observation_id,
+        ),
+        decision,
+    )
+
+
+def _advance_evidence(
+    window: RecoveryWindowCandidate,
+    sample: RecoverySampleCandidate,
+    rule: RecoveryRuleCandidate,
+) -> tuple[RecoveryWindowCandidate, RecoveryDecision]:
+    """Apply sampling evidence after the optional receipt-order gate."""
     if sample.duplicate == "duplicate":
         return window, "duplicate"
     if sample.duplicate == "conflict":

@@ -1,5 +1,20 @@
 # C 共享接线请求
 
+## 2026-10-20 可信接收顺序水位（C 隔离候选，待正式迁移）
+
+`recovery_observation_candidate.py` 从已存 C observation 读取 A 可信
+`first_received_at_utc`，与 observation UUID 组成稳定顺序键。
+`recovery_progress_candidate.py` 在原异常窗口内持久记录
+`last_received_at_utc` 和 `last_received_observation_id`；窗口按此键逐条推进，
+较早或同一观测的重放不能在重启后再次清空后来积累的恢复证据。
+即使设备 `sampled_at` 非法/缺失，该行的可信接收水位仍会被记录，质量保持未知且
+本次恢复窗口重置一次，不计入三条合格样本。此处不改变原始观测或高温值。
+调用方须按 `(first_received_at_utc, observation_id)` 升序扫描；同刻使用 UUID
+稳定打破平局。没有可信接收时间的旧纯判据仍可单独测试，但已写入水位的窗口
+拒绝再用缺少 `received_at` 的样本更新。正式 C 十表迁移需要包含这两列；
+本次仅更改隔离候选 metadata/服务/回归，未在共享 Alembic 激活迁移、调度或
+主程序接线。尚未实现跨窗口的持久扫描游标及多批次独立 evaluation 状态。
+
 ## 2026-10-20 当前 C→A 正式迁移交接清单（待 B01 安全复审）
 
 C 候选共有十张表，不能只导入 `storage_candidate`：其中九张属于

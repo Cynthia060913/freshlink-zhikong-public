@@ -309,6 +309,48 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
                 connection.scalar(select(func.count()).select_from(outbox)), 1
             )
 
+    def test_invalid_time_replay_after_restart_cannot_reset_newer_progress(self) -> None:
+        def advance(observation_id: UUID):
+            return advance_saved_recovery_observation_candidate(
+                self.engine,
+                original_source_event_id=_ORIGINAL,
+                observation_id=observation_id,
+                batch_id=_BATCH,
+                historical_rule=_selection(),
+            )
+
+        first = self.ingest(10, 6.5)
+        self.assertEqual(advance(first).decision, "progress")
+        bad_raw = {
+            "schema_version": "1.0",
+            "device_id": str(_DEVICE),
+            "message_id": str(uuid4()),
+            "sampled_at": "not-a-time",
+            "metrics": [{"key": "temperature", "value": 6.5, "unit": "°C"}],
+        }
+        bad_result = ingest_observation(
+            self.engine,
+            Reception(
+                json.dumps(bad_raw), uuid4(), _BASE + timedelta(seconds=20)
+            ),
+        )
+        self.assertEqual(bad_result.status, "accepted_new")
+        assert bad_result.observation_id is not None
+        bad = bad_result.observation_id
+        self.assertEqual(advance(bad).decision, "reset")
+        later = self.ingest(30, 6.5)
+        self.assertEqual(advance(later).decision, "progress")
+        self.engine.dispose()
+        self.engine = create_engine(f"sqlite+pysqlite:///{self.db}")
+        self.assertEqual(advance(bad).decision, "late")
+        self.assertEqual(advance(later).decision, "duplicate")
+        with self.engine.connect() as connection:
+            saved = connection.execute(select(recovery_progress)).mappings().one()
+            self.assertEqual(saved["observation_ids"], [str(later)])
+            self.assertEqual(saved["last_received_observation_id"], later)
+        self.assertEqual(advance(self.ingest(40, 6.5)).decision, "progress")
+        self.assertEqual(advance(self.ingest(50, 6.5)).decision, "eligible")
+
     def test_saved_missing_unit_rule_or_tampered_quality_never_proves_recovery(
         self,
     ) -> None:
