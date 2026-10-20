@@ -309,7 +309,9 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
                 connection.scalar(select(func.count()).select_from(outbox)), 1
             )
 
-    def test_invalid_time_replay_after_restart_cannot_reset_newer_progress(self) -> None:
+    def test_invalid_time_replay_after_restart_cannot_reset_newer_progress(
+        self,
+    ) -> None:
         def advance(observation_id: UUID):
             return advance_saved_recovery_observation_candidate(
                 self.engine,
@@ -330,9 +332,7 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
         }
         bad_result = ingest_observation(
             self.engine,
-            Reception(
-                json.dumps(bad_raw), uuid4(), _BASE + timedelta(seconds=20)
-            ),
+            Reception(json.dumps(bad_raw), uuid4(), _BASE + timedelta(seconds=20)),
         )
         self.assertEqual(bad_result.status, "accepted_new")
         assert bad_result.observation_id is not None
