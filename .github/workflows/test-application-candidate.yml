@@ -31,15 +31,27 @@ jobs:
       - name: Build only pinned Git archive and verify image source
         shell: pwsh
         run: |
-          ./scripts/windows/test-source-candidate-export.ps1
-          $source=(& git rev-parse HEAD).Trim()
-          ./scripts/windows/build-application-candidate.ps1 -Revision $source
-          if ($LASTEXITCODE -ne 0) { throw 'Archive image build failed' }
+          try {
+            ./scripts/windows/test-source-candidate-export.ps1
+            $source=(& git rev-parse HEAD).Trim()
+            ./scripts/windows/build-application-candidate.ps1 -Revision $source
+            if ($LASTEXITCODE -ne 0) { throw 'Archive image build failed' }
+          } catch {
+            $message=$_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Archive build gate::$message"
+            throw
+          }
       - name: Run default image CMD with owned DB and no source mounts
         shell: pwsh
         run: |
-          docker pull postgres:18
-          if ($LASTEXITCODE -ne 0) { throw 'Disposable PG image unavailable' }
-          $reports=@(Get-ChildItem -LiteralPath ./work/source-candidates -Recurse -Filter application-build.json)
-          if ($reports.Count -ne 1) { throw 'Cannot identify exactly one archive build report' }
-          ./scripts/windows/check-application-candidate.ps1 -BuildReport $reports[0].FullName
+          try {
+            docker pull postgres:18
+            if ($LASTEXITCODE -ne 0) { throw 'Disposable PG image unavailable' }
+            $reports=@(Get-ChildItem -LiteralPath ./work/source-candidates -Recurse -Filter application-build.json)
+            if ($reports.Count -ne 1) { throw 'Cannot identify exactly one archive build report' }
+            ./scripts/windows/check-application-candidate.ps1 -BuildReport $reports[0].FullName
+          } catch {
+            $message=$_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Default image HTTP gate::$message"
+            throw
+          }
