@@ -23,6 +23,20 @@ function parseCsv(text) {
   return rows
 }
 
+function checkCoolingHistory(items, ackAt, checkpointId) {
+  const ack = Date.parse(ackAt)
+  assert(Number.isFinite(ack))
+  const before = items.filter((item) => Date.parse(item.received_at) <= ack)
+    .sort((a, b) => Date.parse(a.received_at) - Date.parse(b.received_at))
+  const after = items.filter((item) => Date.parse(item.received_at) > ack)
+  assert(before.length && after.length, "C history must span actual ACK")
+  assert(after.some((item) => item.observation_id === checkpointId), "verified post-ACK sample must belong to snapshot")
+  const baseline = before[before.length - 1].temperature_c
+  const minimum = Math.min(...after.map((item) => item.temperature_c))
+  assert(minimum < baseline - 0.05, "C history must contain cooling after the actual command")
+  return { baseline, minimum }
+}
+
 async function run() {
   const [origin, results, moduleRoot, executablePath] = process.argv.slice(2)
   const url = new URL(origin)
@@ -180,8 +194,7 @@ async function run() {
       && item.warehouse_id === ready.warehouse_id && item.risk_state === "unknown"))
     const temperatures = allItems.map((item) => item.temperature_c)
     assert(temperatures.every(Number.isFinite))
-    assert(Math.min(...temperatures) < temperatures[0] - 0.05,
-      "C history must contain cooling after the actual command")
+    const cooling = checkCoolingHistory(allItems, detail.ack_received_at, afterControl.observation_id)
     const downloadEvent = page.waitForEvent("download")
     await page.getByRole("button", { name: "导出本次快照 CSV", exact: true }).click()
     const download = await downloadEvent
@@ -220,8 +233,8 @@ async function run() {
       telemetry_history_csv_passed: true,
       telemetry_snapshot_total: first.total,
       telemetry_snapshot_id: first.snapshot_id,
-      c_temperature_first: temperatures[0],
-      c_temperature_min: Math.min(...temperatures),
+      c_temperature_before_ack: cooling.baseline,
+      c_temperature_after_ack_min: cooling.minimum,
       csv_same_snapshot_all_pages: true,
       c_raw_detail_visible: true,
       anonymous_csv_401_and_other_actor_422: true,
@@ -237,7 +250,14 @@ if (process.argv[2] === "--csv-self-test") {
   assert.deepEqual(parseCsv('"a,b","quote""inside"\r\n'), [["a,b", 'quote"inside']])
   assert.deepEqual(parseCsv('"line\nbreak",""\r\n'), [["line\nbreak", ""]])
   assert.throws(() => parseCsv('"unfinished\n'))
-  console.log("PASS 4 CSV parser regression cases")
+  const rows = [
+    {observation_id:"start",received_at:"2026-10-20T00:00:00Z",temperature_c:10},
+    {observation_id:"warm",received_at:"2026-10-20T00:00:10Z",temperature_c:10.3},
+    {observation_id:"cool",received_at:"2026-10-20T00:00:12Z",temperature_c:10.1},
+  ]
+  assert.deepEqual(checkCoolingHistory(rows,"2026-10-20T00:00:11Z","cool"), {baseline:10.3,minimum:10.1})
+  assert.throws(() => checkCoolingHistory(rows.slice(0,2),"2026-10-20T00:00:11Z","cool"))
+  console.log("PASS 4 CSV parser and 2 cooling-baseline regression cases")
 } else {
   run().catch((error) => {
     console.error(error.message)
