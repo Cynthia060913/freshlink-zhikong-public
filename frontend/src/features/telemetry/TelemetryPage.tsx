@@ -322,10 +322,7 @@ export default function TelemetryPage() {
               )}
               <ul className="mt-2 space-y-2 text-sm">
                 {detail.data.receptions.map((attempt) => (
-                  <li
-                    key={attempt.reception_id}
-                    className="rounded border p-2"
-                  >
+                  <li key={attempt.reception_id} className="rounded border p-2">
                     <span>{attempt.received_at}</span>
                     {" · "}
                     <span>
