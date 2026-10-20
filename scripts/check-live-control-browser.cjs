@@ -167,9 +167,35 @@ async function run() {
     }, null, 2), {flag: "wx"})
     assert(first.total >= 25 && first.next_cursor)
     await expect(page.locator("tbody tr")).toHaveCount(20)
+    // Exercise C's new linked-reception display using actual MQTT, not a mocked
+    // DTO: server republishes this real raw message and an altered same-ID body.
+    fs.writeFileSync(path.join(results, "linked-reception-request.json"),
+      JSON.stringify({observation_id: first.items[0].observation_id}), {flag: "wx"})
+    await expect.poll(() => fs.existsSync(path.join(results, "linked-reception-ready.json")),
+      {timeout: 15000, intervals: [100, 200, 500]}).toBe(true)
+    const evidenceResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === `/api/v1/telemetry/observations/${first.items[0].observation_id}`)
     await page.locator("tbody tr").first().getByRole("button", { name: "查看", exact: true }).click()
+    const evidence = await evidenceResponse
+    assert.equal(evidence.status(), 200)
+    const receptionDetail = await evidence.json()
+    assert.deepEqual([...new Set(receptionDetail.receptions.map((row) => row.outcome))].sort(),
+      ["accepted_duplicate", "accepted_new", "conflict"])
     await expect(page.getByRole("heading", { name: "观测原始证据", exact: true })).toBeVisible()
     await expect(page.locator("pre")).toContainText(ready.sensor_id)
+    const evidenceSection = page.locator("section").filter({
+      has: page.getByRole("heading", {name: "观测原始证据", exact: true}),
+    })
+    await expect(evidenceSection.getByText(`与此观测关联的接收记录：${receptionDetail.receptions.length} 次`,
+      {exact: true})).toBeVisible()
+    await expect(evidenceSection.locator("ul > li")).toHaveCount(receptionDetail.receptions.length)
+    await expect(evidenceSection).toContainText("首次保存")
+    await expect(evidenceSection).toContainText("重复接收")
+    await expect(evidenceSection).toContainText("消息冲突")
+    await expect(evidenceSection).toContainText("同一消息 ID 的内容改变")
+    await expect(evidenceSection.getByRole("alert")).toContainText("不能把冲突数据判为正常")
+    assert.equal(await page.locator("pre").textContent(), receptionDetail.raw_text)
+    await page.screenshot({path: path.join(results, "linked-reception-real-conflict.png"), fullPage: true})
     const allItems = [...first.items]
     let current = first
     for (let pages = 0; current.next_cursor; pages += 1) {
@@ -237,6 +263,9 @@ async function run() {
       c_temperature_after_ack_min: cooling.minimum,
       csv_same_snapshot_all_pages: true,
       c_raw_detail_visible: true,
+      linked_reception_evidence_passed: true,
+      linked_reception_count: receptionDetail.receptions.length,
+      linked_conflict_warning_visible: true,
       anonymous_csv_401_and_other_actor_422: true,
       not_tested: ["formal A/C migration", "automatic evaluation/recovery", "two real notifications", "full E1"],
     }, null, 2), { flag: "wx" })

@@ -64,7 +64,11 @@ def run() -> None:
         TelemetryReceiver,
     )
     from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
-    from app.modules.telemetry.storage_candidate import ingest_observation, observations
+    from app.modules.telemetry.storage_candidate import (
+        ingest_observation,
+        observations,
+        receptions,
+    )
     from app.modules.telemetry.storage_candidate import metadata as c_metadata
 
     sensor = UUID("11111111-1111-4111-8111-111111111111")
@@ -299,6 +303,8 @@ def run() -> None:
                     output,
                 )
 
+            linked_probe = {"requested": False}
+
             def browser_finished():
                 marker = results / "control-checkpoint.json"
                 settled = results / "telemetry-after-control.json"
@@ -343,6 +349,52 @@ def run() -> None:
                                     output,
                                 )
                             break
+                linked_request = results / "linked-reception-request.json"
+                linked_ready = results / "linked-reception-ready.json"
+                if linked_request.is_file() and not linked_ready.exists():
+                    requested = json.loads(linked_request.read_text(encoding="utf-8"))
+                    observation_id = UUID(requested["observation_id"])
+                    with engine.connect() as connection:
+                        original = (
+                            connection.execute(
+                                select(observations).where(
+                                    observations.c.id == observation_id,
+                                    observations.c.device_id == sensor,
+                                    observations.c.warehouse_id == warehouse_id,
+                                )
+                            )
+                            .mappings()
+                            .one()
+                        )
+                    if not linked_probe["requested"]:
+                        changed = json.loads(original["raw_text"])
+                        temperature = next(
+                            metric
+                            for metric in changed["metrics"]
+                            if metric["key"] == "temperature"
+                        )
+                        temperature["value"] += 5
+                        # Real sensor credentials/topic, no direct C fixture writes.
+                        # Broker acceptance alone is NOT the following checkpoint.
+                        for raw in (
+                            original["raw_text"],
+                            json.dumps(changed, ensure_ascii=False),
+                        ):
+                            device.sensor.publish(
+                                f"freshlink/v1/devices/{sensor}/telemetry", raw, qos=1
+                            ).wait_for_publish(5)
+                        linked_probe["requested"] = True
+                    with engine.connect() as connection:
+                        outcomes = set(
+                            connection.scalars(
+                                select(receptions.c.outcome).where(
+                                    receptions.c.observation_id == observation_id
+                                )
+                            )
+                        )
+                    if {"accepted_new", "accepted_duplicate", "conflict"} <= outcomes:
+                        with linked_ready.open("x", encoding="utf-8") as output:
+                            json.dump({"observation_id": str(observation_id)}, output)
                 return (results / "browser.json").is_file()
 
             wait_until(browser_finished, timeout=120)
@@ -364,6 +416,10 @@ def run() -> None:
                 "real telemetry page/fixed-snapshot CSV",
             )
             require(
+                browser.get("linked_reception_evidence_passed") is True,
+                "real MQTT duplicate/conflict shown by current C detail page",
+            )
+            require(
                 delivery.completed >= browser["telemetry_snapshot_total"],
                 "C durable delivery count",
             )
@@ -379,6 +435,7 @@ def run() -> None:
                 "command": detail,
                 "execution_count": 1,
                 "telemetry_history_csv_passed": True,
+                "linked_reception_evidence_passed": True,
                 "c_durable_deliveries": delivery.completed,
                 "fixture_resend_seconds": 30,
                 "temperature_before": before,
