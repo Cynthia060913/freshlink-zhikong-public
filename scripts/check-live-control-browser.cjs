@@ -109,7 +109,9 @@ async function run() {
     // Deliberately do NOT exercise administrator ACK while B's race is open.
     const warehouses = await context.request.get(`${origin}/api/v1/warehouses/`, { headers })
     assert.equal(warehouses.status(), 200)
-    const warehouseId = (await warehouses.json()).data[0].id
+    const warehouseRows = await warehouses.json()
+    assert(Array.isArray(warehouseRows) && warehouseRows.length === 1)
+    const warehouseId = warehouseRows[0].id
     const batch = await context.request.post(`${origin}/api/v1/warehouses/${warehouseId}/batches`, {
       headers, data: { code: "alerts-browser-synthetic", product: "apple" },
     })
