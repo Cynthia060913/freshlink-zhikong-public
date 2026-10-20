@@ -1,5 +1,16 @@
 # C 共享接线请求
 
+## 2026-10-20 B F02 读取失败的 C 候选处理
+
+`rule_evaluation_candidate.py::evaluate_one_batch_candidate` 消费注入的
+`F02SelectionPort` 时，将数据库读取故障、权限/认证暂不可用、超时和连接中断
+分别返回 `retryable_failure`，保留 evaluation `pending`、原始观测和未知风险，
+不生成 F03 候选；恢复后仍对同一观测和可信批次重试。非法规则 envelope
+继续阻断为 `held_unknown`，明确 `no_rule` 仍保持未知，不把它们当暂时故障。
+本次只调整 C 隔离消费端口和回归；B 的正式 HTTP/数据库异常映射及 A 的
+持续任务领取仍需同版接线测试。多批次同观测需独立 evaluation 状态，当前
+`telemetry_evaluation_candidate` 仅以 observation ID 为键，不适合扩大范围。
+
 ## 2026-10-20 可信接收顺序水位（C 隔离候选，待正式迁移）
 
 `recovery_observation_candidate.py` 从已存 C observation 读取 A 可信
