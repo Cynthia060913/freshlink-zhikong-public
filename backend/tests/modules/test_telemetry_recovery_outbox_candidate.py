@@ -48,6 +48,8 @@ from app.modules.telemetry.storage_candidate import (
     ingest_observation,
     metadata,
     observations,
+    reception_reuse_conflicts,
+    receptions,
 )
 
 _BASE = datetime(2026, 10, 19, tzinfo=UTC)
@@ -226,6 +228,127 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
                 ),
             )
         return saved.observation_ids
+
+    def invalid_reception(self, second: int) -> UUID:
+        reception_id = uuid4()
+        payload = {
+            "schema_version": "0.0",
+            "device_id": str(_DEVICE),
+            "message_id": str(uuid4()),
+            "sampled_at": (_BASE + timedelta(seconds=second)).isoformat(),
+            "metrics": [{"key": "temperature", "value": 6.5, "unit": "°C"}],
+        }
+        result = ingest_observation(
+            self.engine,
+            Reception(
+                json.dumps(payload, ensure_ascii=False),
+                reception_id,
+                _BASE + timedelta(seconds=second),
+            ),
+        )
+        self.assertEqual(result.status, "invalid")
+        return reception_id
+
+    def test_saved_invalid_reception_holds_observation_scan(self) -> None:
+        for second in (10, 50, 130):
+            self.ingest(second, 6.5)
+        reception_id = self.invalid_reception(70)
+        page = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+        )
+        self.assertEqual(
+            (page.status, page.reason, page.results),
+            ("held_invalid_evidence", "unresolved_reception_evidence", ()),
+        )
+        self.assertIsNone(load_recovery_progress(self.engine, _ORIGINAL))
+        with self.engine.connect() as connection:
+            receipt = (
+                connection.execute(
+                    select(receptions).where(receptions.c.id == reception_id)
+                )
+                .mappings()
+                .one()
+            )
+        self.assertEqual(receipt["outcome"], "invalid")
+
+    def test_late_saved_conflict_holds_eligible_outbox_staging(self) -> None:
+        ids = self.progress(10, 50, 130)
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(state="delivered")
+            )
+            row = (
+                connection.execute(
+                    select(observations).where(observations.c.id == ids[1])
+                )
+                .mappings()
+                .one()
+            )
+        altered = json.loads(row["raw_text"])
+        altered["metrics"][0]["value"] = 12.0
+        conflict = ingest_observation(
+            self.engine,
+            Reception(
+                json.dumps(altered, ensure_ascii=False),
+                uuid4(),
+                _BASE + timedelta(seconds=70),
+            ),
+        )
+        self.assertEqual(conflict.status, "conflict")
+        staged = self.stage()
+        self.assertEqual(
+            (staged.status, staged.reason),
+            ("held_invalid_evidence", "unresolved_reception_evidence"),
+        )
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 1
+            )
+
+    def test_reused_reception_id_conflict_also_holds_recovery(self) -> None:
+        self.progress(10, 50, 130)
+        with self.engine.connect() as connection:
+            first = (
+                connection.execute(
+                    select(receptions).where(receptions.c.outcome == "accepted_new")
+                )
+                .mappings()
+                .first()
+            )
+        assert first is not None
+        altered = json.loads(first["raw_text"])
+        altered["metrics"][0]["value"] = 12.0
+        conflict = ingest_observation(
+            self.engine,
+            Reception(
+                json.dumps(altered, ensure_ascii=False),
+                first["id"],
+                _BASE + timedelta(seconds=70),
+            ),
+        )
+        self.assertEqual(conflict.status, "conflict")
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(
+                    select(func.count()).select_from(reception_reuse_conflicts)
+                ),
+                1,
+            )
+        page = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+        )
+        self.assertEqual(
+            (page.status, page.reason),
+            ("held_invalid_evidence", "unresolved_reception_evidence"),
+        )
 
     def stage(self, rule: dict | None = None):
         return stage_eligible_recovery_candidate(
