@@ -245,7 +245,8 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
 
     def test_time_and_quality_filters_match_csv_and_preserve_bad_unit(self) -> None:
         start = datetime(2026, 10, 18, 1, tzinfo=UTC)
-        self.ingest(
+        sampled_out_id, _ = self.ingest(
+            unit="°F",
             sampled_at="2026-10-18T00:00:00Z",
             received_at=start,
         )
@@ -255,9 +256,16 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
             sampled_at="2026-10-18T01:00:00Z",
             received_at=start + timedelta(minutes=1),
         )
-        self.ingest(
+        sampled_end_id, _ = self.ingest(
             temperature=13,
+            unit="°F",
             sampled_at="2026-10-18T02:00:00Z",
+            received_at=start + timedelta(minutes=2),
+        )
+        received_end_id, _ = self.ingest(
+            temperature=14,
+            unit="°F",
+            sampled_at="2026-10-18T01:30:00Z",
             received_at=start + timedelta(hours=1),
         )
         headers = self.headers(self.user)
@@ -273,6 +281,18 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         self.assertEqual(page.json()["total"], 1)
         item = page.json()["items"][0]
         self.assertEqual(item["observation_id"], str(bad_id))
+        self.assertNotIn(
+            str(sampled_out_id),
+            [row["observation_id"] for row in page.json()["items"]],
+        )
+        self.assertNotIn(
+            str(sampled_end_id),
+            [row["observation_id"] for row in page.json()["items"]],
+        )
+        self.assertNotIn(
+            str(received_end_id),
+            [row["observation_id"] for row in page.json()["items"]],
+        )
         self.assertIsNone(item["temperature_c"])
         self.assertEqual(item["risk_state"], "unknown")
 
