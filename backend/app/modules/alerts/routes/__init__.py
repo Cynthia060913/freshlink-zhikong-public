@@ -15,7 +15,8 @@ Contract with A (PR #10 review round 2 + A comment 6110998037):
   ``app/modules/alerts/routes/`` and no occurrence of the literal
   ``api/v1`` or ``API_V1_STR`` in any file under
   ``app/modules/alerts/``.
-- Current aggregated sub-routers: warehouses / batches /
+- Current aggregated sub-routers: alert-lifecycle (status read +
+  superuser acknowledge) / warehouses / batches /
   rule-snapshots / candidates + device-events (F03/F04 ingestion,
   five-way receipts) / notification attempts listing. **Not**
   implemented yet: rule evaluation → notification dispatch, so
@@ -34,6 +35,7 @@ from fastapi import APIRouter
 
 from .batches import router as batches_router
 from .events import router as events_router
+from .lifecycle import router as lifecycle_router
 from .rule_snapshots import router as rule_snapshots_router
 from .warehouses import router as warehouse_router
 
@@ -42,5 +44,6 @@ router.include_router(warehouse_router)
 router.include_router(batches_router)
 router.include_router(rule_snapshots_router)
 router.include_router(events_router)
+router.include_router(lifecycle_router)
 
 __all__ = ["router"]

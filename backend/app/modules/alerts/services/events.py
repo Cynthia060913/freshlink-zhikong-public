@@ -30,6 +30,7 @@ import json
 import uuid
 
 from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, SQLModel, col, func, select
 
 from app.modules.alerts.models import (
@@ -220,6 +221,111 @@ def list_status_transitions(
             )
         ).all()
     )
+
+
+# Kinds that OPEN an alert. Recovery candidates are traceability
+# records for an existing alert, and device lifecycle events are
+# ingestion records (device offline alerting is not part of B2), so
+# neither belongs in the disposition list.
+_ALERT_EVENT_KINDS: tuple[str, ...] = (
+    str(CandidateKind.TEMPERATURE_HIGH),
+    str(CandidateKind.TEMPERATURE_LOW),
+    str(CandidateKind.HUMIDITY_HIGH),
+    str(CandidateKind.HUMIDITY_LOW),
+    str(CandidateKind.DATA_QUALITY),
+)
+
+
+def _state_condition(state: AlertStatus) -> ColumnElement[bool]:
+    """SQL filter for a lifecycle state over ``alerts_status_transition``.
+
+    Allowed transitions are ``open -> acknowledged`` and
+    ``open|acknowledged -> resolved``; nothing transitions back to
+    ``open``. So ``open`` is exactly "no transition row",
+    ``acknowledged`` is "an ack row but no resolved row", and
+    ``resolved`` is "a resolved row" — no latest-row ordering needed.
+    """
+
+    def transition_exists(target: AlertStatus) -> ColumnElement[bool]:
+        return (
+            select(AlertStatusTransition.id)
+            .where(
+                col(AlertStatusTransition.alert_event_id) == col(AlertEvent.id),
+                col(AlertStatusTransition.to_status) == target,
+            )
+            .exists()
+        )
+
+    acknowledged = transition_exists(AlertStatus.ACKNOWLEDGED)
+    resolved = transition_exists(AlertStatus.RESOLVED)
+    if state is AlertStatus.OPEN:
+        return ~acknowledged & ~resolved
+    if state is AlertStatus.ACKNOWLEDGED:
+        return acknowledged & ~resolved
+    return resolved
+
+
+def list_alert_events(
+    session: Session,
+    *,
+    skip: int = 0,
+    limit: int = 50,
+    state: AlertStatus | None = None,
+    severity: str | None = None,
+) -> tuple[list[AlertEvent], int]:
+    """Paginated anomalies for the disposition console, newest first.
+
+    ``state`` filters on the lifecycle status (see
+    :func:`_state_condition`); ``severity`` filters the stored
+    severity tier. Recovery candidates and device lifecycle events are
+    excluded: they never open an alert.
+    """
+
+    condition: ColumnElement[bool] = col(AlertEvent.kind).in_(_ALERT_EVENT_KINDS)
+    if state is not None:
+        condition = condition & _state_condition(state)
+    if severity is not None:
+        condition = condition & (col(AlertEvent.severity) == severity)
+
+    total = session.exec(
+        select(func.count()).select_from(AlertEvent).where(condition)
+    ).one()
+    rows = list(
+        session.exec(
+            select(AlertEvent)
+            .where(condition)
+            .order_by(col(AlertEvent.created_at).desc(), col(AlertEvent.id).desc())
+            .offset(skip)
+            .limit(limit)
+        ).all()
+    )
+    return rows, total
+
+
+def statuses_for_events(
+    session: Session, event_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, AlertStatus]:
+    """Current status per event id with ONE query (no N+1).
+
+    Transitions are read newest first; the first row seen per event is
+    its latest transition, exactly the ordering used by
+    :func:`get_alert_status`.
+    """
+
+    if not event_ids:
+        return {}
+    rows = session.exec(
+        select(AlertStatusTransition)
+        .where(col(AlertStatusTransition.alert_event_id).in_(event_ids))
+        .order_by(
+            col(AlertStatusTransition.created_at).desc(),
+            col(AlertStatusTransition.id).desc(),
+        )
+    ).all()
+    latest: dict[uuid.UUID, AlertStatus] = {}
+    for row in rows:
+        latest.setdefault(row.alert_event_id, row.to_status)
+    return latest
 
 
 def _recovery_transition(
@@ -485,3 +591,40 @@ def list_attempts_for_event(
         .limit(limit)
     ).all()
     return list(rows), int(total)
+
+
+class AlertAlreadyResolved(Exception):
+    """A human acknowledgement cannot re-open or annotate a resolved
+    alert: resolution is a machine fact committed with the recovery
+    candidate, and the transition history is append-only."""
+
+
+def acknowledge_alert(
+    session: Session, alert_event_id: uuid.UUID, *, reason: str | None = None
+) -> tuple[AlertStatus, bool]:
+    """Operator acknowledgement: ``open -> acknowledged``.
+
+    Returns ``(current_status, created)`` where ``created`` is False
+    for an idempotent repeat (the alert is already acknowledged — no
+    second transition row is written). A ``resolved`` alert rejects
+    with :class:`AlertAlreadyResolved`; nothing is written on
+    rejection. There is no ``acknowledged -> open`` path: the
+    transition table is append-only.
+    """
+
+    get_event(session, alert_event_id)
+    current = get_alert_status(session, alert_event_id)
+    if current is AlertStatus.RESOLVED:
+        raise AlertAlreadyResolved(f"alert {alert_event_id} is resolved")
+    if current is AlertStatus.ACKNOWLEDGED:
+        return current, False
+    session.add(
+        AlertStatusTransition(
+            alert_event_id=alert_event_id,
+            from_status=AlertStatus.OPEN,
+            to_status=AlertStatus.ACKNOWLEDGED,
+            reason=(reason or None),
+        )
+    )
+    session.commit()
+    return AlertStatus.ACKNOWLEDGED, True

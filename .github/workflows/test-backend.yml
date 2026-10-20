@@ -35,6 +35,11 @@ jobs:
         run: uv run bash scripts/prestart.sh
         working-directory: backend
       - name: Run tests
+        env:
+          # Controlled test entry for B's live PostgreSQL migration checks:
+          # they create/drop their own random throwaway DB and never touch
+          # the configured application database.
+          B01_LIVE_PG_TESTS: "1"
         run: uv run bash scripts/tests-start.sh "Coverage for ${{ github.sha }}"
         working-directory: backend
       - run: docker compose down -v --remove-orphans
