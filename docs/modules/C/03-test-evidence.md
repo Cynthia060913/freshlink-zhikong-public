@@ -1,5 +1,34 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-20 最新 C 精确头（M03 底稿，未签收）
+
+- C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  已推送 `bc71b76368c69952657c318297452482f49881c0`，基于共同 main
+  `e235a25650fce96b3ec92888e28a3d0702b16a06`。新独立端口将已持久的
+  连续恢复窗口与 C F03 outbox 连接：核对原异常本地 delivered、原时刻的
+  历史规则、每条恢复观测质量/时间/身份后，冻结稳定来源 ID 的恢复正文；
+  重开 SQLite 文件重复调用不多一条事件，规则不符、缺失或污染观测阻断。
+  入口目前仍需调用方显式触发，不是正式自动恢复。
+- 本人 Windows/Codex 隔离 Python 3.13 + SQLite 文件库，相关 C 存储、
+  恢复、F03、outbox、投递和规则 **71/71 OK**；新模块 Ruff lint/format、
+  Mypy strict、Ty 和暂存文本安全扫描通过。扩展通配收集共 173 项，含 2 项
+  导入错误和 6 项环境跳过：本机 3.13 不能解析项目 3.14 的 PEP 758 语法，
+  隔离环境也缺 FastAPI；这不是 A 源码缺陷，不把本机通配收集称为通过。
+  Docker、psycopg 和真实 PostgreSQL 在本机未安装/未运行。
+- 精确 HEAD 五项远端 Actions 均 completed/success；[Backend run
+  39283815955](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39283815955)
+  在项目 Python 3.14 环境跑整仓 **488 passed / 4 skipped / 103 warnings、
+  93% 总覆盖率**。整仓数不是 C 专项数，4 项跳过不算实跑；通用 Compose
+  和 Playwright 成功不证明 C 正式 API/页面或完整 E1。
+- A 对较早 C `78e61cd347646911b3e6a6c94d0998aa23545af4`
+  [受控 PG 实测](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6270680816)
+  为遥测 177/177、持久窗口探针 5/5；不是本 `bc71…` 的同头 PG。
+  B [PR #10](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10)
+  `2a5575923e765baf4134eabe25e3f73dbcff08be` 仍 draft/未合 main，正式 C
+  迁移接审核合入后的唯一链；真实 B 恢复、共享主程序、E1、第二机和 M03
+  签收均未完成。当前进度以 [C #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6263404899)
+  为准。
+
 ## 2026-10-19 当前 C 证据（M03 底稿，未签收）
 
 - 共同 main `46fa463d6ca4f71965b8db74b08a41f352b05cfb` 已正常合入；
