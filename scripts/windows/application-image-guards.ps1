@@ -9,9 +9,15 @@ function Assert-FreshLinkDefaultImageCommand($Service) {
 
 function Assert-FreshLinkRunningImageIdentity($Image,$Container) {
     if($Container.Image -ne $Image.Id){throw 'Running container does not use the verified image ID'}
+    $command=$Image.Config.PSObject.Properties['Cmd']
+    if($null -eq $command -or $null -eq $command.Value -or @($command.Value).Count -eq 0){throw 'Running container has no image default command to verify'}
     foreach($name in @('Cmd','Entrypoint')) {
-        $expected=ConvertTo-Json -InputObject $Image.Config.$name -Compress
-        $actual=ConvertTo-Json -InputObject $Container.Config.$name -Compress
+        # Docker may omit an unset Entrypoint entirely. Keep strict mode enabled,
+        # normalize absence to null, and still distinguish [] from null.
+        $imageProperty=$Image.Config.PSObject.Properties[$name]
+        $containerProperty=$Container.Config.PSObject.Properties[$name]
+        $expected=if($null -ne $imageProperty){ConvertTo-Json -InputObject $imageProperty.Value -Compress}else{'null'}
+        $actual=if($null -ne $containerProperty){ConvertTo-Json -InputObject $containerProperty.Value -Compress}else{'null'}
         if($actual -cne $expected){throw 'Running container command differs from the verified image default'}
     }
 }

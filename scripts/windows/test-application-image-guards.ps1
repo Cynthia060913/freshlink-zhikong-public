@@ -1,4 +1,5 @@
 $ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'application-image-guards.ps1')
 $count=0
 foreach($valid in @([pscustomobject]@{},[pscustomobject]@{command=$null;entrypoint=$null})){
@@ -14,6 +15,13 @@ foreach($invalid in @([pscustomobject]@{command=@()},[pscustomobject]@{entrypoin
 $image=[pscustomobject]@{Id='synthetic-image';Config=[pscustomobject]@{Cmd=@('fastapi','run','--workers','4');Entrypoint=$null}}
 $same=[pscustomobject]@{Image=$image.Id;Config=$image.Config}
 Assert-FreshLinkRunningImageIdentity $image $same
+$count++
+$omitted=[pscustomobject]@{Id='synthetic-image';Config=[pscustomobject]@{Cmd=$image.Config.Cmd}}
+Assert-FreshLinkRunningImageIdentity $omitted ([pscustomobject]@{Image=$omitted.Id;Config=$omitted.Config})
+$count++
+$rejected=$false
+try{Assert-FreshLinkRunningImageIdentity ([pscustomobject]@{Id=$image.Id;Config=[pscustomobject]@{}}) $same}catch{if($_.Exception.Message -notmatch '^Running container '){throw};$rejected=$true}
+if(-not $rejected){throw 'Missing image command unexpectedly accepted'}
 $count++
 foreach($invalid in @([pscustomobject]@{Image='wrong-image';Config=$image.Config},[pscustomobject]@{Image=$image.Id;Config=[pscustomobject]@{Cmd=@('echo','fake');Entrypoint=$null}},[pscustomobject]@{Image=$image.Id;Config=[pscustomobject]@{Cmd=$image.Config.Cmd;Entrypoint=@()}})){
     $rejected=$false
