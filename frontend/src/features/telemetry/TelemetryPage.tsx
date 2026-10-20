@@ -237,7 +237,9 @@ export default function TelemetryPage() {
         {!hasLatestScope ? (
           <p className="mt-3">请先选择设备或冷库；未查询不代表环境正常。</p>
         ) : latest.isPending ? (
-          <p role="status" className="mt-3">正在读取最新观测…</p>
+          <p role="status" className="mt-3">
+            正在读取最新观测…
+          </p>
         ) : latest.isError ? (
           <p role="alert" className="mt-3 text-destructive">
             {telemetryError(latest.error)}
@@ -252,7 +254,8 @@ export default function TelemetryPage() {
             <p>质量：{latest.data.item.quality.join(", ") || "无标记"}</p>
             {latestIsStale ? (
               <p role="alert" className="text-destructive">
-                最近观测已超过 60 秒或时间不一致；当前风险未知，不能按旧值判正常。
+                最近观测已超过 60
+                秒或时间不一致；当前风险未知，不能按旧值判正常。
               </p>
             ) : (
               <p>候选风险：{latest.data.item.risk_state || "unknown"}</p>
