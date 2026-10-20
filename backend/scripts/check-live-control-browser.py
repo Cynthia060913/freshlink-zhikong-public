@@ -248,7 +248,10 @@ def run() -> None:
                         "state_file": results / "browser-device.db",
                         "sample_period_seconds": 0.5,
                         "heartbeat_period_seconds": 0.5,
-                        "resend_period_seconds": 1,
+                        # Use the runtime's normal resend cadence. A 1s replay
+                        # stress floods this single delivery fixture with old
+                        # pending samples; it is not a 25-distinct-row readiness.
+                        "resend_period_seconds": 30,
                     }
                 ),
                 sensor_password="fixture-sensor-only",
@@ -330,6 +333,7 @@ def run() -> None:
                 "execution_count": 1,
                 "telemetry_history_csv_passed": True,
                 "c_durable_deliveries": delivery.completed,
+                "fixture_resend_seconds": 30,
                 "temperature_before": before,
                 "temperature_after": after,
                 "warehouse_lookup": "actual B HTTP/service; no dependency override",
@@ -337,6 +341,7 @@ def run() -> None:
                 "not_tested": [
                     "continuous evaluation and automatic recovery",
                     "multi-batch evaluation",
+                    "1-second telemetry replay saturation and device storage-confirmation protocol",
                     "real notifications",
                     "formal B/C migrations",
                     "full E1",
