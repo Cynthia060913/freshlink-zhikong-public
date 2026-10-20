@@ -22,7 +22,7 @@ try {
     $existing=(& $docker image ls --quiet --filter ('reference='+$image) | Out-String).Trim()
     if($LASTEXITCODE -ne 0 -or $existing){throw 'Image identity is unavailable or the generated tag already exists; no overwrite'}
     $reportPath=Join-Path $artifact 'application-build.json'
-    $report=[ordered]@{status='building_not_deployed';source=$Revision;source_zip_sha256=$source.zip_sha256;image=$image;image_id=$null;image_source_audit=$null;dependency_policy='Bun 1.3.12 digest + bun ci; Python 3.14.8 + uv sync --frozen';error=$null;not_verified=@('startup','formal migrations','E1','second machine','notification receipts','full image security audit','final submission')}
+    $report=[ordered]@{status='building_not_deployed';source=$Revision;source_zip_sha256=$source.zip_sha256;image=$image;image_id=$null;image_source_audit=$null;dependency_policy='Bun 1.3.12/Python 3.14.8/uv 0.9.26 image digests; bun ci and uv sync --frozen; build-system resolution still needs network';error=$null;not_verified=@('startup','formal migrations','E1','second machine','notification receipts','full image security audit','final submission')}
     # The only context is the already extracted, byte-verified commit. Local
     # .env.freshlink, work, .git and application data are never in this context.
     & $docker build --progress plain --file (Join-Path $context 'backend/Dockerfile') --tag $image --build-arg ('FRESHLINK_SOURCE='+$Revision) $context
