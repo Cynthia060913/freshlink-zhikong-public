@@ -285,6 +285,8 @@ def read_snapshot_page_candidate(
             now=now,
         )
         total = snapshot["member_count"]
+        if not 0 <= total <= 10000:
+            raise ValueError("invalid_snapshot_members")
         if after_ordinal >= total and after_ordinal != -1:
             raise ValueError("invalid_snapshot_cursor")
         rows = (
@@ -300,6 +302,14 @@ def read_snapshot_page_candidate(
             .mappings()
             .all()
         )
+    expected_ordinals = list(
+        range(after_ordinal + 1, min(total, after_ordinal + limit + 2))
+    )
+    if [row["ordinal"] for row in rows] != expected_ordinals:
+        # A missing or changed member must fail closed. Returning a shorter
+        # page while preserving the original total would make the UI disagree
+        # with the fixed CSV, including after partial cleanup or corruption.
+        raise ValueError("invalid_snapshot_members")
     has_next = len(rows) > limit
     page = rows[:limit]
     return SnapshotPageCandidate(
@@ -365,20 +375,23 @@ def render_snapshot_csv_candidate(
         )
         members = (
             connection.execute(
-                select(snapshot_members.c.projection)
+                select(snapshot_members.c.ordinal, snapshot_members.c.projection)
                 .where(snapshot_members.c.snapshot_id == snapshot_id)
                 .order_by(snapshot_members.c.ordinal.asc())
                 .limit(10001)
             )
-            .scalars()
+            .mappings()
             .all()
         )
-    if len(members) != snapshot["member_count"] or len(members) > 10000:
+    if not 0 <= snapshot["member_count"] <= 10000 or [
+        row["ordinal"] for row in members
+    ] != list(range(snapshot["member_count"])):
         raise ValueError("invalid_snapshot_members")
     output = StringIO(newline="")
     writer = csv.writer(output, quoting=csv.QUOTE_ALL)
     writer.writerow(PREVIEW_COLUMNS)
-    for member in members:
+    for row in members:
+        member = row["projection"]
         cells = [
             "|".join(member["quality"]) if column == "quality" else member.get(column)
             for column in PREVIEW_COLUMNS
