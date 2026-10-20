@@ -119,6 +119,45 @@ def _project_row(row: RowMapping) -> dict[str, Any]:
     }
 
 
+def latest_observation_candidate(
+    engine: Engine,
+    *,
+    device_id: UUID | None = None,
+    warehouse_id: UUID | None = None,
+) -> dict[str, Any] | None:
+    """Read one newly saved observation by trusted first-reception order.
+
+    Replays do not replace the latest measurement. This is a live read, not a
+    frozen history snapshot or a batch-specific risk conclusion.
+    """
+    if device_id is None and warehouse_id is None:
+        raise ValueError("device_id or warehouse_id is required")
+    clauses = []
+    for name, value, column in (
+        ("device_id", device_id, observations.c.device_id),
+        ("warehouse_id", warehouse_id, observations.c.warehouse_id),
+    ):
+        if value is not None:
+            if not isinstance(value, UUID):
+                raise ValueError(f"{name} must be a UUID")
+            clauses.append(column == value)
+    with engine.connect() as connection:
+        row = (
+            connection.execute(
+                select(observations)
+                .where(*clauses)
+                .order_by(
+                    observations.c.first_received_at_utc.desc(),
+                    observations.c.id.desc(),
+                )
+                .limit(1)
+            )
+            .mappings()
+            .one_or_none()
+        )
+    return _project_row(row) if row is not None else None
+
+
 def list_history_candidate(
     engine: Engine,
     filters: HistoryFiltersCandidate,

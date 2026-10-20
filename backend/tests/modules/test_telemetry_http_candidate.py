@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlmodel import Session, SQLModel
 
 from app.api.deps import get_db
@@ -22,6 +22,7 @@ from app.modules.telemetry.http_candidate import router
 from app.modules.telemetry.reception_audit_candidate import (
     router as reception_audit_router,
 )
+from app.modules.telemetry.snapshot_candidate import snapshots
 from app.modules.telemetry.storage_candidate import ingest_observation, metadata
 
 DEVICE = UUID("11111111-1111-4111-8111-111111111111")
@@ -404,6 +405,58 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         self.assertEqual(len(claimant.json()["items"]), 1)
         self.assertEqual(claimant.json()["items"][0]["raw_text"], reused_raw)
         self.assertEqual(claimant.json()["items"][0]["original_device_id"], str(DEVICE))
+
+    def test_latest_poll_uses_trusted_first_reception_without_new_snapshot(
+        self,
+    ) -> None:
+        start = datetime(2026, 10, 18, tzinfo=UTC)
+        old_id, old_raw = self.ingest(
+            temperature=11,
+            sampled_at="2026-10-18T01:00:00Z",
+            received_at=start,
+        )
+        latest_id, _ = self.ingest(
+            unit="°F",
+            sampled_at="2026-10-17T23:00:00Z",
+            received_at=start + timedelta(seconds=1),
+        )
+        path = BASE + "/latest"
+        scope = {"device_id": str(DEVICE), "warehouse_id": str(WAREHOUSE)}
+        self.assertEqual(self.client.get(path, params=scope).status_code, 401)
+        headers = self.headers(self.user)
+        self.assertEqual(self.client.get(path, headers=headers).status_code, 422)
+        self.assertEqual(
+            self.client.get(
+                path, params={"device_id": str(uuid4())}, headers=headers
+            ).json()["item"],
+            None,
+        )
+        first = self.client.get(path, params=scope, headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.headers["Cache-Control"], "no-store")
+        self.assertEqual(first.json()["item"]["observation_id"], str(latest_id))
+        self.assertIsNone(first.json()["item"]["temperature_c"])
+        self.assertEqual(first.json()["item"]["risk_state"], "unknown")
+        self.assertEqual(first.json()["item"]["received_at"], "2026-10-18T00:00:01Z")
+        self.assertTrue(first.json()["checked_at"].endswith("Z"))
+        replay = ingest_observation(
+            self.engine, Reception(old_raw, uuid4(), start + timedelta(seconds=2))
+        )
+        self.assertEqual(replay.status, "accepted_duplicate")
+        self.assertEqual(replay.observation_id, old_id)
+        for _ in range(3):
+            polled = self.client.get(path, params=scope, headers=headers)
+            self.assertEqual(polled.status_code, 200, polled.text)
+            self.assertEqual(polled.json()["item"]["observation_id"], str(latest_id))
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(snapshots)), 0
+            )
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE telemetry_observation_candidate")
+        unavailable = self.client.get(path, params=scope, headers=headers)
+        self.assertEqual(unavailable.status_code, 503, unavailable.text)
+        self.assertEqual(unavailable.headers["Retry-After"], "30")
 
     def test_invalid_time_range_and_storage_error_are_explicit(self) -> None:
         headers = self.headers(self.user)

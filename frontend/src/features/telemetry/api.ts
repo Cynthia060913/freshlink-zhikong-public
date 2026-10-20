@@ -31,6 +31,11 @@ export interface TelemetryPageResult {
   next_cursor: string | null
 }
 
+export interface TelemetryLatestResult {
+  item: TelemetryItem | null
+  checked_at: string
+}
+
 export interface TelemetryDetail {
   observation_id: string
   raw_text: string
@@ -55,6 +60,23 @@ function query(filters: TelemetryFilters): Record<string, unknown> {
 }
 
 export const telemetryApi = {
+  async latest(filters: TelemetryFilters): Promise<TelemetryLatestResult> {
+    const response = await client.get<
+      { 200: TelemetryLatestResult },
+      { 401: unknown; 422: unknown; 503: unknown },
+      true
+    >({
+      url: "/api/v1/telemetry/observations/latest",
+      query: {
+        device_id: filters.device_id,
+        warehouse_id: filters.warehouse_id,
+      },
+      responseType: "json",
+      security: [{ scheme: "bearer", type: "http" }],
+      throwOnError: true,
+    })
+    return response.data
+  },
   async page(
     filters: TelemetryFilters,
     snapshotId?: string,
