@@ -14,7 +14,7 @@ try {
     $root=Get-FreshLinkRoot
     Set-Location -LiteralPath $root
     $docker=Assert-FreshLinkDocker
-    $source='bc71b76368c69952657c318297452482f49881c0'
+    $source='6a29ecf3c43b0df41d1b2e8ba19f1bf34f634aa1'
     $revision=& git rev-parse HEAD
     if($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'A revision cannot be verified'}
     $dirty=@(& git status --porcelain)
