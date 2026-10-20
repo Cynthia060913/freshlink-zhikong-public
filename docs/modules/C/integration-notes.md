@@ -1,5 +1,28 @@
 # C 共享接线请求
 
+## 2026-10-21 A24 恢复冻结的 C 同连接事务端口候选
+
+回应 A [A24 前沿与冻结提案](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/37)：
+C 在隔离模块新增
+`stage_eligible_recovery_on_connection_candidate(connection: Connection, *, original_source_event_id: UUID, historical_rule: dict | None, now: datetime)`。
+调用方先开始事务并按 A 审核后的设备流协议取得同一设备锁；C 在**该连接**
+读取原异常、已存坏接收、持久恢复窗口和原观测，再冻结 F03 恢复正文及 outbox。
+底层 `stage_f03_on_connection_candidate` / `stage_candidate_on_connection_candidate`
+同样不自行提交、关闭连接或调用 B；唯一键重放通过嵌套 SAVEPOINT 分类，外层事务
+仍由调用方控制。SQL 数据库错误向外抛，调用方必须整体回滚并按真实错误分类。
+原有 Engine 入口仅是自有事务的独立候选包装，不持有 A 锁；不能把它用于 A24
+正式冻结。隔离 SQLite 测试证明外层回滚同时撤销原事件送达状态与恢复候选，
+并证明重复/冲突 savepoint 不擅自提交。**尚未在正式 PG/A 同设备锁下验证**。
+
+此端口只是 A24 第三个原子边界的 C 侧准备；并没有实现 A 的接纳序号、
+连续终态前缀、坏证据修订、发送前复核、同设备所有 C 直写入口门禁或晚到
+已发送后的更正策略。多个批次须以各自原异常 ID 独立持久窗口/来源 ID 冻结，
+不能从一设备或一批次的正常值推断同仓其他批次恢复；绑定/规则版本变更必须
+使尚未投递的候选保守失效，具体跨模块字段和 B 更正语义仍待审定。A/C/B 在
+同版 PG 中跑负向向量前，**持续自动恢复及外部投递保持禁用**。若 A 要接线，
+请提供经过审查的锁取得位置、A 前沿查询签名及共享事务调用点；C 将按唯一链
+和确定字段补锁后复核，不在此草案中改公共模型/迁移。
+
 ## 2026-10-21 最新已存观测轮询候选
 
 C 独立路由 `GET /telemetry/observations/latest` 至少需要可信设备或冷库 UUID，
