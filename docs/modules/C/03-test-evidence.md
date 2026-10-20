@@ -1,5 +1,33 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-20 晚间精确头补证（M03 底稿，未签收）
+
+- C 最新业务代码 `7565fbd2863e6ff4d9bfe1ac1d798506f89c8390` 的跨设备/冷库
+  接收 ID 重用保守阻断回归，本人 Windows 项目隔离 Python3.13/SQLite
+  **39/39 OK**；项目 Python3.14 [Backend run39428737160](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39428737160)
+  **550 passed/4 skipped/108 warnings**。后续文档头
+  `e6bb8ef25974cdc6c709811c6424302caa68cb99` 的 [run39429549594](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39429549594)
+  同为 550/4/108。4 skipped 不计作 C 正式 PG。
+- C HTTP 筛选回归代码头 `4860d328650170907113f35de8ac9a3d496b58bd` 的
+  [Backend run39427662361](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39427662361)
+  **549 passed/4 skipped**，只证明该候选应用源码被项目 Python3.14 测试；
+  C 本人 Windows 未安装项目 Python3.14/Docker，未运行实际浏览器/PG。
+- A [PR #38 精确头 `6a804c972fed16dfa67d496015116b9f7753e420`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/38)
+  四文件已由 C [源码复审](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/38#pullrequestreview-5586477440)。
+  本人从该精确 Git 树通过 `git show <SHA>:scripts/check-live-control-browser.cjs | node - --csv-self-test`
+  实际得到 `PASS 4 CSV parser and 2 cooling-baseline regression cases`；只运行自测，
+  没有在 C 本机重跑 A 的 PG/MQTT/Chromium 完整探针。A 在 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6292497922)
+  报告的 47 条浏览器快照/CSV 同序属于其精确运行 `884fd66786f0f7560074e1630db3e41101e57a6a`、
+  C 旧 e8/B 旧 856 候选，不外推本 C 新头。
+- B PR #10 的 `470566fb9b840f7a172fc1fa7eac1ca0321615a2` 安全返修由 C
+  [精确头复审](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5586394948)，
+  [远端 Backend run39436721712](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39436721712)
+  **644 passed/0 skipped/80 warnings**；本人未重跑真实 PG。共享 CI 文件仍由 A 审核，
+  正式链与两种独立渠道真实收件均未完成。
+
+三组证据的源码组合、运行环境不同，不能合并为同版 E1 通过。具体矩阵见
+[团队测试报告底稿](07-team-test-report-draft.md)。
+
 ## 2026-10-20 已存坏接收证据保守阻断（M03 底稿，未签收）
 
 - C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
