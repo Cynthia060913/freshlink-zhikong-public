@@ -18,6 +18,19 @@ function display(value: string | number | null): string {
   return value === null ? "缺失 / 未知" : String(value)
 }
 
+const receptionOutcomes: Record<string, string> = {
+  accepted_new: "首次保存",
+  accepted_duplicate: "重复接收",
+  conflict: "消息冲突",
+  invalid: "无效数据",
+}
+
+const receptionReasons: Record<string, string> = {
+  duplicate_message: "与原消息内容相同",
+  conflicting_message: "同一消息 ID 的内容改变",
+  reception_id_reuse: "接收 ID 被用于不同内容",
+}
+
 function utcInput(value: string): string | undefined {
   // datetime-local has no timezone; this form explicitly interprets it as UTC.
   // Browsers may include seconds (or fractions), so do not append another :00.
@@ -296,8 +309,34 @@ export default function TelemetryPage() {
                 {detail.data.raw_text}
               </pre>
               <p className="mt-3 text-sm">
-                接收记录：{detail.data.receptions.length} 次
+                与此观测关联的接收记录：{detail.data.receptions.length} 次
               </p>
+              {detail.data.receptions.some(
+                (attempt) =>
+                  attempt.outcome === "conflict" ||
+                  attempt.outcome === "invalid",
+              ) && (
+                <p role="alert" className="mt-2 text-sm text-destructive">
+                  存在被拒绝的接收记录；上方风险只对应原观测，不能把冲突数据判为正常。
+                </p>
+              )}
+              <ul className="mt-2 space-y-2 text-sm">
+                {detail.data.receptions.map((attempt) => (
+                  <li key={attempt.reception_id} className="rounded border p-2">
+                    <span>{attempt.received_at}</span>
+                    {" · "}
+                    <span>
+                      {receptionOutcomes[attempt.outcome] ?? "待核查接收结果"}
+                    </span>
+                    {attempt.reason && (
+                      <span>
+                        {" · "}
+                        {receptionReasons[attempt.reason] ?? "原因待核查"}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </>
           )}
         </section>
