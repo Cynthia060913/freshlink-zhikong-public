@@ -42,6 +42,7 @@ def run() -> None:
     import paho.mqtt.client as mqtt
     import uvicorn
     from paho.mqtt.enums import CallbackAPIVersion
+    from sqlalchemy import func
     from sqlmodel import Session, select
 
     from app.core.db import engine
@@ -56,7 +57,19 @@ def run() -> None:
     from app.modules.iot.models import Device
     from app.modules.iot.proof_schema_guard import require_b01_candidate_schema
     from app.modules.iot.simulator_runtime import DeviceRuntime, RuntimeSettings
+    from app.modules.iot.telemetry_inbox_models import metadata as inbox_metadata
+    from app.modules.iot.telemetry_inbox_models import queue_guard
+    from app.modules.iot.telemetry_worker import (
+        TelemetryDeliveryWorker,
+        TelemetryReceiver,
+    )
     from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
+    from app.modules.telemetry.storage_candidate import (
+        ingest_observation,
+        observations,
+        receptions,
+    )
+    from app.modules.telemetry.storage_candidate import metadata as c_metadata
 
     sensor = UUID("11111111-1111-4111-8111-111111111111")
     actuator = UUID("66666666-6666-4666-8666-666666666666")
@@ -68,6 +81,12 @@ def run() -> None:
         raise RuntimeError("Refusing fake warehouse lookup")
     # Never invent substitute B DDL: Compose must have run actual candidate B01.
     require_b01_candidate_schema(engine)
+    # Candidate-only DDL in the already guarded, newly owned test DB. This is
+    # not a substitute for the still-unpublished A04/C formal migration chain.
+    c_metadata.create_all(engine)
+    inbox_metadata.create_all(engine, checkfirst=False)
+    with engine.begin() as connection:
+        connection.execute(queue_guard.insert().values(id=1))
     server = uvicorn.Server(
         uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning")
     )
@@ -75,6 +94,7 @@ def run() -> None:
     workers = []
     failures = []
     samples = []
+    observed_ids = set()
     sample_lock = threading.Lock()
     subscribed = threading.Event()
 
@@ -115,11 +135,16 @@ def run() -> None:
             subscribed.set()
 
     def on_message(_client, _userdata, message):
-        value = json.loads(message.payload)["metrics"][0]["value"]
+        raw = json.loads(message.payload)
+        identity = UUID(raw["message_id"])
+        value = raw["metrics"][0]["value"]
         with sample_lock:
+            if identity in observed_ids:
+                return
             if len(samples) >= 500:
                 failures.append("sample_capacity")
             else:
+                observed_ids.add(identity)
                 samples.append(value)
 
     observer.on_connect = on_connect
@@ -196,6 +221,22 @@ def run() -> None:
                 password="fixture-controller-only",
                 warehouse_lookup_factory=warehouse_lookup_for_session,
             )
+            telemetry = TelemetryReceiver(
+                HeartbeatWorkerSettings.model_validate(
+                    {
+                        **common,
+                        "client_id": "browser-telemetry-receiver",
+                        "device_ids": [sensor],
+                    }
+                ),
+                password="fixture-controller-only",
+                warehouse_lookup_factory=warehouse_lookup_for_session,
+            )
+            delivery = TelemetryDeliveryWorker(
+                engine,
+                lambda envelope: ingest_observation(engine, envelope),
+                poll_seconds=0.1,
+            )
             device = DeviceRuntime(
                 RuntimeSettings.model_validate(
                     {
@@ -211,7 +252,10 @@ def run() -> None:
                         "state_file": results / "browser-device.db",
                         "sample_period_seconds": 0.5,
                         "heartbeat_period_seconds": 0.5,
-                        "resend_period_seconds": 1,
+                        # Use the runtime's normal resend cadence. A 1s replay
+                        # stress floods this single delivery fixture with old
+                        # pending samples; it is not a 25-distinct-row readiness.
+                        "resend_period_seconds": 30,
                     }
                 ),
                 sensor_password="fixture-sensor-only",
@@ -219,13 +263,25 @@ def run() -> None:
             )
             observer.connect("broker", 1883)
             observer.loop_start()
-            for worker in (heartbeat, control, device):
+            for worker in (heartbeat, control, telemetry, delivery, device):
                 workers.append(worker)
                 launch(lambda worker=worker: worker.run(max_seconds=180))
+
+            def enough_distinct_c_observations():
+                with engine.connect() as connection:
+                    return (
+                        connection.scalar(
+                            select(func.count()).select_from(observations)
+                        )
+                        >= 25
+                    )
+
             wait_until(
                 lambda: (
                     heartbeat.ready.is_set()
                     and control.ready.is_set()
+                    and telemetry.ready.is_set()
+                    and enough_distinct_c_observations()
                     and subscribed.is_set()
                     and bool(samples)
                     and api.get(f"/api/v1/devices/{actuator}", headers=headers).json()[
@@ -237,8 +293,111 @@ def run() -> None:
             with sample_lock:
                 before = samples[-1]
             with (results / "ready.json").open("x", encoding="utf-8") as output:
-                json.dump({"source": source, "actuator_id": str(actuator)}, output)
-            wait_until(lambda: (results / "browser.json").is_file(), timeout=120)
+                json.dump(
+                    {
+                        "source": source,
+                        "actuator_id": str(actuator),
+                        "sensor_id": str(sensor),
+                        "warehouse_id": str(warehouse_id),
+                    },
+                    output,
+                )
+
+            linked_probe = {"requested": False}
+
+            def browser_finished():
+                marker = results / "control-checkpoint.json"
+                settled = results / "telemetry-after-control.json"
+                if marker.is_file() and not settled.exists():
+                    checkpoint = json.loads(marker.read_text(encoding="utf-8"))
+                    checked_id = UUID(checkpoint["command_id"])
+                    saved = api.get(
+                        f"/api/v1/devices/{actuator}/commands/{checked_id}",
+                        headers=headers,
+                    ).json()
+                    require(
+                        saved["status"] == "acknowledged",
+                        "actual command before C history",
+                    )
+                    ack_at = datetime.fromisoformat(
+                        saved["ack_received_at"].replace("Z", "+00:00")
+                    )
+                    with engine.connect() as connection:
+                        stored = (
+                            connection.execute(
+                                select(observations)
+                                .where(
+                                    observations.c.device_id == sensor,
+                                    observations.c.first_received_at_utc > ack_at,
+                                )
+                                .order_by(observations.c.first_received_at_utc.desc())
+                                .limit(20)
+                            )
+                            .mappings()
+                            .all()
+                        )
+                    for row in stored:
+                        value = row["normalized"].get("metrics", {}).get("temperature")
+                        if isinstance(value, (int, float)) and value < before - 0.1:
+                            with settled.open("x", encoding="utf-8") as output:
+                                json.dump(
+                                    {
+                                        "observation_id": str(row["id"]),
+                                        "temperature_c": value,
+                                        "command_id": str(checked_id),
+                                    },
+                                    output,
+                                )
+                            break
+                linked_request = results / "linked-reception-request.json"
+                linked_ready = results / "linked-reception-ready.json"
+                if linked_request.is_file() and not linked_ready.exists():
+                    requested = json.loads(linked_request.read_text(encoding="utf-8"))
+                    observation_id = UUID(requested["observation_id"])
+                    with engine.connect() as connection:
+                        original = (
+                            connection.execute(
+                                select(observations).where(
+                                    observations.c.id == observation_id,
+                                    observations.c.device_id == sensor,
+                                    observations.c.warehouse_id == warehouse_id,
+                                )
+                            )
+                            .mappings()
+                            .one()
+                        )
+                    if not linked_probe["requested"]:
+                        changed = json.loads(original["raw_text"])
+                        temperature = next(
+                            metric
+                            for metric in changed["metrics"]
+                            if metric["key"] == "temperature"
+                        )
+                        temperature["value"] += 5
+                        # Real sensor credentials/topic, no direct C fixture writes.
+                        # Broker acceptance alone is NOT the following checkpoint.
+                        for raw in (
+                            original["raw_text"],
+                            json.dumps(changed, ensure_ascii=False),
+                        ):
+                            device.sensor.publish(
+                                f"freshlink/v1/devices/{sensor}/telemetry", raw, qos=1
+                            ).wait_for_publish(5)
+                        linked_probe["requested"] = True
+                    with engine.connect() as connection:
+                        outcomes = set(
+                            connection.scalars(
+                                select(receptions.c.outcome).where(
+                                    receptions.c.observation_id == observation_id
+                                )
+                            )
+                        )
+                    if {"accepted_new", "accepted_duplicate", "conflict"} <= outcomes:
+                        with linked_ready.open("x", encoding="utf-8") as output:
+                            json.dump({"observation_id": str(observation_id)}, output)
+                return (results / "browser.json").is_file()
+
+            wait_until(browser_finished, timeout=120)
             browser = json.loads((results / "browser.json").read_text(encoding="utf-8"))
             require(
                 browser["phase"] == "real_browser_http_mqtt_control_passed",
@@ -252,6 +411,18 @@ def run() -> None:
             require(len(detail["receipts"]) == 1, "receipt count")
             require(detail["receipts"][0]["outcome"] == "accepted", "receipt outcome")
             require(device.plant.state()["execution_count"] == 1, "execution count")
+            require(
+                browser.get("telemetry_history_csv_passed") is True,
+                "real telemetry page/fixed-snapshot CSV",
+            )
+            require(
+                browser.get("linked_reception_evidence_passed") is True,
+                "real MQTT duplicate/conflict shown by current C detail page",
+            )
+            require(
+                delivery.completed >= browser["telemetry_snapshot_total"],
+                "C durable delivery count",
+            )
             with Session(engine) as session:
                 require(len(session.exec(select(DeviceCommand)).all()) == 1, "DB count")
             wait_until(lambda: bool(samples) and samples[-1] < before - 0.05)
@@ -263,12 +434,18 @@ def run() -> None:
                 "checked_at": datetime.now(UTC).isoformat(),
                 "command": detail,
                 "execution_count": 1,
+                "telemetry_history_csv_passed": True,
+                "linked_reception_evidence_passed": True,
+                "c_durable_deliveries": delivery.completed,
+                "fixture_resend_seconds": 30,
                 "temperature_before": before,
                 "temperature_after": after,
                 "warehouse_lookup": "actual B HTTP/service; no dependency override",
-                "ddl_scope": "actual candidate B01 Alembic; not published B/C chain",
+                "ddl_scope": "actual B01 Alembic; guarded A/C candidate metadata, not formal published chain",
                 "not_tested": [
-                    "C persistence/history/CSV",
+                    "continuous evaluation and automatic recovery",
+                    "multi-batch evaluation",
+                    "1-second telemetry replay saturation and device storage-confirmation protocol",
                     "real notifications",
                     "formal B/C migrations",
                     "full E1",

@@ -67,10 +67,12 @@ try {
     $report=Get-Content -LiteralPath $serverReport -Raw | ConvertFrom-Json
     if($report.phase -ne 'browser_to_real_http_pg_mqtt_device_ack_passed' -or $report.source -ne $source){throw 'Wrong browser proof identity'}
     if((& git rev-parse HEAD).Trim() -ne $source -or (& git status --porcelain=v1 | Out-String) -ne $beforeStatus){throw 'Tracked checkout changed during browser proof'}
+    if($report.telemetry_history_csv_passed -ne $true){throw 'Actual C history/CSV proof missing'}
     $proofExit=0
     Write-Output 'PASS real Chromium UI -> actual HTTP -> PostgreSQL -> authenticated MQTT -> simulated device -> saved ACK -> UI.'
     Write-Output 'PASS exact same-ID replay, reload receipt, ordinary-user read/write refusal, single device execution and sampled temperature decrease.'
-    Write-Output 'NOT E1: actual candidate B01 is required, but published B/C migration chain, C history/CSV and two real notification receipts remain untested.'
+    Write-Output 'PASS continuous MQTT -> durable A admission -> actual C PG -> real history/raw-detail page -> same-snapshot CSV, including cooling after the actual command.'
+    Write-Output 'NOT E1: formal A/C migration chain, automatic evaluation/recovery, multi-batch and two real notification receipts remain untested.'
 } catch {
     Write-Output ('STOP: '+$_.Exception.Message)
     if($docker -and $compose){& $docker @compose logs --no-color --tail 45 test-runner}
