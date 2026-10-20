@@ -350,6 +350,50 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             ("held_invalid_evidence", "unresolved_reception_evidence"),
         )
 
+    def test_cross_device_reception_id_reuse_holds_original_device(self) -> None:
+        self.progress(10, 50, 130)
+        with self.engine.connect() as connection:
+            original_receipt = (
+                connection.execute(
+                    select(receptions).where(
+                        receptions.c.observation_id == self.original_observation_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        other_device = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        other_warehouse = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+        altered = json.loads(original_receipt["raw_text"])
+        altered["device_id"] = str(other_device)
+        conflict = ingest_observation(
+            self.engine,
+            Reception(
+                json.dumps(altered, ensure_ascii=False),
+                original_receipt["id"],
+                _BASE + timedelta(seconds=70),
+                authenticated_device_id=other_device,
+                warehouse_id=other_warehouse,
+            ),
+        )
+        self.assertEqual(conflict.status, "conflict")
+        with self.engine.connect() as connection:
+            attempt = (
+                connection.execute(select(reception_reuse_conflicts)).mappings().one()
+            )
+        self.assertEqual(attempt["device_id"], other_device)
+        self.assertEqual(attempt["warehouse_id"], other_warehouse)
+        page = scan_saved_recovery_observations_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+        )
+        self.assertEqual(
+            (page.status, page.reason),
+            ("held_invalid_evidence", "unresolved_reception_evidence"),
+        )
+
     def stage(self, rule: dict | None = None):
         return stage_eligible_recovery_candidate(
             self.engine,

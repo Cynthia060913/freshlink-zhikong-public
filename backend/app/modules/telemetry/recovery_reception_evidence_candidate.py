@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.engine import Connection
 
 from app.modules.telemetry.storage_candidate import (
@@ -60,9 +60,22 @@ def has_unresolved_reception_evidence_candidate(
     if any(_utc(value) >= boundary for value in bad_receipts):
         return True
     reuse_attempts = connection.execute(
-        select(reception_reuse_conflicts.c.received_at_utc).where(
-            reception_reuse_conflicts.c.device_id == device_id,
-            reception_reuse_conflicts.c.warehouse_id == warehouse_id,
+        select(reception_reuse_conflicts.c.received_at_utc)
+        .join(
+            receptions,
+            reception_reuse_conflicts.c.claimed_reception_id == receptions.c.id,
+        )
+        .where(
+            or_(
+                and_(
+                    reception_reuse_conflicts.c.device_id == device_id,
+                    reception_reuse_conflicts.c.warehouse_id == warehouse_id,
+                ),
+                and_(
+                    receptions.c.device_id == device_id,
+                    receptions.c.warehouse_id == warehouse_id,
+                ),
+            )
         )
     ).scalars()
     return any(_utc(value) >= boundary for value in reuse_attempts)

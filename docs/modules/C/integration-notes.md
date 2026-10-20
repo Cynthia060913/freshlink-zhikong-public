@@ -13,7 +13,9 @@ C 对 A [PR #36](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/
 C 本轮对**已持久在 C** 的 `invalid/conflict` reception 和 reception ID
 异文重用增加保守核对：原异常可信接收时刻起，只要同设备/仓存在此类坏证据，
 已存观测扫描及恢复 outbox 冻结均返回 `held_invalid_evidence`，不删除原文、
-不改原异常、不宣告正常。时间比较先解析 UTC，不用宽度不一的 ISO 字符串
+不改原异常、不宣告正常。全局 reception ID 若被另一设备或冷库异文重用，
+原接收方与后来声称方都按坏证据核对，不能只冻结后来声称方。时间比较先解析
+UTC，不用宽度不一的 ISO 字符串
 字典序；候选只扫 C 自有接收表，尚非有界生产查询。这不能发现仍在 A 队列、
 尚未提交到 C 的前驱，也不能抵御检查与冻结之间的并发插入；测试在隔离
 SQLite，未构成 PG 事务/锁、正式迁移或 E1 结论。冻结后才到达的坏证据
