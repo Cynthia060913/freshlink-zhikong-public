@@ -19,6 +19,9 @@ from app.modules.telemetry.delivery_candidate import (
     deliver_once_candidate,
 )
 from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
+from app.modules.telemetry.recovery_observation_candidate import (
+    advance_saved_recovery_observation_candidate,
+)
 from app.modules.telemetry.recovery_outbox_candidate import (
     stage_eligible_recovery_candidate,
 )
@@ -171,17 +174,26 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
         )
         self.rule = RecoveryRuleCandidate("<=", 7.0, 3, 90)
 
-    def ingest(self, second: int, temperature: float) -> UUID:
+    def ingest(
+        self,
+        second: int,
+        temperature: float,
+        *,
+        temperature_unit: str = "°C",
+        include_temperature: bool = True,
+    ) -> UUID:
         sampled_at = _BASE + timedelta(seconds=second)
         payload = {
             "schema_version": "1.0",
             "device_id": str(_DEVICE),
             "message_id": str(uuid4()),
             "sampled_at": sampled_at.isoformat().replace("+00:00", "Z"),
-            "metrics": [
-                {"key": "temperature", "value": temperature, "unit": "°C"},
-                {"key": "humidity", "value": 70, "unit": "%RH"},
-            ],
+            "metrics": (
+                [{"key": "temperature", "value": temperature, "unit": temperature_unit}]
+                if include_temperature
+                else []
+            )
+            + [{"key": "humidity", "value": 70, "unit": "%RH"}],
         }
         created = ingest_observation(
             self.engine,
@@ -259,6 +271,164 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             self.assertEqual(
                 connection.scalar(select(func.count()).select_from(outbox)), 2
             )
+
+    def test_saved_observations_advance_and_replay_without_extra_evidence(self) -> None:
+        ids = [self.ingest(second, 6.5) for second in (10, 50, 130)]
+        decisions = []
+        for observation_id in ids:
+            result = advance_saved_recovery_observation_candidate(
+                self.engine,
+                original_source_event_id=_ORIGINAL,
+                observation_id=observation_id,
+                batch_id=_BATCH,
+                historical_rule=_selection(),
+            )
+            decisions.append((result.status, result.decision))
+        self.assertEqual(
+            decisions,
+            [
+                ("advanced", "progress"),
+                ("advanced", "progress"),
+                ("advanced", "eligible"),
+            ],
+        )
+        self.engine.dispose()
+        self.engine = create_engine(f"sqlite+pysqlite:///{self.db}")
+        replay = advance_saved_recovery_observation_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            observation_id=ids[-1],
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+        )
+        self.assertEqual((replay.status, replay.decision), ("advanced", "frozen"))
+        with self.engine.connect() as connection:
+            row = connection.execute(select(recovery_progress)).mappings().one()
+            self.assertEqual(row["observation_ids"], [str(value) for value in ids])
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 1
+            )
+
+    def test_saved_missing_unit_rule_or_tampered_quality_never_proves_recovery(
+        self,
+    ) -> None:
+        first = self.ingest(10, 6.5)
+        missing_rule = advance_saved_recovery_observation_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            observation_id=first,
+            batch_id=_BATCH,
+            historical_rule=None,
+        )
+        self.assertEqual(missing_rule.status, "waiting_rule")
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(recovery_progress)),
+                0,
+            )
+
+        def advance(observation_id: UUID):
+            return advance_saved_recovery_observation_candidate(
+                self.engine,
+                original_source_event_id=_ORIGINAL,
+                observation_id=observation_id,
+                batch_id=_BATCH,
+                historical_rule=_selection(),
+            )
+
+        self.assertEqual(advance(first).decision, "progress")
+        bad_unit = self.ingest(20, 6.0, temperature_unit="°F")
+        bad_unit_result = advance(bad_unit)
+        self.assertEqual(
+            (bad_unit_result.status, bad_unit_result.decision), ("advanced", "reset")
+        )
+        missing = self.ingest(25, 6.0, include_temperature=False)
+        self.assertEqual(advance(missing).decision, "reset")
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.execute(
+                    select(recovery_progress.c.observation_ids)
+                ).scalar_one(),
+                [],
+            )
+        tampered = self.ingest(27, 6.0)
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    select(observations).where(observations.c.id == tampered)
+                )
+                .mappings()
+                .one()
+            )
+            raw = dict(row["raw_payload"])
+            raw["metrics"] = [
+                {**metric, "unit": "°F"} if metric["key"] == "temperature" else metric
+                for metric in raw["metrics"]
+            ]
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == tampered)
+                .values(raw_payload=raw)
+            )
+        self.assertEqual(advance(tampered).status, "held_invalid_evidence")
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.execute(
+                    select(recovery_progress.c.observation_ids)
+                ).scalar_one(),
+                [],
+            )
+        clean = self.ingest(30, 6.5)
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == clean)
+                .values(quality=["missing_metric:temperature"])
+            )
+        self.assertEqual(advance(clean).status, "held_invalid_evidence")
+        self.assertEqual(advance(first).decision, "late")
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 1
+            )
+
+    def test_saved_recovery_rejects_changed_original_and_missing_schema(self) -> None:
+        recovered = self.ingest(10, 6.5)
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(body_sha256="sha256:" + "0" * 64)
+            )
+        result = advance_saved_recovery_observation_candidate(
+            self.engine,
+            original_source_event_id=_ORIGINAL,
+            observation_id=recovered,
+            batch_id=_BATCH,
+            historical_rule=_selection(),
+        )
+        self.assertEqual(result.status, "held_invalid_evidence")
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(recovery_progress)),
+                0,
+            )
+        empty = create_engine(f"sqlite+pysqlite:///{self.directory.name}/empty.db")
+        try:
+            missing = advance_saved_recovery_observation_candidate(
+                empty,
+                original_source_event_id=_ORIGINAL,
+                observation_id=recovered,
+                batch_id=_BATCH,
+                historical_rule=_selection(),
+            )
+            self.assertEqual(
+                (missing.status, missing.reason),
+                ("retryable_failure", "storage_unavailable"),
+            )
+            self.assertFalse(inspect(empty).has_table(observations.name))
+        finally:
+            empty.dispose()
 
     def test_changed_history_or_stored_observation_is_held_without_outbox(self) -> None:
         ids = self.progress(10, 50, 130)
