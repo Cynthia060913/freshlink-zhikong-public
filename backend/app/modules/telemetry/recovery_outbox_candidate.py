@@ -20,6 +20,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
 from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.recovery_progress_candidate import recovery_progress
+from app.modules.telemetry.recovery_reception_evidence_candidate import (
+    has_unresolved_reception_evidence_candidate,
+)
 from app.modules.telemetry.recovery_rule_candidate import bind_original_recovery_rule
 from app.modules.telemetry.recovery_window_candidate import RecoveryRuleCandidate
 from app.modules.telemetry.storage_candidate import observations
@@ -191,6 +194,18 @@ def stage_eligible_recovery_candidate(
                 .mappings()
                 .one_or_none()
             )
+            if (
+                original_observation is not None
+                and has_unresolved_reception_evidence_candidate(
+                    connection,
+                    device_id=original_observation["device_id"],
+                    warehouse_id=original_observation["warehouse_id"],
+                    original_received_at=original_observation["first_received_at_utc"],
+                )
+            ):
+                return RecoveryStageResultCandidate(
+                    "held_invalid_evidence", reason="unresolved_reception_evidence"
+                )
             ids = _stored_observation_ids(progress["observation_ids"])
             linked_rows = {
                 row["id"]: row

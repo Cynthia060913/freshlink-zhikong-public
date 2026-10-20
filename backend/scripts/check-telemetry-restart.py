@@ -83,7 +83,7 @@ def run():
         or settings.PROJECT_NAME != "FreshLink-test"
         or settings.FASTAPI_ENV != "development"
         or os.environ["TELEMETRY_C_REVISION"]
-        != "e8a08e62b5902f75ece8195ef44d740fc8995abb"
+        != "e6bb8ef25974cdc6c709811c6424302caa68cb99"
         or stage not in {"prepare", "resume"}
     ):
         raise RuntimeError("Refusing unpinned/non-disposable restart proof")

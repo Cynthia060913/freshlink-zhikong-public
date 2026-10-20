@@ -26,6 +26,9 @@ from app.modules.telemetry.recovery_observation_candidate import (
     advance_saved_recovery_observation_candidate,
 )
 from app.modules.telemetry.recovery_progress_candidate import load_recovery_progress
+from app.modules.telemetry.recovery_reception_evidence_candidate import (
+    has_unresolved_reception_evidence_candidate,
+)
 from app.modules.telemetry.recovery_rule_candidate import bind_original_recovery_rule
 from app.modules.telemetry.storage_candidate import observations
 
@@ -89,6 +92,16 @@ def scan_saved_recovery_observations_candidate(
                 if original is not None
                 else None
             )
+            unresolved_reception = (
+                has_unresolved_reception_evidence_candidate(
+                    connection,
+                    device_id=source["device_id"],
+                    warehouse_id=source["warehouse_id"],
+                    original_received_at=source["first_received_at_utc"],
+                )
+                if source is not None
+                else False
+            )
         progress = load_recovery_progress(engine, original_source_event_id)
     except SQLAlchemyError:
         return RecoveryObservationPageCandidate(
@@ -97,6 +110,10 @@ def scan_saved_recovery_observations_candidate(
     except ValueError:
         return RecoveryObservationPageCandidate(
             "held_invalid_evidence", reason="invalid_stored_progress"
+        )
+    if unresolved_reception:
+        return RecoveryObservationPageCandidate(
+            "held_invalid_evidence", reason="unresolved_reception_evidence"
         )
     try:
         if original is None or source is None:
