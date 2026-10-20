@@ -32,6 +32,7 @@ services:
       FRESHLINK_C_TEST_POSTGRES: "1"
       FRESHLINK_INBOX_TEST_POSTGRES: "1"
       FRESHLINK_EVENT_TEST_POSTGRES: "1"
+      FRESHLINK_TRANSPORT_TEST_POSTGRES: "1"
     volumes:
       - ./backend:/app/backend:ro
       - ./contracts:/app/contracts:ro

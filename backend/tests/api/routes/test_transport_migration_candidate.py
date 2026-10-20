@@ -38,6 +38,17 @@ def active_revisions():
     return ScriptDirectory.from_config(config)
 
 
+def migration_pg_enabled():
+    return os.getenv("FRESHLINK_TRANSPORT_TEST_POSTGRES") == "1"
+
+
+def test_generic_inbox_opt_in_does_not_enable_strict_migration_proof():
+    with patch.dict(os.environ, {"FRESHLINK_INBOX_TEST_POSTGRES": "1"}, clear=True):
+        assert not migration_pg_enabled()
+        with patch.dict(os.environ, {"FRESHLINK_TRANSPORT_TEST_POSTGRES": "1"}):
+            assert migration_pg_enabled()
+
+
 def test_candidate_is_not_an_active_alembic_head():
     revisions = active_revisions()
     assert candidate.revision not in {
@@ -96,8 +107,11 @@ def test_downgrade_drops_only_the_six_a_tables():
 
 
 def test_actual_postgres_candidate_roundtrip_and_cleanup():
-    if os.getenv("FRESHLINK_INBOX_TEST_POSTGRES") != "1":
-        pytest.skip("A transport candidate requires explicit disposable PG opt-in")
+    if not migration_pg_enabled():
+        pytest.skip(
+            "Not a transport PG proof: enable FRESHLINK_TRANSPORT_TEST_POSTGRES=1 "
+            "only in the guarded disposable Compose; strict CI checks actual execution"
+        )
     url = make_url(str(settings.DATABASE_URL))
     if (
         not Path("/.dockerenv").is_file()
