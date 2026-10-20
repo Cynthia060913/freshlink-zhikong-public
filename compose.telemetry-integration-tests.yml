@@ -48,7 +48,8 @@ services:
         cd /tmp/telemetry-proof/backend;
         alembic upgrade head; python app/initial_data.py;
         python scripts/check-telemetry-mqtt.py;
-        python scripts/check-telemetry-inbox.py
+        python scripts/check-telemetry-inbox.py;
+        python scripts/check-telemetry-recovery.py
 networks:
   default:
     internal: true

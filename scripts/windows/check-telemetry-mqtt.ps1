@@ -44,8 +44,11 @@ try {
     if($report.phase -ne 'live_mqtt_a_registry_c_transaction_snapshot_passed' -or $report.c_revision -ne $source){throw 'Wrong evidence phase/source'}
     $inbox=Get-Content -LiteralPath (Join-Path $results 'mqtt-telemetry-inbox.json') -Raw|ConvertFrom-Json
     if($inbox.phase -ne 'durable_receiver_a_queue_c_recovery_passed' -or $inbox.c_revision -ne $source){throw 'Wrong inbox evidence phase/source'}
+    $recovery=Get-Content -LiteralPath (Join-Path $results 'pg-b-c-recovery.json') -Raw|ConvertFrom-Json
+    if($recovery.phase -ne 'pg_actual_b_c_saved_recovery_passed' -or $recovery.c_revision -ne $source){throw 'Wrong recovery evidence phase/source'}
     Write-Output 'PASS actual MQTT -> actual A registration/B binding -> pinned C PostgreSQL transaction and fixed-snapshot/CSV helpers.'
     Write-Output 'PASS persistent A admission -> receiver restart -> C retry -> lost A checkpoint recovery after real lease expiry.'
+    Write-Output 'PASS actual PostgreSQL saved samples -> historical B rule -> frozen C recovery -> authenticated B ASGI resolved readback (not TCP HTTP).'
     Write-Output ('Evidence: '+$results)
     Write-Output 'NOT CHECKED: formal shared migrations/deployment, DB/broker restart, C HTTP, B evaluation/notifications, browser or full E1.'
     $exitCode=0
