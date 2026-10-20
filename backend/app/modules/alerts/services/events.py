@@ -485,3 +485,40 @@ def list_attempts_for_event(
         .limit(limit)
     ).all()
     return list(rows), int(total)
+
+
+class AlertAlreadyResolved(Exception):
+    """A human acknowledgement cannot re-open or annotate a resolved
+    alert: resolution is a machine fact committed with the recovery
+    candidate, and the transition history is append-only."""
+
+
+def acknowledge_alert(
+    session: Session, alert_event_id: uuid.UUID, *, reason: str | None = None
+) -> tuple[AlertStatus, bool]:
+    """Operator acknowledgement: ``open -> acknowledged``.
+
+    Returns ``(current_status, created)`` where ``created`` is False
+    for an idempotent repeat (the alert is already acknowledged — no
+    second transition row is written). A ``resolved`` alert rejects
+    with :class:`AlertAlreadyResolved`; nothing is written on
+    rejection. There is no ``acknowledged -> open`` path: the
+    transition table is append-only.
+    """
+
+    get_event(session, alert_event_id)
+    current = get_alert_status(session, alert_event_id)
+    if current is AlertStatus.RESOLVED:
+        raise AlertAlreadyResolved(f"alert {alert_event_id} is resolved")
+    if current is AlertStatus.ACKNOWLEDGED:
+        return current, False
+    session.add(
+        AlertStatusTransition(
+            alert_event_id=alert_event_id,
+            from_status=AlertStatus.OPEN,
+            to_status=AlertStatus.ACKNOWLEDGED,
+            reason=(reason or None),
+        )
+    )
+    session.commit()
+    return AlertStatus.ACKNOWLEDGED, True

@@ -539,6 +539,27 @@ class AlertEventPublic(SQLModel):
     created_at: datetime
 
 
+class AlertStatusTransitionPublic(SQLModel):
+    """Read-only shape of one lifecycle transition (append-only audit)."""
+
+    id: uuid.UUID
+    alert_event_id: uuid.UUID
+    from_status: AlertStatus
+    to_status: AlertStatus
+    trigger_source_event_id: str | None = None
+    reason: str | None = None
+    created_at: datetime
+
+
+class AlertLifecyclePublic(SQLModel):
+    """Current status plus the full ordered transition history."""
+
+    alert_event_id: uuid.UUID
+    status: AlertStatus
+    transition_created: bool = False
+    transitions: list[AlertStatusTransitionPublic] = Field(default_factory=list)
+
+
 class NotificationAttempt(SQLModel, table=True):
     """One ``send`` attempt against one alert event, for audit/retry.
 
