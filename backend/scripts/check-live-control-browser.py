@@ -42,7 +42,7 @@ def run() -> None:
     import paho.mqtt.client as mqtt
     import uvicorn
     from paho.mqtt.enums import CallbackAPIVersion
-    from sqlmodel import Session, SQLModel, select
+    from sqlmodel import Session, select
 
     from app.core.db import engine
     from app.main import app
@@ -54,6 +54,7 @@ def run() -> None:
         HeartbeatWorkerSettings,
     )
     from app.modules.iot.models import Device
+    from app.modules.iot.proof_schema_guard import require_b01_candidate_schema
     from app.modules.iot.simulator_runtime import DeviceRuntime, RuntimeSettings
     from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
 
@@ -65,8 +66,8 @@ def run() -> None:
             raise RuntimeError("Refusing to overwrite browser control evidence")
     if control_warehouse_lookup in app.dependency_overrides:
         raise RuntimeError("Refusing fake warehouse lookup")
-    # Only this B candidate table in the guarded disposable DB, NOT B Alembic.
-    SQLModel.metadata.tables["alerts_warehouse"].create(engine, checkfirst=False)
+    # Never invent substitute B DDL: Compose must have run actual candidate B01.
+    require_b01_candidate_schema(engine)
     server = uvicorn.Server(
         uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning")
     )
@@ -265,7 +266,7 @@ def run() -> None:
                 "temperature_before": before,
                 "temperature_after": after,
                 "warehouse_lookup": "actual B HTTP/service; no dependency override",
-                "ddl_scope": "test-only B alerts_warehouse, NOT formal B migration",
+                "ddl_scope": "actual candidate B01 Alembic; not published B/C chain",
                 "not_tested": [
                     "C persistence/history/CSV",
                     "real notifications",
