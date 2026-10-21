@@ -1,5 +1,26 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-21 A/C 同版实测与恢复事务 PG 回归补件（未签收）
+
+- A [PR #40 精确头 `e69094ff2c2bf81790a7402befdd8b18066d7c3c`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/40)
+  普通合入 C `f895e95b1df51c2fa8943be6dbaaa99bbe9e32b1`，保留 C 本人
+  模块源码；A 修共享根审计挂载和 latest 路径计数。A 隔离 Python3.14.8、
+  PostgreSQL18.6/READ COMMITTED 完整复测 **1058 passed、0 skipped、93%**；
+  C 原有 5 项 PG 专项实际运行通过，含通用同连接 outbox 重复/冲突、外层回滚、
+  新连接回读与重试。A 原始环境、JUnit 摘要和清理范围见
+  `docs/modules/A/27-current-c-transaction-port-validation.md`；PR40 的适用
+  Actions 已完成成功。C [按精确头复审](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/40#pullrequestreview-5594554218)
+  仅批准该 A/C 接线候选范围，未由本人重跑 A 的 PG 或新浏览器全链。
+- 本轮新增严格 opt-in 第 6 项：**恢复候选本身**在 PostgreSQL 调用方同一连接
+  内冻结，重复重入，外层回滚后由新连接确认原异常仍待投递且无恢复候选，
+  最后重新提交并回读唯一恢复候选。沿用随机 schema 和非 CASCADE 清理。
+  本人 Windows 隔离环境只能运行 SQLite 代码路径预检 **1/1** 与既有恢复
+  测试 **18/18**；PG 专项 **6/6 skipped**，真实 PostgreSQL 的这项新增用例
+  仍待隔离环境执行，不能把 A 前述 5 项结果外推给第 6 项。
+- 即使第 6 项 PG 通过，也只证明恢复 stage 与调用方事务绑定；A 设备接纳锁、
+  连续终态前沿、晚到失效和 B 告警 ACK/恢复共同锁仍未闭环。正式 C 迁移、
+  当前同版浏览器链、自动恢复和 E1 仍分开验收。
+
 ## 2026-10-21 同连接恢复冻结端口（M03 增量，未签收）
 
 - C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)

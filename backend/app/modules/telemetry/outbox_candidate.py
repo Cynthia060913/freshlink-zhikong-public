@@ -161,7 +161,7 @@ def _unique_violation(error: IntegrityError) -> bool:
     original = error.orig
     state = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
     if state is not None:
-        return state == "23505"
+        return isinstance(state, str) and state == "23505"
     sqlite_code = getattr(original, "sqlite_errorcode", None)
     return sqlite_code in (
         sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
