@@ -34,8 +34,8 @@ try {
     if($WithWarehouses -and (-not $report.binding_proof.same_binding_retry_safe)){throw 'Missing actual warehouse binding proof'}
     Write-Output 'PASS authenticated API -> PG queue -> MQTT -> software device -> ACK -> PG/API; replay, denied forged ACK, timeout and late ACK.'
     Write-Output ('Evidence: '+$results)
-    if($WithWarehouses){Write-Output 'PASS actual B warehouse HTTP create -> A one-time binding -> actual B lookup, no lookup override. Warehouse DDL was TEST ONLY, not a formal B migration.'}
-    Write-Output 'NOT CHECKED: formal B migration/alerts, C persistence, browser, production TLS or real notifications/E1.'
+    if($WithWarehouses){Write-Output 'PASS actual B01-descendant schema -> B warehouse HTTP create -> A binding -> runtime factory -> control execution, no lookup override; bounded standalone CLI also exited zero.'}
+    Write-Output 'NOT CHECKED: published B release/alerts, C persistence, browser, production TLS or real notifications/E1.'
     $exitCode=0
 } catch {
     Write-Output ('STOP: '+$_.Exception.Message)
