@@ -1,5 +1,60 @@
 # C 共享接线请求
 
+## 2026-10-21 A24 恢复冻结的 C 同连接事务端口候选
+
+回应 A [A24 前沿与冻结提案](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/37)：
+C 在隔离模块新增
+`stage_eligible_recovery_on_connection_candidate(connection: Connection, *, original_source_event_id: UUID, historical_rule: dict | None, now: datetime)`。
+调用方先开始事务并按 A 审核后的设备流协议取得同一设备锁；C 在**该连接**
+读取原异常、已存坏接收、持久恢复窗口和原观测，再冻结 F03 恢复正文及 outbox。
+底层 `stage_f03_on_connection_candidate` / `stage_candidate_on_connection_candidate`
+同样不自行提交、关闭连接或调用 B；唯一键重放通过嵌套 SAVEPOINT 分类，外层事务
+仍由调用方控制。SQL 数据库错误向外抛，调用方必须整体回滚并按真实错误分类。
+原有 Engine 入口仅是自有事务的独立候选包装，不持有 A 锁；不能把它用于 A24
+正式冻结。隔离 SQLite 测试证明外层回滚同时撤销原事件送达状态与恢复候选，
+并证明重复/冲突 savepoint 不擅自提交。**尚未在正式 PG/A 同设备锁下验证**。
+现有 C 严格 opt-in PG 文件另新增同连接 SAVEPOINT/外层回滚/重连回读用例，
+保持 `test-db/freshlink_test/FreshLink-test` 与逐项随机 schema 守卫；本人
+Windows 无受控 PG，本机只收集并跳过，不把它写成 PostgreSQL 已通过。
+
+此端口只是 A24 第三个原子边界的 C 侧准备；并没有实现 A 的接纳序号、
+连续终态前缀、坏证据修订、发送前复核、同设备所有 C 直写入口门禁或晚到
+已发送后的更正策略。多个批次须以各自原异常 ID 独立持久窗口/来源 ID 冻结，
+不能从一设备或一批次的正常值推断同仓其他批次恢复；绑定/规则版本变更必须
+使尚未投递的候选保守失效，具体跨模块字段和 B 更正语义仍待审定。A/C/B 在
+同版 PG 中跑负向向量前，**持续自动恢复及外部投递保持禁用**。若 A 要接线，
+请提供经过审查的锁取得位置、A 前沿查询签名及共享事务调用点；C 将按唯一链
+和确定字段补锁后复核，不在此草案中改公共模型/迁移。
+
+## 2026-10-21 最新已存观测轮询候选
+
+C 独立路由 `GET /telemetry/observations/latest` 至少需要可信设备或冷库 UUID，
+按 `(first_received_at_utc DESC, observation_id DESC)` 返回一条**新业务观测**及
+服务器查询 UTC；重复接收不顶替最新观测。此读取不创建历史快照，空库返回
+`item:null`、缺筛选 422、存储故障 503/`Retry-After: 30`、响应不缓存。
+独立 C 页面在用户提交设备/冷库筛选后每 10 秒查询，超过 60 秒或时间非法
+提示数据过期、当前风险未知；无值、无规则和服务失败也不显示正常。历史分页
+及 CSV 仍读固定快照，不让轮询耗尽快照容量。`sampled_at` 是设备时间，
+`received_at` 是可信首次接收时间；本候选按后者排序，不构成 MQTT 流订阅或
+批次级规则结论。仅在 C 测试应用挂载；A 须待正式唯一迁移链和权限审查后
+决定共享根接线。正式验收还需主程序页面、实际 PG/重启、两库多设备及断网恢复。
+
+## 2026-10-21 拒收接收证据的受限审计候选
+
+`reception_audit_candidate.py` 只在 C 模块内提供未挂主程序的
+`GET /telemetry/receptions/rejected?device_id=<UUID>&warehouse_id=<UUID>&limit=1..50&after=<UUID>`。
+当前应用尚无冷库级读取 ACL，精确原文只能由已登录的 superuser 读取；普通
+用户 403，缺失/无效身份沿用公共认证失败。结果包含没有形成 observation 的
+`invalid`、同消息异文 `conflict`，以及 `reception_id` 异文复用审计；后者在原
+设备/仓和后来声称方两边均可查到。每条返回可信接收身份、接收 UTC、原文、
+原因及原 reception ID；分页只按审计行 UUID 稳定游标，不是时间顺序或冻结
+快照。若查询过程中新增行的 UUID 排在游标之前，需要从空游标重新审计。
+
+这只是 C 隔离接口候选，尚未挂共享根路由、页面或正式迁移；不表示全部拒收
+证据已经在普通用户页面可见，也不能把空页解释为设备正常。A/B 若要给非管理员
+展示，须先确定冷库授权范围、原文脱敏边界和页面入口。正式接线时应在唯一迁移
+链和实际 PostgreSQL 上验证索引/响应上限、权限、重启保留及同时新增行行为。
+
 ## 2026-10-20 观测详情的接收证据展示边界
 
 C 独立遥测页现把已有详情 DTO 中**与该 observation 关联**的接收时间、
@@ -7,7 +62,9 @@ C 独立遥测页现把已有详情 DTO 中**与该 observation 关联**的接�
 不能据此把冲突接收判正常。没有修改公共导航、根路由或详情字段。
 当前详情查询只返回 `receptions.observation_id` 指向该观测的记录；没有形成
 observation 的 `invalid` 接收，以及同一 `reception_id` 异文复用写入的独立
-`reception_reuse_conflicts` 审计，**不会出现在此详情**。因此页面不能声称已
+`reception_reuse_conflicts` 原文，**不会出现在此详情**。详情现只对关联
+接收 ID 的异文复用显示计数和风险警示，精确原文仅管理员审计候选可查。
+因此页面不能声称已
 完整展示所有坏接收，也不能用详情为空证明没有冲突。若 A/B 需要按设备/冷库
 查看全部拒绝证据，须另审定有界、鉴权的 C 接收审计接口及页面入口；在此之前
 原文保留在 C 候选表，恢复扫描仍独立按已存证据保守阻断。

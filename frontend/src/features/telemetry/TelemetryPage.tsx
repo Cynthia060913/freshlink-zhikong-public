@@ -49,6 +49,30 @@ export default function TelemetryPage() {
   const [csvError, setCsvError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const hasLatestScope = Boolean(
+    selection.filters.device_id || selection.filters.warehouse_id,
+  )
+
+  const latest = useQuery({
+    queryKey: [
+      "telemetry-latest",
+      selection.filters.device_id,
+      selection.filters.warehouse_id,
+    ],
+    queryFn: () => telemetryApi.latest(selection.filters),
+    enabled: hasLatestScope,
+    refetchInterval: 10_000,
+    retry: false,
+  })
+  const latestAgeMs = latest.data?.item
+    ? Date.parse(latest.data.checked_at) -
+      Date.parse(latest.data.item.received_at)
+    : null
+  const latestIsStale =
+    latestAgeMs !== null &&
+    (!Number.isFinite(latestAgeMs) ||
+      latestAgeMs > 60_000 ||
+      latestAgeMs < -5_000)
 
   const page = useQuery({
     queryKey: ["telemetry", selection],
@@ -205,6 +229,41 @@ export default function TelemetryPage() {
         </div>
       </form>
       <section className="rounded-lg border p-5">
+        <h2 className="font-semibold">最新已存观测</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          仅按已提交的设备或冷库筛选，每 10 秒读取一次；按可信首次接收时间排序。
+          历史列表和 CSV 仍使用固定快照；此处风险不代表所有批次已判正常。
+        </p>
+        {!hasLatestScope ? (
+          <p className="mt-3">请先选择设备或冷库；未查询不代表环境正常。</p>
+        ) : latest.isPending ? (
+          <p role="status" className="mt-3">
+            正在读取最新观测…
+          </p>
+        ) : latest.isError ? (
+          <p role="alert" className="mt-3 text-destructive">
+            {telemetryError(latest.error)}
+          </p>
+        ) : latest.data.item === null ? (
+          <p className="mt-3">暂无保存观测；当前风险未知。</p>
+        ) : (
+          <div className="mt-3 space-y-1 text-sm">
+            <p>接收 UTC：{latest.data.item.received_at}</p>
+            <p>采样 UTC：{display(latest.data.item.sampled_at)}</p>
+            <p>温度：{display(latest.data.item.temperature_c)} °C</p>
+            <p>质量：{latest.data.item.quality.join(", ") || "无标记"}</p>
+            {latestIsStale ? (
+              <p role="alert" className="text-destructive">
+                最近观测已超过 60
+                秒或时间不一致；当前风险未知，不能按旧值判正常。
+              </p>
+            ) : (
+              <p>候选风险：{latest.data.item.risk_state || "unknown"}</p>
+            )}
+          </div>
+        )}
+      </section>
+      <section className="rounded-lg border p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="font-semibold">
             观测列表{page.data ? `（固定快照共 ${page.data.total} 条）` : ""}
@@ -311,6 +370,12 @@ export default function TelemetryPage() {
               <p className="mt-3 text-sm">
                 与此观测关联的接收记录：{detail.data.receptions.length} 次
               </p>
+              {detail.data.reception_reuse_conflict_count > 0 && (
+                <p role="alert" className="mt-2 text-sm text-destructive">
+                  接收 ID 异文复用：{detail.data.reception_reuse_conflict_count}
+                  次。原始复用记录需由管理员审计；原观测风险不能代表这些冲突数据。
+                </p>
+              )}
               {detail.data.receptions.some(
                 (attempt) =>
                   attempt.outcome === "conflict" ||

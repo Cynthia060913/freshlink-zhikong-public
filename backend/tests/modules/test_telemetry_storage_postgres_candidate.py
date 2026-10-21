@@ -16,7 +16,7 @@ from io import StringIO
 from threading import Barrier
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import create_engine, event, func, select, update
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.schema import CreateSchema, DropSchema
@@ -25,7 +25,12 @@ from app.modules.telemetry.history_candidate import (
     HistoryFiltersCandidate,
     list_history_candidate,
 )
-from app.modules.telemetry.outbox_candidate import outbox, outbox_conflicts
+from app.modules.telemetry.outbox_candidate import (
+    outbox,
+    outbox_conflicts,
+    stage_candidate,
+    stage_candidate_on_connection_candidate,
+)
 from app.modules.telemetry.rule_evaluation_candidate import evaluate_one_batch_candidate
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
@@ -119,6 +124,72 @@ class PostgresStorageCandidateTests(unittest.TestCase):
     def _count(self, table) -> int:
         with self.engine.connect() as connection:
             return int(connection.scalar(select(func.count()).select_from(table)))
+
+    def test_caller_transaction_keeps_pg_savepoint_replay_and_conflict_atomic(
+        self,
+    ) -> None:
+        receipt = _reception(uuid4())
+        ingested = ingest_observation(self.engine, receipt)
+        self.assertEqual(ingested.status, "accepted_new")
+        assert ingested.observation_id is not None
+        source_id = uuid4()
+        body = {
+            "source_event_id": str(source_id),
+            "observation_ids": [str(ingested.observation_id)],
+            "kind": "temperature_high",
+            "evidence": {"temperature_c": 11},
+        }
+        self.assertEqual(
+            stage_candidate(
+                self.engine,
+                source_event_id=source_id,
+                observation_id=ingested.observation_id,
+                body=body,
+                now=_RECEIVED_AT,
+            ),
+            "staged",
+        )
+        changed = {**body, "evidence": {"temperature_c": 12}}
+        with self.engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                connection.execute(
+                    update(outbox)
+                    .where(outbox.c.source_event_id == source_id)
+                    .values(state="pending")
+                )
+                for payload, expected in ((body, "duplicate"), (changed, "conflict")):
+                    self.assertEqual(
+                        stage_candidate_on_connection_candidate(
+                            connection,
+                            source_event_id=source_id,
+                            observation_id=ingested.observation_id,
+                            body=payload,
+                            now=_RECEIVED_AT,
+                        ),
+                        expected,
+                    )
+                self.assertEqual(
+                    connection.scalar(
+                        select(func.count()).select_from(outbox_conflicts)
+                    ),
+                    1,
+                )
+            finally:
+                transaction.rollback()
+        self.base_engine.dispose()
+        self.assertEqual(self._count(outbox_conflicts), 0)
+        self.assertEqual(
+            stage_candidate(
+                self.engine,
+                source_event_id=source_id,
+                observation_id=ingested.observation_id,
+                body=changed,
+                now=_RECEIVED_AT,
+            ),
+            "conflict",
+        )
+        self.assertEqual(self._count(outbox_conflicts), 1)
 
     def test_interleaved_rule_versions_leave_one_durable_pg_candidate(self) -> None:
         """Two PG workers race on one observation without two business events."""

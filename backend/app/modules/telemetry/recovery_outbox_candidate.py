@@ -14,11 +14,14 @@ from typing import Any, Literal
 from uuid import UUID, uuid5
 
 from sqlalchemy import select
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
-from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
+from app.modules.telemetry.outbox_candidate import (
+    outbox,
+    stage_f03_on_connection_candidate,
+)
 from app.modules.telemetry.recovery_progress_candidate import recovery_progress
 from app.modules.telemetry.recovery_reception_evidence_candidate import (
     has_unresolved_reception_evidence_candidate,
@@ -142,85 +145,82 @@ def _stored_observation_ids(value: object) -> tuple[UUID, ...]:
         raise ValueError("recovery window has invalid observation IDs") from exc
 
 
-def stage_eligible_recovery_candidate(
-    engine: Engine,
+def stage_eligible_recovery_on_connection_candidate(
+    connection: Connection,
     *,
     original_source_event_id: UUID,
     historical_rule: dict[str, Any] | None,
     now: datetime,
 ) -> RecoveryStageResultCandidate:
-    """Stage one deterministic recovery after checking all persisted evidence.
+    """Verify evidence and stage recovery in the caller's open transaction.
 
-    A crash after the window becomes eligible but before staging is recoverable:
-    call this again with the same original ID and historical rule. Its source ID
-    and frozen body are stable, and the outbox reports duplicate instead of
-    making a second business event. The caller still must schedule this work.
+    The caller owns all locking, commit and rollback. In particular this does
+    not itself prove an A admission frontier or prevent unguarded C writes.
+    A database error propagates so a caller cannot accidentally commit a
+    failed PostgreSQL transaction. No B network call occurs under the lock.
     """
+    if not connection.in_transaction():
+        raise ValueError("caller must start the transaction before staging")
     if not isinstance(original_source_event_id, UUID):
         raise ValueError("original_source_event_id must be a UUID")
     if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be an aware datetime")
     try:
-        with engine.connect() as connection:
-            progress = (
-                connection.execute(
-                    select(recovery_progress).where(
-                        recovery_progress.c.original_source_event_id
-                        == original_source_event_id
-                    )
+        progress = (
+            connection.execute(
+                select(recovery_progress).where(
+                    recovery_progress.c.original_source_event_id
+                    == original_source_event_id
                 )
-                .mappings()
-                .one_or_none()
             )
-            original = (
-                connection.execute(
-                    select(outbox).where(
-                        outbox.c.source_event_id == original_source_event_id
-                    )
+            .mappings()
+            .one_or_none()
+        )
+        original = (
+            connection.execute(
+                select(outbox).where(
+                    outbox.c.source_event_id == original_source_event_id
                 )
-                .mappings()
-                .one_or_none()
             )
-            if progress is None or not progress["eligible"]:
-                return RecoveryStageResultCandidate("not_eligible")
-            if original is None or original["state"] != "delivered":
-                return RecoveryStageResultCandidate("waiting_original")
-            original_observation = (
-                connection.execute(
-                    select(observations).where(
-                        observations.c.id == original["observation_id"]
-                    )
+            .mappings()
+            .one_or_none()
+        )
+        if progress is None or not progress["eligible"]:
+            return RecoveryStageResultCandidate("not_eligible")
+        if original is None or original["state"] != "delivered":
+            return RecoveryStageResultCandidate("waiting_original")
+        original_observation = (
+            connection.execute(
+                select(observations).where(
+                    observations.c.id == original["observation_id"]
                 )
-                .mappings()
-                .one_or_none()
             )
-            if (
-                original_observation is not None
-                and has_unresolved_reception_evidence_candidate(
-                    connection,
-                    device_id=original_observation["device_id"],
-                    warehouse_id=original_observation["warehouse_id"],
-                    original_received_at=original_observation["first_received_at_utc"],
-                )
-            ):
-                return RecoveryStageResultCandidate(
-                    "held_invalid_evidence", reason="unresolved_reception_evidence"
-                )
-            ids = _stored_observation_ids(progress["observation_ids"])
-            linked_rows = {
-                row["id"]: row
-                for row in connection.execute(
-                    select(observations).where(observations.c.id.in_(ids))
-                )
-                .mappings()
-                .all()
-            }
+            .mappings()
+            .one_or_none()
+        )
+        if (
+            original_observation is not None
+            and has_unresolved_reception_evidence_candidate(
+                connection,
+                device_id=original_observation["device_id"],
+                warehouse_id=original_observation["warehouse_id"],
+                original_received_at=original_observation["first_received_at_utc"],
+            )
+        ):
+            return RecoveryStageResultCandidate(
+                "held_invalid_evidence", reason="unresolved_reception_evidence"
+            )
+        ids = _stored_observation_ids(progress["observation_ids"])
+        linked_rows = {
+            row["id"]: row
+            for row in connection.execute(
+                select(observations).where(observations.c.id.in_(ids))
+            )
+            .mappings()
+            .all()
+        }
     except ValueError as exc:
         return RecoveryStageResultCandidate("held_invalid_evidence", reason=str(exc))
-    except SQLAlchemyError:
-        return RecoveryStageResultCandidate(
-            "retryable_failure", reason="storage_unavailable"
-        )
 
     try:
         body = normalize_f03_body_candidate(original["body"])
@@ -278,8 +278,8 @@ def stage_eligible_recovery_candidate(
                 "original_source_event_id": str(original_source_event_id),
             },
         }
-        staged = stage_f03_candidate(
-            engine,
+        staged = stage_f03_on_connection_candidate(
+            connection,
             source_event_id=source_id,
             observation_id=evidence_ids[-1],
             body=recovery_body,
@@ -287,8 +287,26 @@ def stage_eligible_recovery_candidate(
         )
     except ValueError as exc:
         return RecoveryStageResultCandidate("held_invalid_evidence", reason=str(exc))
+    return RecoveryStageResultCandidate(staged, source_id)
+
+
+def stage_eligible_recovery_candidate(
+    engine: Engine,
+    *,
+    original_source_event_id: UUID,
+    historical_rule: dict[str, Any] | None,
+    now: datetime,
+) -> RecoveryStageResultCandidate:
+    """Standalone wrapper; one local transaction, without an A frontier lock."""
+    try:
+        with engine.begin() as connection:
+            return stage_eligible_recovery_on_connection_candidate(
+                connection,
+                original_source_event_id=original_source_event_id,
+                historical_rule=historical_rule,
+                now=now,
+            )
     except SQLAlchemyError:
         return RecoveryStageResultCandidate(
             "retryable_failure", reason="storage_unavailable"
         )
-    return RecoveryStageResultCandidate(staged, source_id)

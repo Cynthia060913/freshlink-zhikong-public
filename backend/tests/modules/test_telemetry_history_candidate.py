@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, select
 
 from app.modules.telemetry.history_candidate import (
     HistoryFiltersCandidate,
+    latest_observation_candidate,
     list_history_candidate,
 )
 from app.modules.telemetry.storage_candidate import (
@@ -81,6 +82,53 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
             self.assertEqual(result.status, "accepted_new")
             ids.append(result.observation_id)
         return records, ids
+
+    def test_latest_uses_first_trusted_reception_and_replay_does_not_replace_it(
+        self,
+    ) -> None:
+        records, ids = self._fixture()
+        latest = latest_observation_candidate(
+            self.engine, device_id=DEVICE, warehouse_id=WAREHOUSE
+        )
+        assert latest is not None
+        self.assertEqual(latest["observation_id"], str(ids[3]))
+        self.assertEqual(latest["risk_state"], "unknown")
+        self.assertIsNone(latest["sampled_at"])
+        replay = ingest_observation(
+            self.engine,
+            reception(
+                UUID(records[0].raw_payload["message_id"]),
+                "2026-10-16T00:01:00Z",
+                11,
+                10,
+            ),
+        )
+        self.assertEqual(replay.status, "accepted_duplicate")
+        self.assertEqual(
+            latest_observation_candidate(self.engine, device_id=DEVICE)[
+                "observation_id"
+            ],
+            str(ids[3]),
+        )
+        newer = ingest_observation(
+            self.engine,
+            reception(uuid4(), "2026-10-15T23:00:00Z", 13, 11),
+        )
+        self.assertEqual(newer.status, "accepted_new")
+        current = latest_observation_candidate(self.engine, warehouse_id=WAREHOUSE)
+        assert current is not None
+        self.assertEqual(current["observation_id"], str(newer.observation_id))
+        self.assertEqual(current["temperature_c"], 13)
+        self.assertEqual(current["risk_state"], "unknown")
+        self.assertEqual(current["received_at"], "2026-10-16T00:11:00Z")
+        self.assertIsNone(latest_observation_candidate(self.engine, device_id=uuid4()))
+        with self.assertRaisesRegex(ValueError, "required"):
+            latest_observation_candidate(self.engine)
+
+        self.engine.dispose()
+        self.engine = create_engine(f"sqlite:///{self.path}")
+        reopened = latest_observation_candidate(self.engine, device_id=DEVICE)
+        self.assertEqual(reopened, current)
 
     def test_persisted_time_filters_keyset_and_invalid_time(self) -> None:
         records, ids = self._fixture()
