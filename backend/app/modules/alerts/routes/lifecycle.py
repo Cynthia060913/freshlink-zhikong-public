@@ -19,6 +19,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
 from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
@@ -31,6 +32,7 @@ from app.modules.alerts.models import (
 )
 from app.modules.alerts.services.events import (
     AlertAlreadyResolved,
+    AlertLifecycleUnavailable,
     EventNotFound,
     acknowledge_alert,
     get_alert_status,
@@ -113,6 +115,13 @@ def read_alert_status(
         return _lifecycle(session, alert_event_id)
     except EventNotFound as exc:
         raise HTTPException(status_code=404, detail="alert not found") from exc
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise HTTPException(
+            503,
+            detail={"reason_code": "storage_unavailable"},
+            headers={"Retry-After": "30"},
+        ) from exc
 
 
 @router.post(
@@ -126,10 +135,20 @@ def acknowledge_alert_endpoint(
 ) -> AlertLifecyclePublic:
     try:
         _status, created = acknowledge_alert(session, alert_event_id)
+        return _lifecycle(session, alert_event_id, created=created)
     except EventNotFound as exc:
         raise HTTPException(status_code=404, detail="alert not found") from exc
     except AlertAlreadyResolved as exc:
         raise HTTPException(
             status_code=409, detail="alert is already resolved"
         ) from exc
-    return _lifecycle(session, alert_event_id, created=created)
+    except (AlertLifecycleUnavailable, SQLAlchemyError) as exc:
+        # The service may have refused caller-owned pending writes before
+        # entering its unit. Do not roll back those unrelated changes here.
+        if isinstance(exc, SQLAlchemyError):
+            session.rollback()
+        raise HTTPException(
+            503,
+            detail={"reason_code": "storage_unavailable"},
+            headers={"Retry-After": "30"},
+        ) from exc

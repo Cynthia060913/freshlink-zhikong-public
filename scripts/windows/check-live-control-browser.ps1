@@ -70,6 +70,7 @@ try {
     $proofExit=0
     Write-Output 'PASS real Chromium UI -> actual HTTP -> PostgreSQL -> authenticated MQTT -> simulated device -> saved ACK -> UI.'
     Write-Output 'PASS exact same-ID replay, reload receipt, ordinary-user read/write refusal, single device execution and sampled temperature decrease.'
+    Write-Output 'PASS real alert UI ACK, idempotent HTTP retry, synthetic recovery, late ACK 409 and append-only transition history. Not C-triggered recovery.'
     Write-Output 'NOT E1: actual candidate B01 is required, but published B/C migration chain, C history/CSV and two real notification receipts remain untested.'
 } catch {
     Write-Output ('STOP: '+$_.Exception.Message)
