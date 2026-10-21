@@ -1,8 +1,10 @@
 """The current A probe must not replace missing B migration with test DDL."""
 
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from alembic.script import ScriptDirectory
 from sqlalchemy.exc import OperationalError
 
 from app.modules.iot.proof_schema_guard import (
@@ -12,12 +14,16 @@ from app.modules.iot.proof_schema_guard import (
     require_b01_candidate_schema,
 )
 
+CURRENT_HEAD = ScriptDirectory(
+    str(Path(__file__).resolve().parents[3] / "app/alembic")
+).get_current_head()
+
 
 class B01ProofGateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = MagicMock()
         self.connection = self.engine.connect.return_value.__enter__.return_value
-        self.connection.scalars.return_value = ["a04_transport_storage"]
+        self.connection.scalars.return_value = [CURRENT_HEAD]
 
     def test_wrong_revision_is_rejected_before_schema_lookup(self) -> None:
         self.connection.scalars.return_value = ["a03_control_storage"]
@@ -49,7 +55,7 @@ class B01ProofGateTests(unittest.TestCase):
             [],
             ["b01_alerts_storage"],
             ["unknown"],
-            ["a04_transport_storage", "b01_alerts_storage"],
+            [CURRENT_HEAD, "b01_alerts_storage"],
         ):
             with self.subTest(revisions=revisions):
                 self.connection.scalars.return_value = revisions
