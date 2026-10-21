@@ -1,0 +1,35 @@
+\documentclass[tikz,border=7pt]{standalone}
+\usepackage{fontspec}
+\setmainfont{Microsoft YaHei}
+\XeTeXlinebreaklocale "zh"
+\usetikzlibrary{arrows.meta,positioning,calc,shadows}
+\begin{document}
+\begin{tikzpicture}[
+  entity/.style={draw=cyan!60!black,fill=cyan!5,text=black,rounded corners=3pt,
+    line width=0.7pt,text width=3.1cm,minimum height=1.3cm,align=center,
+    font=\fontsize{10}{14}\selectfont,inner sep=5pt,
+    drop shadow={opacity=0.15,shadow xshift=0.5pt,shadow yshift=-0.5pt}},
+  fk/.style={-{Stealth[length=5pt]},draw=cyan!60!black,line width=0.8pt},
+  cardinal/.style={text=black,fill=white,inner sep=2pt,rounded corners=3pt,font=\fontsize{9}{12}\selectfont,align=center}
+]
+\node[entity,text width=3.1cm] (device) at (0,3) {设备\\iot\_device};
+\node[entity,text width=3.1cm] (command) at (0,0) {命令\\iot\_command};
+\node[entity,text width=3.1cm] (attempt) at (-2.2,-3) {命令尝试\\iot\_command\_\\attempt};
+\node[entity,text width=3.1cm] (ack) at (2.2,-3) {执行回执\\iot\_command\_\\receipt};
+\node[entity,text width=3.1cm] (warehouse) at (6.8,3) {冷库\\alerts\_warehouse};
+\node[entity,text width=3.1cm] (batch) at (11.2,3) {批次\\alerts\_batch};
+\node[entity,text width=3.1cm] (rule) at (11.2,0) {规则快照\\alerts\_batch\_\\rule\_snapshot};
+\node[entity,text width=3.1cm] (event) at (6.8,0) {异常事件\\alerts\_event};
+\node[entity,text width=3.1cm] (transition) at (6.8,-3) {状态变化\\alerts\_status\_\\transition};
+\node[entity,text width=3.1cm] (notification) at (11.2,-3) {通知尝试\\alerts\_\\notification\_\\attempt};
+\draw[fk] (device) -- node[cardinal,right] {1 : N} (command);
+\draw[fk] (command.south) -- (0,-1.5) -| node[cardinal,near end,left] {1 : N} (attempt.north);
+\draw[fk] (0,-1.5) -| node[cardinal,near end,right] {1 : 0..1} (ack.north);
+\draw[fk] (warehouse) -- node[cardinal,above] {1 : N} (batch);
+\draw[fk] (batch) -- node[cardinal,right] {1 : N} (rule);
+\draw[fk] (warehouse) -- node[cardinal,left] {0..1 : N} (event);
+\draw[fk] (batch.south west) -- (9,1.5) -- node[cardinal,above left] {0..1 : N} (event.north east);
+\draw[fk] (event) -- node[cardinal,left] {1 : N} (transition);
+\draw[fk] (event.east) -- (9,-0.8) -- (9,-1.5) -| node[cardinal,near end,right] {1 : N} (notification.north);
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,43 @@
+\documentclass[tikz,border=7pt]{standalone}
+\usepackage{fontspec}
+\setmainfont{Microsoft YaHei}
+\XeTeXlinebreaklocale "zh"
+\usetikzlibrary{arrows.meta,positioning,calc,shadows}
+\begin{document}
+\begin{tikzpicture}[
+  box/.style={draw=cyan!60!black,fill=cyan!5,text=black,rounded corners=3pt,
+    line width=0.7pt,text width=3.2cm,minimum height=1.2cm,align=center,
+    font=\fontsize{10}{14}\selectfont,inner sep=5pt,
+    drop shadow={opacity=0.15,shadow xshift=0.5pt,shadow yshift=-0.5pt}},
+  candidate/.style={box,dashed},
+  arrow/.style={-{Stealth[length=5pt]},draw=cyan!60!black,line width=0.8pt},
+  pending/.style={arrow,dashed},
+  label/.style={font=\fontsize{9}{12}\selectfont,text=black,fill=white,inner sep=2pt,rounded corners=3pt,align=center}
+]
+\node[box,text width=5.2cm] (web) at (6.6,5) {React / TypeScript 页面\\登录、设备、告警与数据};
+\node[box,text width=5.2cm] (api) at (6.6,2.8) {FastAPI 总入口\\API 前缀只加一次};
+\node[box] (device) at (0,0) {A 设备与控制\\注册、心跳、命令及回执};
+\node[box] (inbox) at (4.4,0) {A 持久接纳与投递\\raw、租约、重试及审计};
+\node[candidate] (data) at (8.8,0) {C 数据服务候选\\清洗、历史与快照 CSV};
+\node[box] (alert) at (13.2,0) {B 仓储告警\\批次、规则、处置追溯};
+\node[box] (broker) at (0,-2.8) {Mosquitto / MQTT\\逐设备身份与 ACL};
+\node[box,text width=5.2cm] (db) at (6.6,-2.8) {PostgreSQL 业务存储\\唯一迁移链仍须共同审定};
+\node[candidate] (notify) at (13.2,-2.8) {通知派发候选\\SMTP ＋ 飞书\\手机端推送};
+\node[box] (sim) at (0,-5.5) {七测区软件仿真\\七采集＋七执行身份};
+\node[candidate] (receipt) at (13.2,-5.5) {本人授权与终端实收\\两个渠道均待验收};
+\draw[arrow] (web) -- node[label,right] {JWT / HTTP} (api);
+\draw[arrow] (api.south) -- (6.6,1.4) -| (device.north);
+\draw[arrow] (6.6,1.4) -| (data.north);
+\draw[arrow] (6.6,1.4) -| (alert.north);
+\draw[arrow,{Stealth[length=5pt]}-{Stealth[length=5pt]}] (sim) -- node[label,left] {采样、心跳\\命令、执行 ACK} (broker);
+\draw[arrow,{Stealth[length=5pt]}-{Stealth[length=5pt]}] (broker) -- (device);
+\draw[arrow] (broker.east) -- (2.2,-2.8) |- (inbox.south);
+\draw[arrow] (inbox) -- (data);
+\draw[pending] (data) -- (alert);
+\draw[arrow] (inbox.south) -- (4.4,-1.45) -- (5.1,-1.45) -- (5.1,-2.15);
+\draw[arrow] (data.south) -- (8.8,-1.45) -- (8.1,-1.45) -- (8.1,-2.15);
+\draw[arrow] (alert.south west) -- (10.5,-1.45) -- (10.5,-2.8) -- (db.east);
+\draw[pending] (alert) -- (notify);
+\draw[pending] (notify) -- (receipt);
+\end{tikzpicture}
+\end{document}
