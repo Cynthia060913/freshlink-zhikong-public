@@ -1,5 +1,20 @@
 # C 共享接线请求
 
+## 2026-10-21 最新对接状态（独立候选，未发布主程序）
+
+- A [PR40 `e69094ff2c2bf81790a7402befdd8b18066d7c3c`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/40)
+  在分层候选接入 C 最新读取和管理员拒收审计路由；A 受控 PG18.6 实跑当时
+  C 原有 5 项严格 PG 专项。C [按该头批准接线范围](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/40#pullrequestreview-5594554218)。
+  此挂载仅在 A 候选分支，不代表 main 已含正式 C 表或本分支独立启动即挂载。
+- B 交接后 A [PR42 `6ed501f13fd668412ea999b618a97ba188f7db1e`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/42)
+  的 ACK/恢复共同锁候选经 C [精确头批准](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/42#pullrequestreview-5594935429)，
+  尚待唯一迁移链整合；A 的 A24 接纳前沿/晚到失效与 C 第 6 项严格 PG
+  恢复事务用例仍独立待验。**自动恢复及外部投递保持未接线**。
+- C 当前 [PR11 `bf991a0c610dd91cc89be950af15ae020f711bd5`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  已提交新增第 6 项严格 PG 回归和 outbox 类型修复；后者本机文件级
+  mypy strict/ty 通过。A 若开始正式组合，请以本人最新头重做差异核对，
+  不将 A 先前 f895 组合结果外推到此头。
+
 ## 2026-10-21 A24 恢复冻结的 C 同连接事务端口候选
 
 回应 A [A24 前沿与冻结提案](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/37)：

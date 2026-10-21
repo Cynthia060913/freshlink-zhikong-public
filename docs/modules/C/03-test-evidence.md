@@ -1,5 +1,24 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-21 C 类型返修及 A/B 并发交接复审（M03 未签收）
+
+- C [PR #11 精确 `bf991a0c610dd91cc89be950af15ae020f711bd5`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)：
+  本人先在隔离 Python3.13 对旧 outbox 文件重现 mypy strict
+  `no-any-return`，再对 PostgreSQL SQLSTATE/pgcode 做字符串类型保护。
+  修后该文件 mypy strict、指定隔离解释器的 ty、Ruff lint/format 通过，
+  outbox 与恢复 **26/26** 单测通过；未改正常唯一冲突分类。整应用本机
+  mypy 因项目 Python3.14 语法在 `app/api/deps.py:36` 停止，不能称全应用通过。
+  [本头 Backend](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39543885351)
+  **557 passed/6 skipped/115 warnings/93%**，五项适用 Actions success；
+  新第 6 项 PG 仍在跳过组，等待受控环境实跑。
+- B 在 [#8](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/8#issuecomment-6307252259)
+  明确交接并保护 ACK 部分提交；A [PR #42 精确 `6ed501f13fd668412ea999b618a97ba188f7db1e`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/42)
+  保留 B 原提交，补 ACK/恢复同一原异常行锁。A 受控 PG 的 3 个交错均安全且
+  实际等待锁，隔离全后端 **1071 passed/0 skipped**；该头普通 CI 后端
+  **1065 passed/6 skipped**。C [正式复审批准此交接范围](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/42#pullrequestreview-5594935429)，
+  本人未本机重跑 A 的 PG/Chromium。PR42 尚未合 main，C 自动恢复仍未发布。
+  B PR10 新飞书头有独立审查待修，不可用本批准外推两通知或 E1。
+
 ## 2026-10-21 A/C 同版实测与恢复事务 PG 回归补件（未签收）
 
 - A [PR #40 精确头 `e69094ff2c2bf81790a7402befdd8b18066d7c3c`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/40)

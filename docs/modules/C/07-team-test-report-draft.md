@@ -4,6 +4,18 @@
 
 ## 10 月 21 日当前精确头与未验范围
 
+### 当日后续证据（覆盖下表的旧状态判断，不覆盖旧测试来源）
+
+| 来源、精确版本 | 实际证据 | 未验收边界 |
+| --- | --- | --- |
+| C [PR #11 `bf991a0c610dd91cc89be950af15ae020f711bd5`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) | C 在 `24000425ace4c7e00110906dd2e9aaaddf4e8caf` 新增第 6 项严格 PG 恢复同事务回归；本人 Windows 隔离 Python3.13 相关 unittest **26通过/6 PG 跳过**，新增方法另以临时 SQLite 文件代码路径预检 1/1。`bf991a0…` 修正 SQLSTATE 类型判定，本人精确复现并消除该文件 mypy strict 错误，ty/Ruff及26项回归通过。[精确头后端 CI](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39543885351) **557通过/6跳过/115 warnings/93%**，五项适用 Actions 均成功。 | 第 6 项没有 PG 实跑；本机整应用 mypy 被项目 Python3.14 语法阻断，不能称整仓类型检查通过。候选表与正式迁移、自动恢复、E1 分开。 |
+| A/B 交接修复 [PR #42 `6ed501f13fd668412ea999b618a97ba188f7db1e`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/42) | B 在 [#8 明确交接](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/8#issuecomment-6307252259) 并保护原 ACK 部分提交；A 原样保留其作者提交后补共同原异常行锁。A 隔离 Python3.14.8/PG18.6 [报告](https://github.com/Cynthia060913/freshlink-zhikong-public/blob/6ed501f13fd668412ea999b618a97ba188f7db1e/docs/modules/A/29-handed-off-alert-lifecycle-repair.md) **1071通过/0跳过/93%**，三种交错均实际看到 PG 锁等待且安全；同头普通 [Backend CI](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39539365989) 为 **1065通过/6跳过**，两环境不混计。C [按精确头批准交接范围](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/42#pullrequestreview-5594935429)，本人未重跑 PG/Chromium。 | 仍是 Draft 分层候选，尚未合入正式唯一链；其浏览器恢复为真实 HTTP 的**合成候选**，不是 C 自动触发。它不证明当前 C 第 6 项 PG、两渠道实收或完整 E1。 |
+| B [PR #10 `049f1c50d2288c2726453c2c6189789e3aca0dc8`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10) | B 首个飞书传输适配增量已上传，B 在 [#8](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/8#issuecomment-6307252259) 将其归为服务接受/模拟验证。A 对此精确头 [审查](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5594680226) 指出默认 opener 的 timeout 误判、原始异常/回显泄露 URL 或密钥、response.read 超时外抛三项，待 B 修并复测。 | 不把 PR42 的 B2 并发修复自动算入 B 当前 PR10 分支；飞书尚未获可放行审查、真实业务调度和终端实收。SMTP 与飞书两独立渠道仍未签收。 |
+
+上表为不同分支/机器的阶段证据，不可相加成同版闭环。以下当日较早
+`0f107…`“并发未修”和“没有真实 PG 回滚”文字只描述其记录时的旧精确头；
+当前候选修复及其仍待发布的边界以本节为准。
+
 A 新 [PR #40 `e69094ff2c2bf81790a7402befdd8b18066d7c3c`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/40)
 含 C `f895e95b1df51c2fa8943be6dbaaa99bbe9e32b1` 原样业务、A 共享根
 修复与 SDK 更新。A 隔离 Python3.14.8/PG18.6 同版 **1058 passed、0 skipped**，
