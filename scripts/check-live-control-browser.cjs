@@ -272,6 +272,27 @@ async function run() {
     })
     assert.equal(deniedHistory.status(), 401)
     await anonymous.close()
+    // Full-page screenshots alone hide viewport overflow/fixed-sidebar bugs.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    const layout = await page.evaluate(() => {
+      const sidebar = document.querySelector('[data-slot="sidebar-container"]')
+      const inset = document.querySelector('[data-slot="sidebar-inset"]')
+      const sidebarBox = sidebar?.getBoundingClientRect()
+      const insetBox = inset?.getBoundingClientRect()
+      return {
+        viewport_width: window.innerWidth,
+        document_width: document.documentElement.scrollWidth,
+        scroll_x: window.scrollX,
+        sidebar_left: sidebarBox?.left,
+        sidebar_right: sidebarBox?.right,
+        inset_left: insetBox?.left,
+        inset_right: insetBox?.right,
+      }
+    })
+    fs.writeFileSync(path.join(results, "desktop-layout.json"), JSON.stringify(layout, null, 2))
+    assert(layout.document_width <= layout.viewport_width + 1, "history/raw must not widen the whole document")
+    assert(Math.abs(layout.sidebar_left) <= 1, "desktop sidebar must stay at viewport left")
+    assert(layout.inset_left >= layout.sidebar_right - 1, "sidebar must not cover the main content")
     await page.screenshot({ path: path.join(results, "telemetry-real-history-raw-csv.png"), fullPage: true })
     fs.writeFileSync(path.join(results, "browser.json"), JSON.stringify({
       phase: "real_browser_http_mqtt_control_passed",
