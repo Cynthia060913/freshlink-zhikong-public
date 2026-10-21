@@ -2,6 +2,7 @@
 const assert = require("node:assert/strict")
 const fs = require("node:fs")
 const path = require("node:path")
+const crypto = require("node:crypto")
 
 async function run() {
   const [origin, results, moduleRoot, executablePath] = process.argv.slice(2)
@@ -12,19 +13,28 @@ async function run() {
   assert(fs.existsSync(path.join(results, "ready.json")))
   assert(!fs.existsSync(path.join(results, "browser.json")))
   const { chromium, expect } = require(path.resolve(moduleRoot, "playwright/test"))
-  const browser = await chromium.launch({ executablePath, headless: true })
+  const recordVideo = process.env.FRESHLINK_BROWSER_RECORD_VIDEO === "1"
+  const browser = await chromium.launch({ executablePath, headless: true, slowMo: recordVideo ? 100 : 0 })
   const actuatorId = "66666666-6666-4666-8666-666666666666"
   const commandPath = `/api/v1/devices/${actuatorId}/commands`
   let submitted
   let postCount = 0
+  let recordedContext
+  let recordedVideo
+  let proofPassed = false
   try {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+      ...(recordVideo ? { recordVideo: { dir: path.join(results, "videos"), size: { width: 1280, height: 900 } } } : {}),
+    })
+    recordedContext = context
     // Block outside origins; same-origin requests are NEVER fulfilled/mocked.
     await context.route("**/*", (route) => {
       const target = new URL(route.request().url())
       return target.origin === url.origin ? route.continue() : route.abort()
     })
     const page = await context.newPage()
+    recordedVideo = page.video()
     page.on("request", (request) => {
       if (new URL(request.url()).pathname === commandPath && request.method() === "POST") {
         postCount += 1
@@ -69,7 +79,7 @@ async function run() {
     assert.equal(detail.receipts[0].result, "executed")
     assert(detail.ack_received_at)
     await panel.getByRole("status").filter({ hasText: "设备回执：执行成功" }).scrollIntoViewIfNeeded()
-    await page.screenshot({ path: path.join(results, "admin-real-ack.png"), fullPage: true })
+    await page.screenshot({ path: path.join(results, "admin-real-ack.png"), fullPage: !recordVideo })
     // Real same-ID HTTP replay must not create another command/execution.
     const replay = await context.request.post(`${origin}${commandPath}`, { headers, data: submitted })
     assert.equal(replay.status(), 201)
@@ -103,7 +113,7 @@ async function run() {
     assert.equal(history.status(), 200)
     assert.equal((await history.json()).count, 1)
     await readerPanel.getByRole("status").filter({ hasText: "设备回执：执行成功" }).scrollIntoViewIfNeeded()
-    await readerPage.screenshot({ path: path.join(results, "reader-real-readonly.png"), fullPage: true })
+    await readerPage.screenshot({ path: path.join(results, "reader-real-readonly.png"), fullPage: !recordVideo })
     // A-owned shared navigation proof. Synthetic candidate enters through real
     // authenticated B HTTP, not direct SQL or an intercepted API response.
     // B's explicitly handed-off lifecycle repair is exercised below. This is
@@ -154,7 +164,7 @@ async function run() {
     const lifecycle = await unchanged.json()
     assert.equal(lifecycle.status, "open")
     assert.deepEqual(lifecycle.transitions, [])
-    await readerPage.screenshot({ path: path.join(results, "alerts-reader-real-readonly.png"), fullPage: true })
+    await readerPage.screenshot({ path: path.join(results, "alerts-reader-real-readonly.png"), fullPage: !recordVideo })
     const ackPath = `/api/v1/alerts/${eventId}/acknowledge`
     const ackResponse = page.waitForResponse((response) =>
       new URL(response.url()).pathname === ackPath && response.request().method() === "POST")
@@ -168,7 +178,7 @@ async function run() {
     await expect(page.getByRole("dialog").getByRole("button", { name: "确认告警", exact: true })).toBeDisabled()
     await expect(page.getByRole("dialog").getByRole("region", { name: "状态迁移记录", exact: true }))
       .toContainText("待处理 → 已确认")
-    await page.screenshot({ path: path.join(results, "alerts-admin-real-ack.png"), fullPage: true })
+    await page.screenshot({ path: path.join(results, "alerts-admin-real-ack.png"), fullPage: !recordVideo })
     const ackReplay = await context.request.post(`${origin}${ackPath}`, { headers })
     assert.equal(ackReplay.status(), 200)
     assert.equal((await ackReplay.json()).transition_created, false)
@@ -194,7 +204,7 @@ async function run() {
     ])
     await expect(page.getByRole("dialog").getByRole("region", { name: "状态迁移记录", exact: true }))
       .toContainText("已确认 → 已恢复", { timeout: 15000 })
-    await page.screenshot({ path: path.join(results, "alerts-admin-real-resolved.png"), fullPage: true })
+    await page.screenshot({ path: path.join(results, "alerts-admin-real-resolved.png"), fullPage: !recordVideo })
     // Same running combination: continuous actual MQTT/A inbox/C persistence
     // feeds the unmodified C page and actual authenticated snapshot/CSV routes.
     const sensorId = "11111111-1111-4111-8111-111111111111"
@@ -293,7 +303,7 @@ async function run() {
     assert(layout.document_width <= layout.viewport_width + 1, "history/raw must not widen the whole document")
     assert(Math.abs(layout.sidebar_left) <= 1, "desktop sidebar must stay at viewport left")
     assert(layout.inset_left >= layout.sidebar_right - 1, "sidebar must not cover the main content")
-    await page.screenshot({ path: path.join(results, "telemetry-real-history-raw-csv.png"), fullPage: true })
+    await page.screenshot({ path: path.join(results, "telemetry-real-history-raw-csv.png"), fullPage: !recordVideo })
     fs.writeFileSync(path.join(results, "browser.json"), JSON.stringify({
       phase: "real_browser_http_mqtt_control_passed",
       command_id: submitted.command_id,
@@ -322,9 +332,33 @@ async function run() {
       no_mocked_api: true,
       not_tested: ["concurrency (separate PG suite)", "C-triggered B anomaly/recovery", "two real notifications", "formal A/C migration chain", "full E1"],
     }, null, 2), { flag: "wx" })
+    proofPassed = true
     console.log("PASS real browser login/control/receipt/reload/ordinary-user refusal; no API mocks")
   } finally {
-    await browser.close()
+    try {
+      if (recordedContext) await recordedContext.close()
+      if (recordVideo && recordedVideo) {
+        const target = path.join(results, "videos", "candidate-admin-raw.webm")
+        assert(!fs.existsSync(target), "refuse existing video output")
+        await recordedVideo.saveAs(target)
+        const bytes = fs.readFileSync(target)
+        assert(bytes.length > 1000, "recording is empty or incomplete")
+        fs.writeFileSync(path.join(results, "video.json"), JSON.stringify({
+          source: process.env.CONTROL_BROWSER_SOURCE,
+          status: proofPassed ? "candidate_real_browser_recorded_not_final_video" : "failed_proof_recording_do_not_present_as_passed",
+          file: "videos/candidate-admin-raw.webm",
+          bytes: bytes.length,
+          sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+          viewport: { width: 1280, height: 900 },
+          synthetic_isolated_accounts_only: true,
+          no_mocked_api: true,
+          contains_synthetic_b_recovery: true,
+          not_verified: ["formal C migration", "C-triggered anomaly/recovery", "two notification receipts", "second machine", "narrated final release video", "full E1", "submission"],
+        }, null, 2), { flag: "wx" })
+      }
+    } finally {
+      await browser.close()
+    }
   }
 }
 run().catch((error) => {
