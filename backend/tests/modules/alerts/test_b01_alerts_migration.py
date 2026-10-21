@@ -245,7 +245,16 @@ class SuccessorChainCompatCase(_SqliteMigrationCase):
         )
         versions = self.script_dir / "versions"
         versions.mkdir(exist_ok=True)
-        (versions / f"{_SUCCESSOR_ID}.py").write_text(_SUCCESSOR_SRC, encoding="utf-8")
+        # Extend the actual unique chain, not B01 after A has added a successor.
+        # The B-target upgrade/downgrade assertions below remain unchanged.
+        current = ScriptDirectory(str(self.script_dir))
+        self.assertEqual(len(current.get_heads()), 1)
+        parent = current.get_heads()[0]
+        self.assertIn(_HEAD, _ancestry(current, parent))
+        successor = _SUCCESSOR_SRC.replace(
+            'down_revision = "b01_alerts_storage"', f'down_revision = "{parent}"'
+        )
+        (versions / f"{_SUCCESSOR_ID}.py").write_text(successor, encoding="utf-8")
 
     def tearDown(self) -> None:
         shutil.rmtree(self.script_dir, ignore_errors=True)

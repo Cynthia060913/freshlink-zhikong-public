@@ -4,6 +4,9 @@ This does not install a migration or create fallback B tables. Candidate B01
 must already have run; publication and application deployment stay separate.
 """
 
+from pathlib import Path
+
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
@@ -21,11 +24,22 @@ B01_TABLES = frozenset(
 
 def require_b01_candidate_schema(engine: Engine) -> None:
     """Fail closed before fixtures if the actual migrated B schema is absent."""
-    with engine.connect() as connection:
-        revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    if revision != "b01_alerts_storage":
+    script = ScriptDirectory(str(Path(__file__).resolve().parents[2] / "alembic"))
+    heads = script.get_heads()
+    if len(heads) != 1:
+        raise RuntimeError("This combination requires one actual B01 descendant head")
+    ancestry = {revision.revision for revision in script.walk_revisions(head=heads[0])}
+    if "b01_alerts_storage" not in ancestry:
         raise RuntimeError(
             "This combination requires the actual B01 candidate migration"
+        )
+    with engine.connect() as connection:
+        revisions = list(
+            connection.scalars(text("SELECT version_num FROM alembic_version"))
+        )
+    if revisions != heads:
+        raise RuntimeError(
+            "This combination requires the actual B01 descendant at current source head"
         )
     if not B01_TABLES.issubset(inspect(engine).get_table_names()):
         raise RuntimeError(
