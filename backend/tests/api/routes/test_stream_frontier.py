@@ -553,3 +553,183 @@ def test_c_outbox_staging_uses_same_frozen_connection_and_outer_rollback(store):
             assert len(connection.execute(select(outbox)).all()) == 1
     finally:
         c_metadata.drop_all(store.engine)
+
+
+@pytest.mark.parametrize("mode", ["rollback_and_commit", "pending", "rejection"])
+def test_actual_pg_c_recovery_port_under_a_frontier_lock(store, mode):
+    from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
+    from app.modules.telemetry.recovery_outbox_candidate import (
+        stage_eligible_recovery_on_connection_candidate,
+    )
+    from app.modules.telemetry.recovery_progress_candidate import (
+        advance_persisted_recovery_window,
+    )
+    from app.modules.telemetry.recovery_progress_candidate import (
+        metadata as progress_metadata,
+    )
+    from app.modules.telemetry.recovery_window_candidate import (
+        RecoveryRuleCandidate,
+        RecoverySampleCandidate,
+        RecoveryWindowCandidate,
+    )
+    from app.modules.telemetry.storage_candidate import ingest_observation
+    from app.modules.telemetry.storage_candidate import metadata as c_metadata
+    from tests.modules.test_telemetry_recovery_outbox_candidate import _selection
+
+    original, batch = uuid4(), uuid4()
+    historical = {
+        **_selection(),
+        "warehouse_id": str(store.warehouse_id),
+        "batch_id": str(batch),
+    }
+    initial = RecoveryWindowCandidate(
+        original, store.device_id, store.warehouse_id, batch, T0
+    )
+    rule = RecoveryRuleCandidate("<=", 7.0, 3, 90)
+    c_metadata.create_all(store.engine)
+    progress_metadata.create_all(store.engine)
+    try:
+        observation_ids = []
+        for second, value in [(0, 11.0), (10, 6.5), (50, 6.5), (130, 6.5)]:
+            at = T0 + timedelta(seconds=second)
+            envelope = replace(
+                inbox_checks.frame(
+                    store,
+                    value=value,
+                    extra={
+                        "sampled_at": at.isoformat(),
+                        "metrics": [
+                            {"key": "temperature", "value": value, "unit": "°C"},
+                            {"key": "humidity", "value": 70, "unit": "%RH"},
+                        ],
+                    },
+                ),
+                received_at=at,
+            )
+            assert admit(store, envelope).status == "queued"
+            claim = claim_next(store.engine, now=T0)
+            assert claim is not None
+            result = deliver_claim(
+                store.engine,
+                claim,
+                lambda body: ingest_observation(store.engine, body),
+                now=T0,
+                frontier_epoch=store.epoch,
+            )
+            assert result.status == "delivered"
+            observation_ids.append(result.observation_id)
+            if second:
+                progress, _ = advance_persisted_recovery_window(
+                    store.engine,
+                    initial,
+                    rule,
+                    RecoverySampleCandidate(
+                        result.observation_id,
+                        store.device_id,
+                        store.warehouse_id,
+                        batch,
+                        at,
+                        value,
+                        ("ok",),
+                        "new",
+                        at,
+                    ),
+                )
+        assert progress.eligible and stamp(store).settled_through == 4
+        assert (
+            stage_f03_candidate(
+                store.engine,
+                source_event_id=original,
+                observation_id=observation_ids[0],
+                body={
+                    "schema_version": "1.0",
+                    "source_event_id": str(original),
+                    "kind": "temperature_high",
+                    "warehouse_id": str(store.warehouse_id),
+                    "batch_id": str(batch),
+                    "observation_ids": [str(observation_ids[0])],
+                    "metric_code": "temperature",
+                    "sampled_at": T0.isoformat(),
+                    "value": 11.0,
+                    "unit": "°C",
+                    "severity": "warning",
+                    "rule_snapshot_id": historical["snapshot_id"],
+                    "rule_version": historical["rule_version"],
+                    "algorithm_version": "threshold-rule/1",
+                    "evidence": {"comparison": ">", "threshold": 8.0},
+                },
+                now=T0,
+            )
+            == "staged"
+        )
+        if mode != "rollback_and_commit":
+            if mode == "pending":
+                # Later-admitted, earlier-time bad evidence cannot be skipped.
+                assert (
+                    admit(store, inbox_checks.frame(store, value=12)).status == "queued"
+                )
+            else:
+                assert record_rejection(
+                    store.engine,
+                    IngressRejected("retained", b"synthetic rejected frame"),
+                    device_id=store.device_id,
+                    now=T0,
+                    frontier_epoch=store.epoch,
+                )
+            with store.engine.begin() as connection:
+                assert stamp(store, connection) is None
+                assert len(connection.execute(select(outbox)).all()) == 1
+            return  # C staging is intentionally not invoked on a held frontier.
+        with store.engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                frozen = stamp(store, connection)
+                assert frozen is not None
+                # Test-only stand-in for original B acceptance. No B call or
+                # claim that a real anomaly/notification was delivered.
+                connection.execute(
+                    update(outbox)
+                    .where(outbox.c.source_event_id == original)
+                    .values(state="delivered")
+                )
+                staged = stage_eligible_recovery_on_connection_candidate(
+                    connection,
+                    original_source_event_id=original,
+                    historical_rule=historical,
+                    now=T0 + timedelta(minutes=3),
+                )
+                assert staged.status == "staged", staged.reason
+                assert frontier.stamp_is_current(connection, frozen)
+                assert len(connection.execute(select(outbox)).all()) == 2
+            finally:
+                transaction.rollback()
+        with store.engine.connect() as connection:
+            saved = connection.execute(select(outbox)).mappings().one()
+            assert saved["state"] == "pending"  # Both writes rolled back.
+        with store.engine.begin() as connection:
+            assert stamp(store, connection) is not None
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == original)
+                .values(state="delivered")
+            )
+            repeated = stage_eligible_recovery_on_connection_candidate(
+                connection,
+                original_source_event_id=original,
+                historical_rule=historical,
+                now=T0 + timedelta(minutes=3),
+            )
+            assert repeated.status == "staged"
+            assert repeated.source_event_id == staged.source_event_id
+        with store.engine.connect() as connection:
+            rows = connection.execute(select(outbox)).mappings().all()
+            recovery = next(row for row in rows if row["source_event_id"] != original)
+            assert (
+                len(rows) == 2 and recovery["body"]["kind"] == "temperature_recovered"
+            )
+            assert recovery["body"]["observation_ids"] == [
+                str(identity) for identity in observation_ids[1:]
+            ]
+    finally:
+        progress_metadata.drop_all(store.engine)
+        c_metadata.drop_all(store.engine)
