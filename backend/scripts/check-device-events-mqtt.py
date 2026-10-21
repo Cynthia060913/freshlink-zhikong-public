@@ -30,7 +30,6 @@ from app.modules.iot.event_delivery import (
     deliver_to_local_alerts,
 )
 from app.modules.iot.event_dispatch_models import checkpoints
-from app.modules.iot.event_dispatch_models import metadata as dispatch_metadata
 from app.modules.iot.event_worker import (
     EventDeliveryWorker,
     EventWorkerSettings,
@@ -39,7 +38,10 @@ from app.modules.iot.event_worker import (
 from app.modules.iot.heartbeat import HeartbeatPolicy
 from app.modules.iot.heartbeat_worker import HeartbeatWorker, HeartbeatWorkerSettings
 from app.modules.iot.models import Device, DeviceConnectivityEvent
-from app.modules.iot.proof_schema_guard import require_b01_candidate_schema
+from app.modules.iot.proof_schema_guard import (
+    require_a04_candidate_schema,
+    require_b01_candidate_schema,
+)
 
 SENSOR = UUID("11111111-1111-4111-8111-111111111111")
 UNBOUND = UUID("66666666-6666-4666-8666-666666666666")
@@ -59,7 +61,7 @@ def continuous_phase(worker, publisher, topic, heartbeat, state, events, held_id
     target = Path("/results/mqtt-event-worker.json")
     if target.exists():
         raise RuntimeError("Refusing event-worker evidence overwrite")
-    dispatch_metadata.create_all(engine, checkfirst=False)
+    require_a04_candidate_schema(engine)
     # A second real timeout, not a synthetic event inserted by this proof.
     previous = {
         row["source_event_id"]

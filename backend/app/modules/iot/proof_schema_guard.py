@@ -21,6 +21,17 @@ B01_TABLES = frozenset(
     }
 )
 
+A04_TABLES = frozenset(
+    {
+        "iot_telemetry_queue_guard",
+        "iot_telemetry_inbox",
+        "iot_telemetry_ingest_receipt",
+        "iot_telemetry_ingress_audit",
+        "iot_event_delivery_checkpoint",
+        "iot_event_delivery_retry_audit",
+    }
+)
+
 
 def require_b01_candidate_schema(engine: Engine) -> None:
     """Fail closed before fixtures if the actual migrated B schema is absent."""
@@ -45,3 +56,20 @@ def require_b01_candidate_schema(engine: Engine) -> None:
         raise RuntimeError(
             "Actual B01 tables are missing; never create substitute B DDL"
         )
+
+
+def require_a04_candidate_schema(engine: Engine) -> None:
+    """Read-only proof gate: never replace an absent migration with test DDL."""
+    require_b01_candidate_schema(engine)
+    script = ScriptDirectory(str(Path(__file__).resolve().parents[2] / "alembic"))
+    ancestry = {revision.revision for revision in script.walk_revisions()}
+    if "a04_transport_storage" not in ancestry:
+        raise RuntimeError("This proof requires actual A04 migration ancestry")
+    if not A04_TABLES.issubset(inspect(engine).get_table_names()):
+        raise RuntimeError("Actual A04 tables missing; never create substitute A DDL")
+    with engine.connect() as connection:
+        seeds = list(
+            connection.scalars(text("SELECT id FROM iot_telemetry_queue_guard"))
+        )
+    if seeds != [1]:
+        raise RuntimeError("Actual A04 queue guard singleton missing")

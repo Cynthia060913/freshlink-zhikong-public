@@ -21,10 +21,9 @@ from sqlalchemy.exc import OperationalError
 from app.core.config import settings
 from app.core.db import engine
 from app.modules.iot.heartbeat_worker import HeartbeatWorkerSettings
+from app.modules.iot.proof_schema_guard import require_a04_candidate_schema
 from app.modules.iot.telemetry_inbox_models import (
     inbox,
-    metadata,
-    queue_guard,
     receipts,
 )
 from app.modules.iot.telemetry_worker import TelemetryDeliveryWorker, TelemetryReceiver
@@ -55,9 +54,7 @@ def run():
     target = Path("/results/mqtt-telemetry-inbox.json")
     if target.exists():
         raise RuntimeError("Refusing evidence overwrite")
-    metadata.create_all(engine, checkfirst=False)
-    with engine.begin() as connection:
-        connection.execute(queue_guard.insert().values(id=1))
+    require_a04_candidate_schema(engine)
 
     settings_mqtt = HeartbeatWorkerSettings(
         host="broker",
