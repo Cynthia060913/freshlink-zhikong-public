@@ -240,7 +240,25 @@ async function run() {
     const csvText = fs.readFileSync(csvPath, "utf8").replace(/^\uFEFF/, "")
     const csvLines = csvText.trimEnd().split(/\r?\n/)
     assert.equal(csvLines.length - 1, snapshot.total)
-    for (const item of snapshot.items) assert(csvText.includes(item.observation_id))
+    const snapshotIds = snapshot.items.map((item) => item.observation_id)
+    let cursor = snapshot.next_cursor
+    const visited = new Set()
+    while (cursor) {
+      assert(!visited.has(cursor) && visited.size < 32, "snapshot pagination must be bounded")
+      visited.add(cursor)
+      const next = await context.request.get(`${origin}/api/v1/telemetry/observations/`, {
+        headers, params: { device_id: sensorId, snapshot_id: snapshot.snapshot_id, cursor },
+      })
+      assert.equal(next.status(), 200)
+      const body = await next.json()
+      assert.equal(body.snapshot_id, snapshot.snapshot_id)
+      assert.equal(body.total, snapshot.total)
+      snapshotIds.push(...body.items.map((item) => item.observation_id))
+      cursor = body.next_cursor
+    }
+    const csvIds = csvLines.slice(1).map((line) => line.split(",")[0].replace(/^"|"$/g, ""))
+    assert.equal(new Set(snapshotIds).size, snapshot.total)
+    assert.deepEqual(csvIds.sort(), snapshotIds.sort())
     assert(csvLines.slice(1).every((line) => line.includes(sensorId) && line.includes(warehouseId)))
     // New live samples must NOT change membership in the earlier snapshot.
     const sameSnapshot = await context.request.get(`${origin}/api/v1/telemetry/observations/`, {
@@ -277,6 +295,7 @@ async function run() {
       telemetry_snapshot_id: snapshot.snapshot_id,
       telemetry_snapshot_total: snapshot.total,
       telemetry_same_filtered_snapshot_csv_rows: csvLines.length - 1,
+      telemetry_csv_all_ids_equal_all_snapshot_pages: true,
       telemetry_snapshot_membership_stable: true,
       telemetry_anonymous_http_401: true,
       no_mocked_api: true,
