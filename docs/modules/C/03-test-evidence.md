@@ -5,9 +5,10 @@
 - C `frontend/src/features/telemetry/TelemetryPage.tsx` 以前只在最新观测 HTTP
   返回时比较服务端 `checked_at` 与可信 `received_at`。轮询暂停后该年龄不会增长，
   可能继续展示旧的正常风险。现以服务端年龄加上成功响应到本次渲染的时间，
-  每秒更新；超过 60 秒、非法时间、超出 5 秒未来偏差或本地时间回拨时显示
-  `风险未知`。Node24 `node --test frontend/unit/telemetry-freshness.test.mjs` 实跑
-  **3/3 通过**，覆盖轮询停后过期、无效/未来时间和本地回拨。本机缺 Bun 和
+  每秒更新；超过 60 秒、无显式 UTC/非法时间、超出 5 秒未来偏差或本地时间
+  回拨时显示 `风险未知`。Node24
+  `node --test frontend/unit/telemetry-freshness.test.mjs` 实跑 **4/4 通过**，
+  覆盖轮询停后过期、无效/非 UTC/未来时间和本地回拨。本机缺 Bun 和
   前端依赖，未在本机跑 Vite/TypeScript/浏览器；待本提交 CI 回读后补精确头。
 - A [PR43 `a5f27e6ffe7d56844aa388dbedef2ba2a06ee9ee`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/43)
   的 [A31 报告](https://github.com/Cynthia060913/freshlink-zhikong-public/blob/a5f27e6ffe7d56844aa388dbedef2ba2a06ee9ee/docs/modules/A/31-current-c-postgres-followup.md)

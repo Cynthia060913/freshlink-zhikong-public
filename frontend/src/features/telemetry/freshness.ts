@@ -1,5 +1,6 @@
 const MAX_OBSERVATION_AGE_MS = 60_000
 const MAX_FUTURE_SKEW_MS = 5_000
+const EXPLICIT_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/
 
 export function isLatestObservationStale(
   checkedAt: string,
@@ -7,6 +8,9 @@ export function isLatestObservationStale(
   fetchedAtMs: number,
   nowMs: number,
 ): boolean {
+  if (!EXPLICIT_UTC.test(checkedAt) || !EXPLICIT_UTC.test(receivedAt)) {
+    return true
+  }
   const serverAgeMs = Date.parse(checkedAt) - Date.parse(receivedAt)
   const elapsedMs = nowMs - fetchedAtMs
   if (

@@ -15,12 +15,14 @@ A30 另记录同组合 MQTT→C 实际 PG 24 份业务观测、浏览器原文/�
 不是正式迁移或完整 E1。下表“第 6 项没有 PG 实跑”仅是 A31 发布前的历史
 判断，不再作为当前阻塞。
 
-C 本人 [PR11 当前代码提交 `09f1dd5a017fd8ac437e3af9f08e4a705a1d982a`](https://github.com/Cynthia060913/freshlink-zhikong-public/commit/09f1dd5a017fd8ac437e3af9f08e4a705a1d982a)
+C 本人 [PR11 代码提交 `09f1dd5a017fd8ac437e3af9f08e4a705a1d982a`](https://github.com/Cynthia060913/freshlink-zhikong-public/commit/09f1dd5a017fd8ac437e3af9f08e4a705a1d982a)
 修正最新观测页在轮询暂停后不会自行变旧的问题：服务端年龄随成功响应后经过
-时间增长，60 秒后保守显示未知。Node24 纯边界测试 **3/3**；首次提交远端
+时间增长，60 秒后保守显示未知；随后只接受显式 UTC 时间，不把本机解析的
+无时区或非 UTC 时间用于正常风险。Node24 纯边界测试 **4/4**；首次提交远端
 pre-commit 因新增测试的 Biome 排版失败，已在后续格式提交
-`939916e80d33313faec4f2653fedc344af1acf06` 修正，同头检查需按 GitHub
-实际结果回读。未做本人本机 Bun/Vite/Chromium 页面交互，不把 3 个纯测试写成
+`939916e80d33313faec4f2653fedc344af1acf06` 修正，该头及随后
+`db0f0d459ad735479284575210500b70e6aeccf3` 的适用检查均已回读成功。
+未做本人本机 Bun/Vite/Chromium 页面交互，不把 4 个纯测试写成
 完整 UI 验收。
 
 ### 当日后续证据（覆盖下表的旧状态判断，不覆盖旧测试来源）
