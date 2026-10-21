@@ -4,6 +4,25 @@
 
 ## 10 月 21 日当前精确头与未验范围
 
+**晚间新增独立证据**：A [PR43 `a5f27e6ffe7d56844aa388dbedef2ba2a06ee9ee`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/43)
+的 [A31 原记录](https://github.com/Cynthia060913/freshlink-zhikong-public/blob/a5f27e6ffe7d56844aa388dbedef2ba2a06ee9ee/docs/modules/A/31-current-c-postgres-followup.md)
+在其受控 Python3.14.8/PG18.6 READ COMMITTED 环境实际执行 C 第 6 项，
+严格 PG 文件 **6/6 通过、0 跳过**，临时 schema 剩余 0；全应用 mypy
+93 文件及 ty app 通过。C 本人未在本机复跑 PG，只[按该精确头批准默认未启用的
+A24 候选范围](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/43#pullrequestreview-5598813842)。
+A30 另记录同组合 MQTT→C 实际 PG 24 份业务观测、浏览器原文/固定快照与
+24 行 CSV、控制 ACK 后仿真温度变化，使用候选 B01 + 显式 A/C 测试 DDL；
+不是正式迁移或完整 E1。下表“第 6 项没有 PG 实跑”仅是 A31 发布前的历史
+判断，不再作为当前阻塞。
+
+C 本人 [PR11 当前代码提交 `09f1dd5a017fd8ac437e3af9f08e4a705a1d982a`](https://github.com/Cynthia060913/freshlink-zhikong-public/commit/09f1dd5a017fd8ac437e3af9f08e4a705a1d982a)
+修正最新观测页在轮询暂停后不会自行变旧的问题：服务端年龄随成功响应后经过
+时间增长，60 秒后保守显示未知。Node24 纯边界测试 **3/3**；首次提交远端
+pre-commit 因新增测试的 Biome 排版失败，已在后续格式提交
+`939916e80d33313faec4f2653fedc344af1acf06` 修正，同头检查需按 GitHub
+实际结果回读。未做本人本机 Bun/Vite/Chromium 页面交互，不把 3 个纯测试写成
+完整 UI 验收。
+
 ### 当日后续证据（覆盖下表的旧状态判断，不覆盖旧测试来源）
 
 | 来源、精确版本 | 实际证据 | 未验收边界 |
