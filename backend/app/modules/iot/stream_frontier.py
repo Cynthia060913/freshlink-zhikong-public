@@ -107,7 +107,10 @@ def begin_evidence_write(
     ).scalar_one_or_none()
     if binding != warehouse_id:
         raise FrontierUnavailable("current device binding mismatch")
-    revision = row["evidence_revision"] + 1
+    previous_revision = row["evidence_revision"]
+    if not isinstance(previous_revision, int) or isinstance(previous_revision, bool):
+        raise FrontierUnavailable("invalid stored evidence revision")
+    revision = previous_revision + 1
     connection.execute(
         update(streams)
         .where(streams.c.device_id == device_id)
