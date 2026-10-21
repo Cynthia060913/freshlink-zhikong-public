@@ -599,6 +599,35 @@ class AlertAlreadyResolved(Exception):
     candidate, and the transition history is append-only."""
 
 
+def _lock_alert_event(
+    session: Session, alert_event_id: uuid.UUID
+) -> AlertEvent | None:
+    """Lock the alert's OWN event row for the rest of this transaction.
+
+    Acknowledge and recovery both serialize on this SAME row (the
+    original anomaly event) before they read the lifecycle status, so
+    the read-then-write pair is atomic per alert on PostgreSQL. SQLite
+    ignores ``FOR UPDATE``; its HTTP regressions stay single-request,
+    and the real interleavings are covered by the opt-in live PG case.
+    """
+
+    return session.exec(
+        select(AlertEvent)
+        .where(col(AlertEvent.id) == alert_event_id)
+        .with_for_update()
+    ).first()
+
+
+def _lock_alert_by_source(session: Session, source_event_id: str) -> AlertEvent | None:
+    """Same row lock, resolved by the original's ``source_event_id``."""
+
+    return session.exec(
+        select(AlertEvent)
+        .where(col(AlertEvent.source_event_id) == source_event_id)
+        .with_for_update()
+    ).first()
+
+
 def acknowledge_alert(
     session: Session, alert_event_id: uuid.UUID, *, reason: str | None = None
 ) -> tuple[AlertStatus, bool]:
@@ -610,13 +639,28 @@ def acknowledge_alert(
     with :class:`AlertAlreadyResolved`; nothing is written on
     rejection. There is no ``acknowledged -> open`` path: the
     transition table is append-only.
+
+    The alert row is locked BEFORE the status read and held until the
+    transition commits. A recovery candidate must take the SAME lock
+    in ``_recovery_transition`` — NOT YET IMPLEMENTED in this partial
+    handover (PR #10 A review 5586949090): the recovery path is still
+    racy until A's small package adds the lock there plus the live-PG
+    interleaving regressions. Once both paths lock the same row and
+    re-read the status under it, whichever commits first, the second
+    path re-reads and a late acknowledge can never overturn
+    ``resolved``.
     """
 
-    get_event(session, alert_event_id)
+    event = _lock_alert_event(session, alert_event_id)
+    if event is None:
+        session.rollback()
+        raise EventNotFound(f"alert {alert_event_id} not found")
     current = get_alert_status(session, alert_event_id)
     if current is AlertStatus.RESOLVED:
+        session.rollback()  # release the lock, write nothing
         raise AlertAlreadyResolved(f"alert {alert_event_id} is resolved")
     if current is AlertStatus.ACKNOWLEDGED:
+        session.rollback()  # release the lock, no second row
         return current, False
     session.add(
         AlertStatusTransition(
