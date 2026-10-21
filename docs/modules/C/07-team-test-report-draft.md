@@ -4,6 +4,17 @@
 
 ## 10 月 21 日当前精确头与未验范围
 
+A 新 [PR #40 `e69094ff2c2bf81790a7402befdd8b18066d7c3c`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/40)
+含 C `f895e95b1df51c2fa8943be6dbaaa99bbe9e32b1` 原样业务、A 共享根
+修复与 SDK 更新。A 隔离 Python3.14.8/PG18.6 同版 **1058 passed、0 skipped**，
+其中原有 C 5 项 PG 专项实际执行；适用 Actions success。C 对 A/C 接线范围
+[精确头 APPROVE](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/40#pullrequestreview-5594554218)，
+本人未重跑该 PG/浏览器环境。该轮实测来源见 A 的
+`docs/modules/A/27-current-c-transaction-port-validation.md`。C 后续新增的
+第 6 项恢复同事务 PG 用例只在本机 SQLite 代码路径预检通过，严格 PG
+仍未执行；不能回填 A 已跑的五项统计。以下旧行保留当时精确头记录，
+其中“没有真实 PG 回滚测试”仅描述该旧头当时的证据缺口。
+
 | 来源、精确版本 | 可复核的实际结果 | 未完成/未测 |
 | --- | --- | --- |
 | C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 业务 `6e2c1de71fb71c3bb67c9731a311c6d1729c62d8` → PG 测试 `3dd61a3291420e8435cae55b90619a86a463f06c` | C 的恢复证据核对和 F03 outbox 可由调用方同一事务执行，SAVEPOINT 分类重复/冲突；本人 Windows 隔离 Python3.13/SQLite 相关 **55/55**，Ruff/编译/diff 通过。业务头 [Backend run39483084679](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39483084679) **557 passed/4 skipped**；测试头 [run39483603059](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39483603059) **557 passed/5 skipped/115 warnings**，两头适用五项 Actions 成功。 | 新增严格 PG opt-in 用例在本人及通用 CI 都跳过；尚无 A 同设备锁/连续前沿、正式唯一迁移、真实 PG 回滚与并发验证。自动恢复及向 B 投递仍禁用；这不是 E1 或 M03 签收。 |

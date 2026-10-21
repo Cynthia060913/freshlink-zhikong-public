@@ -30,6 +30,21 @@ from app.modules.telemetry.outbox_candidate import (
     outbox_conflicts,
     stage_candidate,
     stage_candidate_on_connection_candidate,
+    stage_f03_candidate,
+)
+from app.modules.telemetry.recovery_outbox_candidate import (
+    stage_eligible_recovery_on_connection_candidate,
+)
+from app.modules.telemetry.recovery_progress_candidate import (
+    advance_persisted_recovery_window,
+)
+from app.modules.telemetry.recovery_progress_candidate import (
+    metadata as progress_metadata,
+)
+from app.modules.telemetry.recovery_window_candidate import (
+    RecoveryRuleCandidate,
+    RecoverySampleCandidate,
+    RecoveryWindowCandidate,
 )
 from app.modules.telemetry.rule_evaluation_candidate import evaluate_one_batch_candidate
 from app.modules.telemetry.snapshot_candidate import (
@@ -124,6 +139,148 @@ class PostgresStorageCandidateTests(unittest.TestCase):
     def _count(self, table) -> int:
         with self.engine.connect() as connection:
             return int(connection.scalar(select(func.count()).select_from(table)))
+
+    def test_recovery_staging_shares_pg_caller_commit_and_rollback(self) -> None:
+        """A future admission lock can own the same PG transaction as C staging.
+
+        This does not prove that the admission lock or continuous frontier is
+        implemented: the test supplies an already eligible persisted window.
+        """
+        self.addCleanup(progress_metadata.drop_all, self.engine)
+        progress_metadata.create_all(self.engine)
+        original_id = uuid4()
+        batch_id = uuid4()
+        snapshot_id = uuid4()
+        anomaly = ingest_observation(self.engine, _reception(uuid4(), temperature=11))
+        self.assertEqual(anomaly.status, "accepted_new")
+        assert anomaly.observation_id is not None
+        body = {
+            "schema_version": "1.0",
+            "source_event_id": str(original_id),
+            "kind": "temperature_high",
+            "warehouse_id": str(_WAREHOUSE_ID),
+            "batch_id": str(batch_id),
+            "observation_ids": [str(anomaly.observation_id)],
+            "metric_code": "temperature",
+            "sampled_at": _SAMPLED_AT,
+            "value": 11.0,
+            "unit": "°C",
+            "severity": "warning",
+            "rule_snapshot_id": str(snapshot_id),
+            "rule_version": "temp-v1",
+            "algorithm_version": "threshold-rule/1",
+            "evidence": {"comparison": ">", "threshold": 8.0},
+        }
+        self.assertEqual(
+            stage_f03_candidate(
+                self.engine,
+                source_event_id=original_id,
+                observation_id=anomaly.observation_id,
+                body=body,
+                now=_RECEIVED_AT,
+            ),
+            "staged",
+        )
+        historical_rule = {
+            "kind": "temperature_high",
+            "warehouse_id": str(_WAREHOUSE_ID),
+            "batch_id": str(batch_id),
+            "metric_code": "temperature",
+            "snapshot_id": str(snapshot_id),
+            "rule_version": "temp-v1",
+            "severity": "warning",
+            "unit": "°C",
+            "comparison": ">",
+            "threshold": 8.0,
+            "effective_start_at": "2026-10-14T00:00:00Z",
+            "effective_end_at": None,
+            "recovery": {"comparison": "<=", "threshold": 7.0, "min_samples": 3},
+        }
+        initial = RecoveryWindowCandidate(
+            original_source_event_id=original_id,
+            device_id=_DEVICE_ID,
+            warehouse_id=_WAREHOUSE_ID,
+            batch_id=batch_id,
+            anomaly_sampled_at=_RECEIVED_AT,
+        )
+        rule = RecoveryRuleCandidate("<=", 7.0, 3, 90)
+        for second in (10, 50, 130):
+            raw = _reception(uuid4(), temperature=6, seconds=second).raw_payload
+            sampled_at = _RECEIVED_AT + timedelta(seconds=second)
+            raw["sampled_at"] = sampled_at.isoformat().replace("+00:00", "Z")
+            receipt = _Reception(
+                raw_text=json.dumps(raw, ensure_ascii=False),
+                reception_id=uuid4(),
+                received_at=sampled_at,
+            )
+            saved = ingest_observation(self.engine, receipt)
+            self.assertEqual(saved.status, "accepted_new")
+            assert saved.observation_id is not None
+            window, _ = advance_persisted_recovery_window(
+                self.engine,
+                initial,
+                rule,
+                RecoverySampleCandidate(
+                    observation_id=saved.observation_id,
+                    device_id=_DEVICE_ID,
+                    warehouse_id=_WAREHOUSE_ID,
+                    batch_id=batch_id,
+                    sampled_at=sampled_at,
+                    temperature_c=6.0,
+                    quality=("ok",),
+                    duplicate="new",
+                ),
+            )
+        self.assertTrue(window.eligible)
+
+        def stage(connection):
+            return stage_eligible_recovery_on_connection_candidate(
+                connection,
+                original_source_event_id=original_id,
+                historical_rule=historical_rule,
+                now=_RECEIVED_AT + timedelta(minutes=3),
+            )
+
+        with self.engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                connection.execute(
+                    update(outbox)
+                    .where(outbox.c.source_event_id == original_id)
+                    .values(state="delivered")
+                )
+                staged = stage(connection)
+                self.assertEqual(staged.status, "staged")
+                self.assertEqual(stage(connection).status, "duplicate")
+                self.assertEqual(
+                    connection.scalar(select(func.count()).select_from(outbox)), 2
+                )
+            finally:
+                transaction.rollback()
+        self.base_engine.dispose()
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(
+                    select(outbox.c.state).where(
+                        outbox.c.source_event_id == original_id
+                    )
+                ),
+                "pending",
+            )
+        self.assertEqual(self._count(outbox), 1)
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == original_id)
+                .values(state="delivered")
+            )
+            staged = stage(connection)
+            self.assertEqual(staged.status, "staged")
+        assert staged.source_event_id is not None
+        self.base_engine.dispose()
+        self.assertEqual(self._count(outbox), 2)
+        with self.engine.begin() as connection:
+            self.assertEqual(stage(connection).status, "duplicate")
 
     def test_caller_transaction_keeps_pg_savepoint_replay_and_conflict_atomic(
         self,
