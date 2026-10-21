@@ -31,6 +31,7 @@ from .app_push import (
     PermanentPushError,
     TransientPushError,
 )
+from .feishu import FeishuWebhookConfig, FeishuWebhookTransport
 from .smtp import SMTPConfig, SMTPTransport
 from .transport import (
     DeliveryOutcome,
@@ -44,6 +45,8 @@ __all__ = [
     "AppPushTransport",
     "DeliveryOutcome",
     "DisabledAppPushTransport",
+    "FeishuWebhookConfig",
+    "FeishuWebhookTransport",
     "NotConfigured",
     "NotificationEnvelope",
     "NotificationKind",
