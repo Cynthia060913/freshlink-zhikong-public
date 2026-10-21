@@ -10,9 +10,10 @@ import logging
 import math
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.packettypes import PacketTypes
@@ -38,6 +39,18 @@ logger = logging.getLogger(__name__)
 WarehouseLookupFactory = Callable[[Session], WarehouseExists]
 
 
+def _frontier_epochs(value: Mapping[UUID, UUID] | None) -> dict[UUID, UUID] | None:
+    if value is None:
+        return None
+    copied = dict(value)
+    if not 1 <= len(copied) <= 14 or not all(
+        isinstance(device, UUID) and isinstance(epoch, UUID)
+        for device, epoch in copied.items()
+    ):
+        raise ValueError("frontier scope requires 1-14 trusted device/epoch UUIDs")
+    return copied
+
+
 class TelemetryReceiver(HeartbeatWorker):
     def __init__(
         self,
@@ -46,8 +59,15 @@ class TelemetryReceiver(HeartbeatWorker):
         password: str,
         warehouse_lookup_factory: WarehouseLookupFactory,
         limits: QueueLimits = QueueLimits(),
+        frontier_epochs: Mapping[UUID, UUID] | None = None,
     ) -> None:
+        selected_epochs = _frontier_epochs(frontier_epochs)
+        if selected_epochs is not None and set(selected_epochs) != set(
+            settings.device_ids
+        ):
+            raise ValueError("receiver frontier scope must match verified device scope")
         super().__init__(settings, password=password)
+        self.frontier_epochs = selected_epochs
         self.warehouse_lookup_factory = warehouse_lookup_factory
         self.limits = limits
         self.topics = {
@@ -77,6 +97,11 @@ class TelemetryReceiver(HeartbeatWorker):
             return
         received_at = datetime.now(UTC)
         identity = self.topics.get(message.topic)
+        epoch = (
+            self.frontier_epochs.get(identity)
+            if self.frontier_epochs is not None and identity is not None
+            else None
+        )
         try:
             if identity is None:
                 raise IngressRejected("topic_outside_verified_scope", message.payload)
@@ -98,7 +123,13 @@ class TelemetryReceiver(HeartbeatWorker):
                     received_at=received_at,
                 )
             # Close the registration read before admission starts its transaction.
-            result = enqueue(self.engine, envelope, now=received_at, limits=self.limits)
+            result = enqueue(
+                self.engine,
+                envelope,
+                now=received_at,
+                limits=self.limits,
+                frontier_epoch=epoch,
+            )
             if result.status not in {
                 "queued",
                 "already_queued",
@@ -119,6 +150,7 @@ class TelemetryReceiver(HeartbeatWorker):
                 device_id=identity,
                 now=received_at,
                 limits=self.limits,
+                frontier_epoch=epoch,
             ):
                 self._fail("telemetry_audit_unavailable")
                 return
@@ -154,10 +186,12 @@ class TelemetryDeliveryWorker:
         *,
         poll_seconds: float = 0.5,
         limits: QueueLimits = QueueLimits(),
+        frontier_epochs: Mapping[UUID, UUID] | None = None,
     ) -> None:
         if not math.isfinite(poll_seconds) or not 0.1 <= poll_seconds <= 10:
             raise ValueError("poll period must be between 0.1 and 10 seconds")
         self.engine, self.sink = engine, sink
+        self.frontier_epochs = _frontier_epochs(frontier_epochs)
         self.poll_seconds, self.limits = poll_seconds, limits
         self.stop_requested = threading.Event()
         self.completed = 0
@@ -169,7 +203,20 @@ class TelemetryDeliveryWorker:
         if claim is None:
             self.last_status = "idle"
             return None
-        result = deliver_claim(self.engine, claim, self.sink, limits=self.limits)
+        identity = claim.envelope.authenticated_device_id
+        if self.frontier_epochs is not None and identity not in self.frontier_epochs:
+            self.last_status = "blocked"
+            return InboxResult(
+                "blocked", claim.envelope.reception_id, "unverified_stream_scope"
+            )
+        epoch = (
+            self.frontier_epochs.get(identity)
+            if self.frontier_epochs is not None
+            else None
+        )
+        result = deliver_claim(
+            self.engine, claim, self.sink, limits=self.limits, frontier_epoch=epoch
+        )
         self.last_status = result.status
         if result.status == "delivered":
             self.completed += 1

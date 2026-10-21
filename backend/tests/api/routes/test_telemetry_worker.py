@@ -167,11 +167,74 @@ def test_delivery_is_independent_single_claim_with_no_memory_queue():
         assert worker.run_once() is None and worker.last_status == "idle"
         deliver.assert_not_called()
     with (
-        patch(MODULE + "claim_next", return_value="claim"),
+        patch(
+            MODULE + "claim_next",
+            return_value=(
+                claim := SimpleNamespace(
+                    envelope=SimpleNamespace(authenticated_device_id=uuid4())
+                )
+            ),
+        ),
         patch(MODULE + "deliver_claim", return_value=result) as deliver,
     ):
         assert worker.run_once() == result and worker.completed == 1
-        deliver.assert_called_once_with(engine, "claim", sink, limits=worker.limits)
+        deliver.assert_called_once_with(
+            engine, claim, sink, limits=worker.limits, frontier_epoch=None
+        )
+
+
+def test_frontier_delivery_scope_is_explicit_and_unknown_claim_never_calls_c():
+    identity, epoch = uuid4(), uuid4()
+    mapping = {identity: epoch}
+    engine, sink = MagicMock(), MagicMock()
+    worker = TelemetryDeliveryWorker(engine, sink, frontier_epochs=mapping)
+    mapping.clear()  # Constructor owns a copy, not mutable external policy.
+    claim = SimpleNamespace(
+        envelope=SimpleNamespace(authenticated_device_id=identity, reception_id=uuid4())
+    )
+    with (
+        patch(MODULE + "claim_next", return_value=claim),
+        patch(MODULE + "deliver_claim") as deliver,
+    ):
+        worker.run_once()
+        assert deliver.call_args.kwargs["frontier_epoch"] == epoch
+    claim.envelope.authenticated_device_id = uuid4()
+    with (
+        patch(MODULE + "claim_next", return_value=claim),
+        patch(MODULE + "deliver_claim") as deliver,
+    ):
+        result = worker.run_once()
+        assert result.status == "blocked" and result.reason == "unverified_stream_scope"
+        deliver.assert_not_called()
+    for invalid in ({}, {identity: "not-an-epoch"}, {str(identity): epoch}):
+        with pytest.raises(ValueError):
+            TelemetryDeliveryWorker(engine, sink, frontier_epochs=invalid)
+
+
+def test_frontier_receiver_passes_same_epoch_to_admission_and_known_rejection(receiver):
+    identity = next(iter(receiver.topics.values()))
+    epoch = uuid4()
+    receiver.frontier_epochs = {identity: epoch}
+    with (
+        patch(MODULE + "Session"),
+        patch(MODULE + "receive_registered_telemetry"),
+        patch(MODULE + "enqueue", return_value=InboxResult("queued", uuid4())) as admit,
+    ):
+        receiver._on_message(receiver.client, None, message(receiver))
+        assert admit.call_args.kwargs["frontier_epoch"] == epoch
+    with patch(MODULE + "record_rejection", return_value=True) as reject:
+        receiver._on_message(receiver.client, None, message(receiver, retain=True))
+        assert reject.call_args.kwargs["frontier_epoch"] == epoch
+
+
+def test_frontier_receiver_rejects_partial_config_before_starting(receiver):
+    with pytest.raises(ValueError):
+        TelemetryReceiver(
+            receiver.settings,
+            password="fixture-only",
+            warehouse_lookup_factory=MagicMock(),
+            frontier_epochs={uuid4(): uuid4()},
+        )
 
 
 def test_dispatcher_transient_failure_is_sanitized_and_stoppable(caplog):
