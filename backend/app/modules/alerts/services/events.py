@@ -28,8 +28,11 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.orm import SessionTransactionOrigin
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, SQLModel, col, func, select
 
@@ -56,6 +59,63 @@ _RETRY_AFTER_S = 30.0
 
 class EventNotFound(Exception):
     """Raised when a source_event_id / event id does not resolve."""
+
+
+class AlertLifecycleUnavailable(Exception):
+    """Retryable lifecycle storage/transaction failure; never a false 404/409."""
+
+
+def _require_lifecycle_unit(session: Session) -> None:
+    """Service owns this clean unit of work, not an explicit caller transaction.
+
+    Existing read-only AUTOBEGIN (for example JWT lookup) is supported. Reject
+    pending writes or explicit begin BEFORE flush/commit/rollback can touch them.
+    Callers must not use this committing service for unrelated flushed SQL.
+    """
+    transaction = session.get_transaction()
+    if (
+        isinstance(session.get_bind(), Connection)
+        or session.new
+        or session.dirty
+        or session.deleted
+        or (
+            transaction is not None
+            and transaction.origin is not SessionTransactionOrigin.AUTOBEGIN
+        )
+    ):
+        raise AlertLifecycleUnavailable("dedicated clean lifecycle unit required")
+
+
+def _prepare_lifecycle_lock(session: Session) -> None:
+    if session.get_bind().dialect.name == "postgresql":
+        connection = session.connection()
+        if connection.get_isolation_level() != "READ COMMITTED":
+            raise AlertLifecycleUnavailable("READ COMMITTED lifecycle unit required")
+        connection.exec_driver_sql("SET LOCAL lock_timeout = '3000ms'")
+        connection.exec_driver_sql("SET LOCAL statement_timeout = '5000ms'")
+
+
+def _next_transition_time(session: Session, event_id: uuid.UUID) -> datetime:
+    """Keep append-only status ordering monotonic even if the wall clock falls."""
+    previous = session.exec(
+        select(AlertStatusTransition)
+        .where(col(AlertStatusTransition.alert_event_id) == event_id)
+        .order_by(
+            col(AlertStatusTransition.created_at).desc(),
+            col(AlertStatusTransition.id).desc(),
+        )
+        .limit(1)
+    ).first()
+    at = datetime.now(UTC)
+    if previous is not None:
+        before = previous.created_at
+        before = (
+            before.replace(tzinfo=UTC)
+            if before.tzinfo is None
+            else before.astimezone(UTC)
+        )
+        at = max(at, before + timedelta(microseconds=1))
+    return at
 
 
 def _get_by_source(session: Session, source_event_id: str) -> AlertEvent | None:
@@ -361,9 +421,9 @@ def _recovery_transition(
     if not related:
         return "recovery_missing_related"
     try:
-        original = _get_by_source(session, related)
+        original = _lock_alert_by_source(session, related)
         status = get_alert_status(session, original.id) if original else None
-    except OperationalError:
+    except SQLAlchemyError, AlertLifecycleUnavailable:
         session.rollback()
         return "retryable"
     if original is None:
@@ -390,12 +450,18 @@ def _recovery_transition(
     assert status is not None
     if status == AlertStatus.RESOLVED:
         return None
+    try:
+        created_at = _next_transition_time(session, original.id)
+    except SQLAlchemyError:
+        session.rollback()
+        return "retryable"
     return AlertStatusTransition(
         alert_event_id=original.id,
         from_status=status,
         to_status=AlertStatus.RESOLVED,
         trigger_source_event_id=source_event_id,
         reason="temperature_recovered",
+        created_at=created_at,
     )
 
 
@@ -410,6 +476,12 @@ def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateRe
 
     source_event_id = payload.source_event_id
     digest = compute_content_digest(payload)
+
+    if payload.kind is CandidateKind.TEMPERATURE_RECOVERED:
+        try:
+            _require_lifecycle_unit(session)
+        except AlertLifecycleUnavailable:
+            return _retryable_receipt(source_event_id)
 
     try:
         batch = session.get(Batch, payload.batch_id)
@@ -437,8 +509,18 @@ def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateRe
         if isinstance(outcome, str):
             if outcome == "retryable":
                 return _retryable_receipt(source_event_id)
+            session.rollback()  # semantic rejection must release the original lock
             return _invalid_receipt(source_event_id, outcome)
         transition = outcome
+        try:
+            existing = _get_by_source(session, source_event_id)
+            if existing is not None:
+                receipt = _classify_existing(existing, source_event_id, digest)
+                session.rollback()
+                return receipt
+        except SQLAlchemyError:
+            session.rollback()
+            return _retryable_receipt(source_event_id)
 
     row = _candidate_row(payload, digest)
     failure = _insert_event(session, row, *([transition] if transition else ()))
@@ -599,6 +681,33 @@ class AlertAlreadyResolved(Exception):
     candidate, and the transition history is append-only."""
 
 
+def _lock_alert_event(session: Session, alert_event_id: uuid.UUID) -> AlertEvent | None:
+    """Lock the alert's OWN event row for the rest of this transaction.
+
+    Acknowledge and recovery both serialize on this SAME row (the
+    original anomaly event) before they read the lifecycle status, so
+    the read-then-write pair is atomic per alert on PostgreSQL. SQLite
+    ignores ``FOR UPDATE``; its HTTP regressions stay single-request,
+    and the real interleavings are covered by the opt-in live PG case.
+    """
+
+    _prepare_lifecycle_lock(session)
+    return session.exec(
+        select(AlertEvent).where(col(AlertEvent.id) == alert_event_id).with_for_update()
+    ).first()
+
+
+def _lock_alert_by_source(session: Session, source_event_id: str) -> AlertEvent | None:
+    """Same row lock, resolved by the original's ``source_event_id``."""
+
+    _prepare_lifecycle_lock(session)
+    return session.exec(
+        select(AlertEvent)
+        .where(col(AlertEvent.source_event_id) == source_event_id)
+        .with_for_update()
+    ).first()
+
+
 def acknowledge_alert(
     session: Session, alert_event_id: uuid.UUID, *, reason: str | None = None
 ) -> tuple[AlertStatus, bool]:
@@ -610,21 +719,38 @@ def acknowledge_alert(
     with :class:`AlertAlreadyResolved`; nothing is written on
     rejection. There is no ``acknowledged -> open`` path: the
     transition table is append-only.
+
+    B's protected 12c5829 handoff supplied the ACK row-lock foundation.
+    Recovery now takes the SAME original row lock; both re-read status
+    under READ COMMITTED, and no B network/notification call is inside it.
+    Caller must provide a clean service-owned unit; SQL failures roll back
+    and become AlertLifecycleUnavailable. This is not full E1 acceptance.
     """
 
-    get_event(session, alert_event_id)
-    current = get_alert_status(session, alert_event_id)
-    if current is AlertStatus.RESOLVED:
-        raise AlertAlreadyResolved(f"alert {alert_event_id} is resolved")
-    if current is AlertStatus.ACKNOWLEDGED:
-        return current, False
-    session.add(
-        AlertStatusTransition(
-            alert_event_id=alert_event_id,
-            from_status=AlertStatus.OPEN,
-            to_status=AlertStatus.ACKNOWLEDGED,
-            reason=(reason or None),
+    _require_lifecycle_unit(session)
+    try:
+        event = _lock_alert_event(session, alert_event_id)
+        if event is None:
+            session.rollback()
+            raise EventNotFound(f"alert {alert_event_id} not found")
+        current = get_alert_status(session, alert_event_id)
+        if current is AlertStatus.RESOLVED:
+            session.rollback()
+            raise AlertAlreadyResolved(f"alert {alert_event_id} is resolved")
+        if current is AlertStatus.ACKNOWLEDGED:
+            session.rollback()
+            return current, False
+        session.add(
+            AlertStatusTransition(
+                alert_event_id=alert_event_id,
+                from_status=AlertStatus.OPEN,
+                to_status=AlertStatus.ACKNOWLEDGED,
+                reason=(reason or None),
+                created_at=_next_transition_time(session, alert_event_id),
+            )
         )
-    )
-    session.commit()
+        session.commit()
+    except (SQLAlchemyError, AlertLifecycleUnavailable) as exc:
+        session.rollback()
+        raise AlertLifecycleUnavailable("lifecycle storage unavailable") from exc
     return AlertStatus.ACKNOWLEDGED, True
