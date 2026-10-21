@@ -1,6 +1,7 @@
 const MAX_OBSERVATION_AGE_MS = 60_000
 const MAX_FUTURE_SKEW_MS = 5_000
-const EXPLICIT_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/
+const EXPLICIT_UTC =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/
 
 export function isLatestObservationStale(
   checkedAt: string,
