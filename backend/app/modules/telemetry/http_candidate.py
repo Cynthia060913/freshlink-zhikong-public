@@ -9,13 +9,16 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import CurrentUser, SessionDep
 from app.core.config import settings
-from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
+from app.modules.telemetry.history_candidate import (
+    HistoryFiltersCandidate,
+    latest_observation_candidate,
+)
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
     render_snapshot_csv_candidate,
@@ -23,7 +26,11 @@ from app.modules.telemetry.snapshot_candidate import (
 from app.modules.telemetry.snapshot_cursor_candidate import (
     read_signed_snapshot_page_candidate,
 )
-from app.modules.telemetry.storage_candidate import observations, receptions
+from app.modules.telemetry.storage_candidate import (
+    observations,
+    reception_reuse_conflicts,
+    receptions,
+)
 
 router = APIRouter(prefix="/telemetry/observations", tags=["telemetry"])
 _POLICY = "active-user-read-v1"
@@ -151,6 +158,29 @@ def export_observations(
     )
 
 
+@router.get("/latest")
+def read_latest_observation(
+    actor: CurrentUser,
+    engine: Annotated[Engine, Depends(_engine)],
+    response: Response,
+    device_id: UUID | None = None,
+    warehouse_id: UUID | None = None,
+) -> dict[str, Any]:
+    """Poll one saved measurement without allocating a history snapshot."""
+    _ = actor
+    try:
+        item = latest_observation_candidate(
+            engine, device_id=device_id, warehouse_id=warehouse_id
+        )
+    except (ValueError, SQLAlchemyError) as error:
+        raise _failure(error) from None
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "item": item,
+        "checked_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+
+
 @router.get("/{observation_id}")
 def read_observation(
     actor: CurrentUser,
@@ -179,6 +209,17 @@ def read_observation(
                 .mappings()
                 .all()
             )
+            reuse_count = connection.execute(
+                select(func.count())
+                .select_from(
+                    reception_reuse_conflicts.join(
+                        receptions,
+                        reception_reuse_conflicts.c.claimed_reception_id
+                        == receptions.c.id,
+                    )
+                )
+                .where(receptions.c.observation_id == observation_id)
+            ).scalar_one()
         return {
             "observation_id": row["id"],
             "device_id": row["device_id"],
@@ -188,6 +229,7 @@ def read_observation(
             "normalized": row["normalized"],
             "quality": row["quality"],
             "risk": row["risk"],
+            "reception_reuse_conflict_count": reuse_count,
             "receptions": [
                 {
                     "reception_id": attempt["id"],

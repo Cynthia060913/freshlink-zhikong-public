@@ -1,5 +1,80 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-21 同连接恢复冻结端口（M03 增量，未签收）
+
+- C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  业务提交 `6e2c1de71fb71c3bb67c9731a311c6d1729c62d8`，严格 PG 专项测试
+  后继 `3dd61a3291420e8435cae55b90619a86a463f06c`。候选
+  `stage_eligible_recovery_on_connection_candidate` 在调用者已打开的一个
+  `Connection`/事务内核对已存证据、原异常和窗口并冻结 F03 outbox；重复/冲突
+  使用 SAVEPOINT，不提交外层事务。独立 Engine 包装没有 A 设备锁，不能据此
+  启用自动恢复。A 接纳前沿、晚到失效和 B 更正语义仍待跨模块确认。
+- 本人 Windows 项目隔离 Python3.13/SQLite 的 outbox 8/8、恢复 outbox
+  18/18、delivery 18/18、进度 4/4、规则 7/7，共 **55/55**；Ruff lint/format、
+  语法编译、差异检查通过。回滚测试证明原事件送达状态与新恢复候选随调用方
+  事务撤销，冲突记录也不提前提交。本机严格 opt-in PG **5/5 skipped**，
+  没有连接或清空 PostgreSQL。
+- 精确业务头项目 Python3.14
+  [Backend run39483084679](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39483084679)
+  **557 passed/4 skipped/115 warnings**；精确 PG 测试头
+  [Backend run39483603059](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39483603059)
+  **557 passed/5 skipped/115 warnings**。两头各自适用的 pre-commit、Compose、
+  Playwright、Zizmor 均 completed/success。新增第五项仍被正确跳过，
+  **没有真实 PG 回滚测试通过证据**；A 已在 [#5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6299384034)
+  收到精确入口和复验要求。正式唯一迁移、A 锁/前沿、B 并发修复和 E1
+  不因本端口或全绿通用 CI 获得验收。
+
+## 2026-10-21 最新已存观测候选（M03 增量，未签收）
+
+- C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  功能提交 `f0e31c0ca01362009903b8a18166720236eb62cb`，Biome 排版修复后精确
+  HEAD `9a121597a18293798ad63dc10b8e98287492c84b`。有范围、鉴权的候选
+  `GET /telemetry/observations/latest` 按可信首次接收 UTC 取一条已存观测；
+  重复投递不替换最新值，轮询不创建历史快照。C 页面每 10 秒重读已提交的
+  设备/冷库范围；空、失败、超过 60 秒或时钟不一致显示风险未知，仍不能推断
+  其他设备或批次正常。历史/CSV 沿用原固定快照。
+- 本人 Windows 项目隔离 Python3.13 的历史服务单测 **4/4 OK**，Ruff lint/format、
+  语法编译和 Git diff 检查通过。HTTP 用例因项目 Python3.14 语法在本机未跑。
+  精确修复头项目 Python3.14
+  [Backend run39480816473](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39480816473)
+  **554 passed/4 skipped/115 warnings**；pre-commit、Compose、
+  [Playwright run39480816789](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39480816789)、
+  Zizmor 同头 completed/success。初始 f0 功能头的 pre-commit 因两处前端
+  排版失败，已由 9a 修复，不能把初始头记为全绿。现有 Playwright 用例并未
+  验证此候选页面交互；4 skipped 不计正式 C PG 测试。
+- 尚未验证：正式迁移/重启、共同根与导航接线、同版真实浏览器刷新和权限、
+  多设备/多批次业务风险、自动恢复、两渠道实收、完整 E1 与 M03 成品。
+
+## 2026-10-21 C 拒收审计与详情风险提示（M03 底稿，未签收）
+
+- 本人 C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+  精确业务头 `077cbef46a04155a7b2b1535e2ac5985af9fb423`，main
+  `75c1e86b984b8241bab1ecd5790a89225809d306`。先前 `48a6f6ea1eb2fbfb5fc20c8753d70ea07c79ee0b`
+  提供**未挂主程序**的管理员专用拒收审计候选：可信设备/仓 UUID、最多 50 条、
+  UUID 游标、`Cache-Control: no-store`，能读取没有形成 observation 的 invalid、
+  消息冲突及接收 ID 异文复用的精确原文。测试包括匿名/普通/停用/管理员权限、
+  限额、游标、原设备和后来声称方都可查复用记录。UUID 游标不是时间顺序或冻结
+  快照，新增行可能排在已有游标前；须从头审计，不能用空页证明环境正常。
+- `077cbef…` 进一步在普通观测详情只显示与原观测接收 ID 相关的**复用次数**
+  与风险警告，不暴露后来声称方的精确原文。HTTP 回归验证跨设备复用后原观测
+  raw/既有关联接收列表不变，计数从 0 变 1。孤立 invalid 不会出现在普通详情。
+- 本人 Windows 项目隔离 Python3.13 仅完成 Ruff lint/format、语法编译和 Git
+  差异检查；因项目 API 依赖 Python3.14 语法，新增 HTTP 用例未在本机运行。
+  精确 `48a6f6e…` [Backend run39475822611](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39475822611)
+  **552 passed/4 skipped/112 warnings**；精确 `077cbef…`
+  [Backend run39477013822](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39477013822)
+  **552 passed/4 skipped/113 warnings**，两头各自适用的 pre-commit、Compose、
+  Playwright、Zizmor 完成成功。Playwright 通用用例未覆盖新增详情交互；4 skipped
+  不能视为正式 C PostgreSQL/迁移通过。
+- C 对 A [PR #39 精确共享接线 COMMENT review](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/39#pullrequestreview-5589912256)
+  只读核对其 A-only 十文件、B 模块文件与 B `0f107…` 一致；Node 语法/diff
+  检查通过。A 自行提供的 PG/浏览器证据未由 C 本机重跑；B PR #10 的 ACK/恢复
+  并发 P1 由 C [REQUEST_CHANGES](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/10#pullrequestreview-5586852909)
+  和 A 实际 PG 复现，绿灯/共享页面不解除此阻断。
+- 待验：正式 B01→A04→C 唯一链、C 表在 PG 空库升级及重启保留、冷库级
+  原文权限、主程序审计/详情页面与 CSV 同版、自动恢复锁与提交前沿、B 两独立
+  终端实收及完整 E1。上述不同版本的结果不能合并为一次系统验收。
+
 ## 2026-10-20 晚间精确头补证（M03 底稿，未签收）
 
 - C 最新业务代码 `7565fbd2863e6ff4d9bfe1ac1d798506f89c8390` 的跨设备/冷库

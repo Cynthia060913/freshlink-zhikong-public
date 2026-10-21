@@ -27,6 +27,7 @@ from app.modules.telemetry.recovery_observation_scan_candidate import (
 )
 from app.modules.telemetry.recovery_outbox_candidate import (
     stage_eligible_recovery_candidate,
+    stage_eligible_recovery_on_connection_candidate,
 )
 from app.modules.telemetry.recovery_progress_candidate import (
     advance_persisted_recovery_window,
@@ -401,6 +402,48 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             historical_rule=_selection() if rule is None else rule,
             now=_BASE + timedelta(minutes=3),
         )
+
+    def test_connection_port_rolls_back_recovery_with_caller_transaction(self) -> None:
+        self.progress(10, 50, 130)
+        with self.engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                connection.execute(
+                    update(outbox)
+                    .where(outbox.c.source_event_id == _ORIGINAL)
+                    .values(state="delivered")
+                )
+                result = stage_eligible_recovery_on_connection_candidate(
+                    connection,
+                    original_source_event_id=_ORIGINAL,
+                    historical_rule=_selection(),
+                    now=_BASE + timedelta(minutes=3),
+                )
+                self.assertEqual(result.status, "staged")
+                self.assertEqual(
+                    connection.scalar(select(func.count()).select_from(outbox)), 2
+                )
+            finally:
+                transaction.rollback()
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(
+                    select(outbox.c.state).where(outbox.c.source_event_id == _ORIGINAL)
+                ),
+                "pending",
+            )
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 1
+            )
+        self.assertEqual(self.stage().status, "waiting_original")
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(state="delivered")
+            )
+        self.assertEqual(self.stage().status, "staged")
+        self.assertEqual(self.stage().status, "duplicate")
 
     def test_original_must_be_delivered_and_three_samples_persisted(self) -> None:
         self.assertEqual(self.stage().status, "not_eligible")

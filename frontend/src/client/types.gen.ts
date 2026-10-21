@@ -2921,6 +2921,44 @@ export type telemetryExportObservationsResponses = {
     200: unknown;
 };
 
+export type telemetryReadLatestObservationData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Device Id
+         */
+        device_id?: string | null;
+        /**
+         * Warehouse Id
+         */
+        warehouse_id?: string | null;
+    };
+    url: '/api/v1/telemetry/observations/latest';
+};
+
+export type telemetryReadLatestObservationErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type telemetryReadLatestObservationError = telemetryReadLatestObservationErrors[keyof telemetryReadLatestObservationErrors];
+
+export type telemetryReadLatestObservationResponses = {
+    /**
+     * Response Telemetry-Read Latest Observation
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type telemetryReadLatestObservationResponse = telemetryReadLatestObservationResponses[keyof telemetryReadLatestObservationResponses];
+
 export type telemetryReadObservationData = {
     body?: never;
     path: {
@@ -2954,6 +2992,52 @@ export type telemetryReadObservationResponses = {
 };
 
 export type telemetryReadObservationResponse = telemetryReadObservationResponses[keyof telemetryReadObservationResponses];
+
+export type telemetryRejectedReceptionsData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Device Id
+         */
+        device_id: string;
+        /**
+         * Warehouse Id
+         */
+        warehouse_id: string;
+        /**
+         * After
+         */
+        after?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/telemetry/receptions/rejected';
+};
+
+export type telemetryRejectedReceptionsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type telemetryRejectedReceptionsError = telemetryRejectedReceptionsErrors[keyof telemetryRejectedReceptionsErrors];
+
+export type telemetryRejectedReceptionsResponses = {
+    /**
+     * Response Telemetry-Rejected Receptions
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type telemetryRejectedReceptionsResponse = telemetryRejectedReceptionsResponses[keyof telemetryRejectedReceptionsResponses];
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;

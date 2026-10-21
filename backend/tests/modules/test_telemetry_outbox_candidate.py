@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import create_engine, event, func, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 
@@ -19,6 +19,7 @@ from app.modules.telemetry.outbox_candidate import (
     outbox,
     outbox_conflicts,
     stage_candidate,
+    stage_candidate_on_connection_candidate,
 )
 from app.modules.telemetry.storage_candidate import ingest_observation, metadata
 
@@ -138,6 +139,60 @@ class CandidateOutboxTests(unittest.TestCase):
         self.assertEqual(row["observation_id"], self.observation_id)
         self.assertEqual(row["state"], "pending")
         self.assertEqual(row["attempt_count"], 0)
+
+    def test_connection_port_duplicate_conflict_and_outer_rollback(self) -> None:
+        self.assertEqual(self._stage(), "staged")
+        changed = json.loads(json.dumps(self.body))
+        changed["evidence"]["temperature_c"] = 12
+        with self.engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                # Start a real SQLite write transaction before nested savepoints.
+                connection.execute(
+                    update(outbox)
+                    .where(outbox.c.source_event_id == self.source_event_id)
+                    .values(state="pending")
+                )
+                for body, expected in ((self.body, "duplicate"), (changed, "conflict")):
+                    self.assertEqual(
+                        stage_candidate_on_connection_candidate(
+                            connection,
+                            source_event_id=self.source_event_id,
+                            observation_id=self.observation_id,
+                            body=body,
+                            now=NOW,
+                        ),
+                        expected,
+                    )
+                self.assertEqual(
+                    connection.scalar(
+                        select(func.count()).select_from(outbox_conflicts)
+                    ),
+                    1,
+                )
+            finally:
+                transaction.rollback()
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox_conflicts)),
+                0,
+            )
+        self.assertEqual(self._stage(changed), "conflict")
+
+    def test_connection_port_requires_caller_transaction(self) -> None:
+        with self.engine.connect() as connection:
+            with self.assertRaisesRegex(ValueError, "caller must start"):
+                stage_candidate_on_connection_candidate(
+                    connection,
+                    source_event_id=self.source_event_id,
+                    observation_id=self.observation_id,
+                    body=self.body,
+                    now=NOW,
+                )
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 0
+            )
 
     def test_timeout_retries_same_body_and_stale_lease_cannot_finish(self) -> None:
         self.assertEqual(self._stage(), "staged")

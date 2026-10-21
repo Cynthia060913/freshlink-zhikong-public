@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -29,7 +30,7 @@ from sqlalchemy import (
     select,
     update,
 )
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -155,8 +156,21 @@ def _frozen_body(
     return frozen, digest
 
 
-def stage_candidate(
-    engine: Engine,
+def _unique_violation(error: IntegrityError) -> bool:
+    """Only a source/attempt uniqueness race may be resolved as idempotency."""
+    original = error.orig
+    state = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+    if state is not None:
+        return state == "23505"
+    sqlite_code = getattr(original, "sqlite_errorcode", None)
+    return sqlite_code in (
+        sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY,
+        sqlite3.SQLITE_CONSTRAINT_UNIQUE,
+    )
+
+
+def stage_candidate_on_connection_candidate(
+    connection: Connection,
     *,
     source_event_id: UUID,
     observation_id: UUID,
@@ -164,7 +178,14 @@ def stage_candidate(
     now: datetime,
     _f03: bool = False,
 ) -> StageStatus:
-    """Freeze one event ID and its exact canonical body before any B call."""
+    """Stage inside the caller's transaction; never commit or close it.
+
+    Savepoints isolate a duplicate-key attempt without aborting a PostgreSQL
+    outer transaction. A caller must roll back its transaction on any other
+    database error, and must not send to B before the outer commit.
+    """
+    if not connection.in_transaction():
+        raise ValueError("caller must start the transaction before staging")
     if not isinstance(source_event_id, UUID) or not isinstance(observation_id, UUID):
         raise ValueError("source_event_id and observation_id must be UUIDs")
     current = _aware_now(now)
@@ -184,7 +205,7 @@ def stage_candidate(
     else:
         related_id = None
     try:
-        with engine.begin() as connection:
+        with connection.begin_nested():
             connection.execute(
                 outbox.insert().values(
                     source_event_id=source_event_id,
@@ -198,19 +219,20 @@ def stage_candidate(
                 )
             )
         return "staged"
-    except IntegrityError:
-        # Resolve a concurrent identical insert only after the losing
-        # transaction has rolled back. Other FK/constraint faults propagate.
-        with engine.connect() as connection:
-            previous = (
-                connection.execute(
-                    select(outbox.c.observation_id, outbox.c.body_sha256).where(
-                        outbox.c.source_event_id == source_event_id
-                    )
+    except IntegrityError as error:
+        # The failed savepoint is rolled back; the outer transaction and its
+        # device lock remain owned by the caller. Other faults propagate.
+        if not _unique_violation(error):
+            raise
+        previous = (
+            connection.execute(
+                select(outbox.c.observation_id, outbox.c.body_sha256).where(
+                    outbox.c.source_event_id == source_event_id
                 )
-                .mappings()
-                .one_or_none()
             )
+            .mappings()
+            .one_or_none()
+        )
         if previous is None:
             raise
         if (
@@ -219,7 +241,7 @@ def stage_candidate(
         ):
             return "duplicate"
         try:
-            with engine.begin() as connection:
+            with connection.begin_nested():
                 connection.execute(
                     outbox_conflicts.insert().values(
                         id=uuid4(),
@@ -230,23 +252,45 @@ def stage_candidate(
                         first_detected_at_utc=current,
                     )
                 )
-        except IntegrityError:
+        except IntegrityError as error:
             # Repeating the same rejected attempt is also idempotent.
-            with engine.connect() as connection:
-                recorded = connection.execute(
-                    select(outbox_conflicts.c.id).where(
-                        outbox_conflicts.c.source_event_id == source_event_id,
-                        outbox_conflicts.c.observation_id == observation_id,
-                        outbox_conflicts.c.body_sha256 == digest,
-                    )
-                ).scalar_one_or_none()
+            if not _unique_violation(error):
+                raise
+            recorded = connection.execute(
+                select(outbox_conflicts.c.id).where(
+                    outbox_conflicts.c.source_event_id == source_event_id,
+                    outbox_conflicts.c.observation_id == observation_id,
+                    outbox_conflicts.c.body_sha256 == digest,
+                )
+            ).scalar_one_or_none()
             if recorded is None:
                 raise
         return "conflict"
 
 
-def stage_f03_candidate(
+def stage_candidate(
     engine: Engine,
+    *,
+    source_event_id: UUID,
+    observation_id: UUID,
+    body: dict[str, Any],
+    now: datetime,
+    _f03: bool = False,
+) -> StageStatus:
+    """Freeze one event ID and its exact canonical body before any B call."""
+    with engine.begin() as connection:
+        return stage_candidate_on_connection_candidate(
+            connection,
+            source_event_id=source_event_id,
+            observation_id=observation_id,
+            body=body,
+            now=now,
+            _f03=_f03,
+        )
+
+
+def stage_f03_on_connection_candidate(
+    connection: Connection,
     *,
     source_event_id: UUID,
     observation_id: UUID,
@@ -259,13 +303,14 @@ def stage_f03_candidate(
     integration callers must use this wrapper so B's schema 1.0 canonical
     field set cannot change the stored digest later.
     """
+    if not connection.in_transaction():
+        raise ValueError("caller must start the transaction before staging")
     frozen = normalize_f03_body_candidate(body)
     related = frozen["related_source_event_id"]
     if related is not None:
-        with engine.connect() as connection:
-            original = connection.execute(
-                select(outbox.c.body).where(outbox.c.source_event_id == UUID(related))
-            ).scalar_one_or_none()
+        original = connection.execute(
+            select(outbox.c.body).where(outbox.c.source_event_id == UUID(related))
+        ).scalar_one_or_none()
         if original is None or original.get("kind") not in (
             "temperature_high",
             "temperature_low",
@@ -281,14 +326,33 @@ def stage_f03_candidate(
         ):
             if frozen[key] != original.get(key):
                 raise ValueError(f"recovery {key} must match the original anomaly")
-    return stage_candidate(
-        engine,
+    return stage_candidate_on_connection_candidate(
+        connection,
         source_event_id=source_event_id,
         observation_id=observation_id,
         body=frozen,
         now=now,
         _f03=True,
     )
+
+
+def stage_f03_candidate(
+    engine: Engine,
+    *,
+    source_event_id: UUID,
+    observation_id: UUID,
+    body: dict[str, Any],
+    now: datetime,
+) -> StageStatus:
+    """Standalone transaction wrapper for the isolated staging candidate."""
+    with engine.begin() as connection:
+        return stage_f03_on_connection_candidate(
+            connection,
+            source_event_id=source_event_id,
+            observation_id=observation_id,
+            body=body,
+            now=now,
+        )
 
 
 def claim_candidate(
