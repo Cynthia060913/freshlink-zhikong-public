@@ -195,6 +195,84 @@ async function run() {
     await expect(page.getByRole("dialog").getByRole("region", { name: "状态迁移记录", exact: true }))
       .toContainText("已确认 → 已恢复", { timeout: 15000 })
     await page.screenshot({ path: path.join(results, "alerts-admin-real-resolved.png"), fullPage: true })
+    // Same running combination: continuous actual MQTT/A inbox/C persistence
+    // feeds the unmodified C page and actual authenticated snapshot/CSV routes.
+    const sensorId = "11111111-1111-4111-8111-111111111111"
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await page.getByRole("link", { name: "遥测历史", exact: true }).click()
+    await expect(page).toHaveURL(`${origin}/telemetry`)
+    await page.getByLabel("设备 ID", { exact: true }).fill(sensorId)
+    const snapshotResponse = page.waitForResponse((response) => {
+      const target = new URL(response.url())
+      return target.pathname === "/api/v1/telemetry/observations/" && target.searchParams.get("device_id") === sensorId
+    })
+    await page.getByRole("button", { name: "按筛选新建快照", exact: true }).click()
+    const actualSnapshotResponse = await snapshotResponse
+    assert.equal(actualSnapshotResponse.status(), 200)
+    const snapshot = await actualSnapshotResponse.json()
+    assert(snapshot.total >= 3 && snapshot.items.length >= 3)
+    assert(snapshot.items.every((item) => item.device_id === sensorId && item.warehouse_id === warehouseId))
+    await expect(page.getByRole("row").filter({ hasText: sensorId }).first()).toBeVisible()
+    const detailResponseWait = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === `/api/v1/telemetry/observations/${snapshot.items[0].observation_id}`)
+    await page.getByRole("row").filter({ hasText: sensorId }).first().getByRole("button", { name: "查看", exact: true }).click()
+    const rawResponse = await detailResponseWait
+    assert.equal(rawResponse.status(), 200)
+    const raw = await rawResponse.json()
+    const rawPayload = JSON.parse(raw.raw_text)
+    assert.equal(rawPayload.device_id, sensorId)
+    assert(rawPayload.metrics.some((item) => item.key === "temperature" && typeof item.value === "number"))
+    assert(raw.receptions.length >= 1 && raw.quality.includes("ok"))
+    await expect(page.locator("pre")).toHaveText(raw.raw_text)
+    const exportResponseWait = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/v1/telemetry/observations/export.csv")
+    const downloadWait = page.waitForEvent("download")
+    await page.getByRole("button", { name: "导出本次快照 CSV", exact: true }).click()
+    const exportResponse = await exportResponseWait
+    assert.equal(exportResponse.status(), 200)
+    const exportUrl = new URL(exportResponse.url())
+    assert.equal(exportUrl.searchParams.get("snapshot_id"), snapshot.snapshot_id)
+    assert.equal(exportUrl.searchParams.get("device_id"), sensorId)
+    const download = await downloadWait
+    const csvPath = path.join(results, "telemetry-real-snapshot.csv")
+    await download.saveAs(csvPath)
+    const csvText = fs.readFileSync(csvPath, "utf8").replace(/^\uFEFF/, "")
+    const csvLines = csvText.trimEnd().split(/\r?\n/)
+    assert.equal(csvLines.length - 1, snapshot.total)
+    const snapshotIds = snapshot.items.map((item) => item.observation_id)
+    let cursor = snapshot.next_cursor
+    const visited = new Set()
+    while (cursor) {
+      assert(!visited.has(cursor) && visited.size < 32, "snapshot pagination must be bounded")
+      visited.add(cursor)
+      const next = await context.request.get(`${origin}/api/v1/telemetry/observations/`, {
+        headers, params: { device_id: sensorId, snapshot_id: snapshot.snapshot_id, cursor },
+      })
+      assert.equal(next.status(), 200)
+      const body = await next.json()
+      assert.equal(body.snapshot_id, snapshot.snapshot_id)
+      assert.equal(body.total, snapshot.total)
+      snapshotIds.push(...body.items.map((item) => item.observation_id))
+      cursor = body.next_cursor
+    }
+    const csvIds = csvLines.slice(1).map((line) => line.split(",")[0].replace(/^"|"$/g, ""))
+    assert.equal(new Set(snapshotIds).size, snapshot.total)
+    assert.deepEqual(csvIds.sort(), snapshotIds.sort())
+    assert(csvLines.slice(1).every((line) => line.includes(sensorId) && line.includes(warehouseId)))
+    // New live samples must NOT change membership in the earlier snapshot.
+    const sameSnapshot = await context.request.get(`${origin}/api/v1/telemetry/observations/`, {
+      headers, params: { device_id: sensorId, snapshot_id: snapshot.snapshot_id },
+    })
+    assert.equal(sameSnapshot.status(), 200)
+    assert.equal((await sameSnapshot.json()).total, snapshot.total)
+    const anonymous = await browser.newContext()
+    const deniedHistory = await anonymous.request.get(`${origin}/api/v1/telemetry/observations/`, {
+      params: { device_id: sensorId },
+    })
+    assert.equal(deniedHistory.status(), 401)
+    await anonymous.close()
+    await page.screenshot({ path: path.join(results, "telemetry-real-history-raw-csv.png"), fullPage: true })
     fs.writeFileSync(path.join(results, "browser.json"), JSON.stringify({
       phase: "real_browser_http_mqtt_control_passed",
       command_id: submitted.command_id,
@@ -213,8 +291,15 @@ async function run() {
       alerts_same_id_ack_replay_created_no_second_transition: true,
       alerts_synthetic_recovery_then_late_ack_409: true,
       alerts_final_append_only_transitions: resolved.transitions.length,
+      telemetry_live_mqtt_a_c_page_and_raw: true,
+      telemetry_snapshot_id: snapshot.snapshot_id,
+      telemetry_snapshot_total: snapshot.total,
+      telemetry_same_filtered_snapshot_csv_rows: csvLines.length - 1,
+      telemetry_csv_all_ids_equal_all_snapshot_pages: true,
+      telemetry_snapshot_membership_stable: true,
+      telemetry_anonymous_http_401: true,
       no_mocked_api: true,
-      not_tested: ["concurrency (separate PG suite)", "C-triggered anomaly/recovery", "C history/CSV", "two real notifications", "full E1"],
+      not_tested: ["concurrency (separate PG suite)", "C-triggered B anomaly/recovery", "two real notifications", "formal A/C migration chain", "full E1"],
     }, null, 2), { flag: "wx" })
     console.log("PASS real browser login/control/receipt/reload/ordinary-user refusal; no API mocks")
   } finally {

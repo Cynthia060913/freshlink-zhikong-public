@@ -21,6 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import col
 
 from app.models import User
+from app.modules.iot import stream_frontier
 from app.modules.iot.ingress import (
     DeviceContext,
     IngressRejected,
@@ -207,12 +208,106 @@ def _audit(
     _prune(connection, audit, at, limits.history_records)
 
 
+def _enqueue_locked(
+    connection: Connection,
+    envelope: ReceptionEnvelope,
+    *,
+    at: datetime,
+    limits: QueueLimits,
+    payload: bytes,
+    fingerprint: str,
+) -> InboxResult:
+    identity = envelope.reception_id
+    digest = hashlib.sha256(payload).hexdigest()
+    for table in (inbox, receipts):
+        row = (
+            connection.execute(select(table).where(table.c.reception_id == identity))
+            .mappings()
+            .first()
+        )
+        if row is not None:
+            if row["fingerprint"] == fingerprint:
+                return InboxResult(
+                    "already_queued" if table is inbox else "already_processed",
+                    identity,
+                )
+            _audit(
+                connection,
+                at=at,
+                reason="reception_conflict",
+                device_id=envelope.authenticated_device_id,
+                reception_id=identity,
+                size=len(payload),
+                digest=digest,
+                limits=limits,
+            )
+            return InboxResult("conflict", identity, "reception_id_reuse")
+    device = (
+        connection.execute(
+            select(col(Device.id), col(Device.warehouse_id)).where(
+                col(Device.id) == envelope.authenticated_device_id
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if device is None or device["warehouse_id"] != envelope.warehouse_id:
+        reason = "device_unknown" if device is None else "device_unbound"
+        _audit(
+            connection,
+            at=at,
+            reason=reason,
+            device_id=envelope.authenticated_device_id,
+            reception_id=identity,
+            size=len(payload),
+            digest=digest,
+            limits=limits,
+        )
+        return InboxResult("invalid", identity, reason)
+    used, size = connection.execute(
+        select(
+            func.count(), func.coalesce(func.sum(inbox.c.payload_bytes), 0)
+        ).select_from(inbox)
+    ).one()
+    if used >= limits.max_items or size + len(payload) > limits.max_bytes:
+        _audit(
+            connection,
+            at=at,
+            reason="queue_full",
+            device_id=envelope.authenticated_device_id,
+            reception_id=identity,
+            size=len(payload),
+            digest=digest,
+            limits=limits,
+        )
+        return InboxResult("queue_full", identity, "queue_full")
+    connection.execute(
+        inbox.insert().values(
+            reception_id=identity,
+            device_id=envelope.authenticated_device_id,
+            warehouse_id=envelope.warehouse_id,
+            received_at=_time(envelope.received_at),
+            raw_text=envelope.raw_text,
+            payload_bytes=len(payload),
+            payload_sha256=digest,
+            fingerprint=fingerprint,
+            state="queued",
+            attempt_count=0,
+            next_attempt_at=at,
+            last_reason="",
+            manual_retry_count=0,
+        )
+    )
+    return InboxResult("queued", identity)
+
+
 def enqueue(
     engine: Engine,
     envelope: ReceptionEnvelope,
     *,
     now: datetime | None = None,
     limits: QueueLimits = QueueLimits(),
+    frontier_epoch: UUID | None = None,
 ) -> InboxResult:
     """Admit a verified frame, bounded across concurrent PostgreSQL writers.
 
@@ -223,93 +318,44 @@ def enqueue(
     at = _time(now)
     payload, fingerprint = _validate(envelope)
     identity = envelope.reception_id
-    digest = hashlib.sha256(payload).hexdigest()
     try:
         with engine.begin() as connection:
             _guard(connection)
-            for table in (inbox, receipts):
-                row = (
-                    connection.execute(
-                        select(table).where(table.c.reception_id == identity)
-                    )
-                    .mappings()
-                    .first()
-                )
-                if row is not None:
-                    if row["fingerprint"] == fingerprint:
-                        return InboxResult(
-                            "already_queued" if table is inbox else "already_processed",
-                            identity,
-                        )
-                    _audit(
-                        connection,
-                        at=at,
-                        reason="reception_conflict",
-                        device_id=envelope.authenticated_device_id,
-                        reception_id=identity,
-                        size=len(payload),
-                        digest=digest,
-                        limits=limits,
-                    )
-                    return InboxResult("conflict", identity, "reception_id_reuse")
-            device = (
-                connection.execute(
-                    select(col(Device.id), col(Device.warehouse_id)).where(
-                        col(Device.id) == envelope.authenticated_device_id
-                    )
-                )
-                .mappings()
-                .first()
-            )
-            if device is None or device["warehouse_id"] != envelope.warehouse_id:
-                reason = "device_unknown" if device is None else "device_unbound"
-                _audit(
+            if frontier_epoch is not None:
+                replay = stream_frontier.admission_preflight(
                     connection,
-                    at=at,
-                    reason=reason,
-                    device_id=envelope.authenticated_device_id,
-                    reception_id=identity,
-                    size=len(payload),
-                    digest=digest,
-                    limits=limits,
-                )
-                return InboxResult("invalid", identity, reason)
-            used, size = connection.execute(
-                select(
-                    func.count(), func.coalesce(func.sum(inbox.c.payload_bytes), 0)
-                ).select_from(inbox)
-            ).one()
-            if used >= limits.max_items or size + len(payload) > limits.max_bytes:
-                _audit(
-                    connection,
-                    at=at,
-                    reason="queue_full",
-                    device_id=envelope.authenticated_device_id,
-                    reception_id=identity,
-                    size=len(payload),
-                    digest=digest,
-                    limits=limits,
-                )
-                return InboxResult("queue_full", identity, "queue_full")
-            connection.execute(
-                inbox.insert().values(
-                    reception_id=identity,
                     device_id=envelope.authenticated_device_id,
                     warehouse_id=envelope.warehouse_id,
-                    received_at=_time(envelope.received_at),
-                    raw_text=envelope.raw_text,
-                    payload_bytes=len(payload),
-                    payload_sha256=digest,
+                    epoch=frontier_epoch,
+                    reception_id=identity,
                     fingerprint=fingerprint,
-                    state="queued",
-                    attempt_count=0,
-                    next_attempt_at=at,
-                    last_reason="",
-                    manual_retry_count=0,
                 )
+                if replay is not None:
+                    return InboxResult(replay, identity, "frontier_replay_or_hold")
+            result = _enqueue_locked(
+                connection,
+                envelope,
+                at=at,
+                limits=limits,
+                payload=payload,
+                fingerprint=fingerprint,
             )
-            return InboxResult("queued", identity)
-    except SQLAlchemyError:
+            if frontier_epoch is not None:
+                tracked = stream_frontier.record_admission(
+                    connection,
+                    device_id=envelope.authenticated_device_id,
+                    warehouse_id=envelope.warehouse_id,
+                    epoch=frontier_epoch,
+                    reception_id=identity,
+                    fingerprint=fingerprint,
+                    inbox_status=result.status,
+                )
+                if not tracked:
+                    return InboxResult(
+                        "retryable_failure", identity, "untracked_legacy"
+                    )
+            return result
+    except SQLAlchemyError, stream_frontier.FrontierUnavailable:
         return InboxResult("retryable_failure", identity, "storage_unavailable")
 
 
@@ -320,6 +366,7 @@ def record_rejection(
     device_id: UUID | None,
     now: datetime | None = None,
     limits: QueueLimits = QueueLimits(),
+    frontier_epoch: UUID | None = None,
 ) -> bool:
     """Bounded metadata only, never the rejected raw or credential text."""
     at = _time(now)
@@ -331,6 +378,10 @@ def record_rejection(
     try:
         with engine.begin() as connection:
             _guard(connection)
+            if frontier_epoch is not None and device_id is not None:
+                stream_frontier.mark_uncertain(
+                    connection, device_id=device_id, epoch=frontier_epoch
+                )
             _audit(
                 connection,
                 at=at,
@@ -342,7 +393,7 @@ def record_rejection(
                 limits=limits,
             )
         return True
-    except SQLAlchemyError:
+    except SQLAlchemyError, stream_frontier.FrontierUnavailable:
         return False
 
 
@@ -501,6 +552,7 @@ def deliver_claim(
     *,
     now: datetime | None = None,
     limits: QueueLimits = QueueLimits(),
+    frontier_epoch: UUID | None = None,
 ) -> InboxResult:
     """Call C without holding A locks, then match the exact live lease.
 
@@ -538,6 +590,12 @@ def deliver_claim(
             if refused is not None:
                 return refused
             if status == "blocked":
+                if frontier_epoch is not None:
+                    stream_frontier.mark_uncertain(
+                        connection,
+                        device_id=claim.envelope.authenticated_device_id,
+                        epoch=frontier_epoch,
+                    )
                 connection.execute(
                     update(inbox)
                     .where(inbox.c.reception_id == identity)
@@ -556,6 +614,12 @@ def deliver_claim(
                     if exhausted
                     else (reason or "storage_unavailable")
                 )
+                if exhausted and frontier_epoch is not None:
+                    stream_frontier.mark_uncertain(
+                        connection,
+                        device_id=claim.envelope.authenticated_device_id,
+                        epoch=frontier_epoch,
+                    )
                 delay = min(30, 2 ** (claim.attempt - 1))
                 connection.execute(
                     update(inbox)
@@ -573,6 +637,15 @@ def deliver_claim(
                 )
             # C's transaction has completed. The A copy is removed only together
             # with a terminal metadata receipt, so a failed A commit is replayable.
+            if frontier_epoch is not None:
+                stream_frontier.record_terminal(
+                    connection,
+                    reception_id=identity,
+                    fingerprint=claim.fingerprint,
+                    epoch=frontier_epoch,
+                    outcome=status,
+                    observation_id=observation_id,
+                )
             connection.execute(
                 receipts.insert().values(
                     reception_id=identity,
@@ -596,7 +669,7 @@ def deliver_claim(
                 identity,
                 observation_id=observation_id,
             )
-    except SQLAlchemyError:
+    except SQLAlchemyError, stream_frontier.FrontierUnavailable:
         return InboxResult("retryable_failure", identity, "storage_unavailable")
 
 
