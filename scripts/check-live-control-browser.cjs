@@ -79,7 +79,7 @@ async function run() {
     assert.equal(detail.receipts[0].result, "executed")
     assert(detail.ack_received_at)
     await panel.getByRole("status").filter({ hasText: "设备回执：执行成功" }).scrollIntoViewIfNeeded()
-    await page.screenshot({ path: path.join(results, "admin-real-ack.png"), fullPage: true })
+    await page.screenshot({ path: path.join(results, "admin-real-ack.png"), fullPage: !recordVideo })
     // Real same-ID HTTP replay must not create another command/execution.
     const replay = await context.request.post(`${origin}${commandPath}`, { headers, data: submitted })
     assert.equal(replay.status(), 201)
@@ -113,7 +113,7 @@ async function run() {
     assert.equal(history.status(), 200)
     assert.equal((await history.json()).count, 1)
     await readerPanel.getByRole("status").filter({ hasText: "设备回执：执行成功" }).scrollIntoViewIfNeeded()
-    await readerPage.screenshot({ path: path.join(results, "reader-real-readonly.png"), fullPage: true })
+    await readerPage.screenshot({ path: path.join(results, "reader-real-readonly.png"), fullPage: !recordVideo })
     // A-owned shared navigation proof. Synthetic candidate enters through real
     // authenticated B HTTP, not direct SQL or an intercepted API response.
     // B's explicitly handed-off lifecycle repair is exercised below. This is
@@ -164,7 +164,7 @@ async function run() {
     const lifecycle = await unchanged.json()
     assert.equal(lifecycle.status, "open")
     assert.deepEqual(lifecycle.transitions, [])
-    await readerPage.screenshot({ path: path.join(results, "alerts-reader-real-readonly.png"), fullPage: true })
+    await readerPage.screenshot({ path: path.join(results, "alerts-reader-real-readonly.png"), fullPage: !recordVideo })
     const ackPath = `/api/v1/alerts/${eventId}/acknowledge`
     const ackResponse = page.waitForResponse((response) =>
       new URL(response.url()).pathname === ackPath && response.request().method() === "POST")
@@ -178,7 +178,7 @@ async function run() {
     await expect(page.getByRole("dialog").getByRole("button", { name: "确认告警", exact: true })).toBeDisabled()
     await expect(page.getByRole("dialog").getByRole("region", { name: "状态迁移记录", exact: true }))
       .toContainText("待处理 → 已确认")
-    await page.screenshot({ path: path.join(results, "alerts-admin-real-ack.png"), fullPage: true })
+    await page.screenshot({ path: path.join(results, "alerts-admin-real-ack.png"), fullPage: !recordVideo })
     const ackReplay = await context.request.post(`${origin}${ackPath}`, { headers })
     assert.equal(ackReplay.status(), 200)
     assert.equal((await ackReplay.json()).transition_created, false)
@@ -204,7 +204,7 @@ async function run() {
     ])
     await expect(page.getByRole("dialog").getByRole("region", { name: "状态迁移记录", exact: true }))
       .toContainText("已确认 → 已恢复", { timeout: 15000 })
-    await page.screenshot({ path: path.join(results, "alerts-admin-real-resolved.png"), fullPage: true })
+    await page.screenshot({ path: path.join(results, "alerts-admin-real-resolved.png"), fullPage: !recordVideo })
     // Same running combination: continuous actual MQTT/A inbox/C persistence
     // feeds the unmodified C page and actual authenticated snapshot/CSV routes.
     const sensorId = "11111111-1111-4111-8111-111111111111"
@@ -303,7 +303,7 @@ async function run() {
     assert(layout.document_width <= layout.viewport_width + 1, "history/raw must not widen the whole document")
     assert(Math.abs(layout.sidebar_left) <= 1, "desktop sidebar must stay at viewport left")
     assert(layout.inset_left >= layout.sidebar_right - 1, "sidebar must not cover the main content")
-    await page.screenshot({ path: path.join(results, "telemetry-real-history-raw-csv.png"), fullPage: true })
+    await page.screenshot({ path: path.join(results, "telemetry-real-history-raw-csv.png"), fullPage: !recordVideo })
     fs.writeFileSync(path.join(results, "browser.json"), JSON.stringify({
       phase: "real_browser_http_mqtt_control_passed",
       command_id: submitted.command_id,
