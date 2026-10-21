@@ -1,14 +1,16 @@
 """Disposable authenticated API -> PG queue -> MQTT -> device -> PG ACK proof.
 
-Default warehouse mode is an explicit fixture. Opt-in real mode creates only
-B's Warehouse table in the guarded disposable DB, then uses real B HTTP create,
-A HTTP binding and the actual lookup. Neither mode is a formal B migration or
-C telemetry persistence. No real email/APP or production data.
+Default warehouse mode is an explicit fixture. Opt-in real mode requires the
+actual B01-descendant migration, uses real B HTTP create/A binding and the
+explicit runtime factory. It is not a published release or C persistence/E1.
+No real email/APP or production data.
 """
 
 import json
 import logging
 import os
+import subprocess
+import sys
 import threading
 import time
 from datetime import UTC, datetime
@@ -19,16 +21,18 @@ from uuid import UUID, uuid4
 import paho.mqtt.client as mqtt
 from fastapi.testclient import TestClient
 from paho.mqtt.enums import CallbackAPIVersion
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session
 
 from app.core.config import settings
 from app.core.db import engine
 from app.main import app
 from app.modules.iot.control_models import DeviceCommand
 from app.modules.iot.control_routes import control_warehouse_lookup
+from app.modules.iot.control_runtime import build_control_worker
 from app.modules.iot.control_worker import ControlWorker, ControlWorkerSettings
 from app.modules.iot.heartbeat_worker import HeartbeatWorker, HeartbeatWorkerSettings
 from app.modules.iot.models import Device
+from app.modules.iot.proof_schema_guard import require_b01_candidate_schema
 from app.modules.iot.simulator_runtime import DeviceRuntime, RuntimeSettings
 from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
 
@@ -68,9 +72,9 @@ def run() -> None:
     warehouse_identity = WAREHOUSE
     binding_proof = None
     if mode == "real":
-        # TEST-ONLY DDL, after exact disposable host/name/project guards. Do not
-        # install all B models, add startup create_all, or claim B Alembic done.
-        SQLModel.metadata.tables["alerts_warehouse"].create(engine, checkfirst=False)
+        # The owned Compose prestart must have run the actual unique chain.
+        # Never create substitute/duplicate B DDL to make the proof pass.
+        require_b01_candidate_schema(engine)
         with TestClient(app) as api:
             headers = authenticate(api)
             warehouse = api.post(
@@ -126,7 +130,7 @@ def run() -> None:
                 "unknown_warehouse_rejected": True,
                 "same_binding_retry_safe": True,
                 "did_not_claim_online": True,
-                "ddl_scope": "test-only alerts_warehouse; NOT B Alembic",
+                "ddl_scope": "actual B01 descendant; no substitute DDL",
             }
     lookup_factory = (
         warehouse_lookup_for_session
@@ -152,13 +156,20 @@ def run() -> None:
         ),
         password="fixture-controller-only",
     )
-    control = ControlWorker(
-        ControlWorkerSettings.model_validate(
-            {**common, "client_id": "control-proof-worker", "device_ids": [ACTUATOR]}
-        ),
-        password="fixture-controller-only",
-        warehouse_lookup_factory=lookup_factory,
+    control_config = ControlWorkerSettings.model_validate(
+        {**common, "client_id": "control-proof-worker", "device_ids": [ACTUATOR]}
     )
+
+    def new_control(config):
+        if mode == "real":
+            return build_control_worker(config, "fixture-controller-only")
+        return ControlWorker(
+            config,
+            password="fixture-controller-only",
+            warehouse_lookup_factory=lookup_factory,
+        )
+
+    control = new_control(control_config)
     device_config = RuntimeSettings.model_validate(
         {
             "host": "broker",
@@ -341,11 +352,7 @@ def run() -> None:
             control.stop_requested.set()
             control_thread.join(timeout=10)
             assert not control_thread.is_alive()
-            control = ControlWorker(
-                control.settings,
-                password="fixture-controller-only",
-                warehouse_lookup_factory=lookup_factory,
-            )
+            control = new_control(control.settings)
             launch(control)
             resumed = new_device()
             resumed_thread = launch(resumed)
@@ -413,9 +420,10 @@ def run() -> None:
                     else "explicit isolated fixture, NOT B integration"
                 ),
                 "warehouse_mode": mode,
+                "explicit_runtime_factory": mode == "real",
                 "binding_proof": binding_proof,
                 "not_tested": [
-                    "formal B migration/alerts/notifications",
+                    "published B release/alerts/notifications",
                     "C telemetry persistence",
                     "browser control UI",
                     "two real notification receipts",
@@ -433,6 +441,39 @@ def run() -> None:
             thread.join(timeout=10)
             assert not thread.is_alive(), "Owned worker did not stop"
     assert not failures
+    bounded_cli = False
+    if mode == "real":
+        cli_path = Path("/results/control-cli-config.json")
+        if cli_path.exists():
+            raise RuntimeError("Refusing previous CLI fixture")
+        cli_path.write_text(control_config.model_dump_json(), encoding="utf-8")
+        child_env = dict(os.environ)
+        child_env["FRESHLINK_CONTROL_MQTT_PASSWORD"] = "fixture-controller-only"
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-m",
+                "app.modules.iot.control_runtime",
+                "--config",
+                str(cli_path),
+                "--max-seconds",
+                "1",
+            ],
+            env=child_env,
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError("Owned bounded control CLI failed")
+        bounded_cli = True
+    result["standalone_cli_bounded_exit_zero"] = bounded_cli
+    result["standalone_cli_scope"] = (
+        "actual one-second process start/stop; MQTT execution proven separately by factory above"
+        if bounded_cli
+        else "not run in fixture mode"
+    )
     target.write_text(
         json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
     )

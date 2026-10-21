@@ -1,0 +1,11 @@
+{
+  "host": "localhost",
+  "port": 8883,
+  "tls": true,
+  "username": "freshlink-control-service",
+  "client_id": "freshlink-control-server",
+  "acl_confirmed": false,
+  "device_ids": ["20000000-0000-4000-8000-000000000001"],
+  "scan_period_seconds": 5,
+  "publish_timeout_seconds": 5
+}
