@@ -106,7 +106,8 @@ async function run() {
     await readerPage.screenshot({ path: path.join(results, "reader-real-readonly.png"), fullPage: true })
     // A-owned shared navigation proof. Synthetic candidate enters through real
     // authenticated B HTTP, not direct SQL or an intercepted API response.
-    // Deliberately do NOT exercise administrator ACK while B's race is open.
+    // B's explicitly handed-off lifecycle repair is exercised below. This is
+    // synthetic input, not a C-triggered anomaly or a real notification proof.
     const warehouses = await context.request.get(`${origin}/api/v1/warehouses/`, { headers })
     assert.equal(warehouses.status(), 200)
     const warehouseRows = await warehouses.json()
@@ -117,9 +118,7 @@ async function run() {
     })
     assert.equal(batch.status(), 201)
     const sourceId = "alerts-browser-synthetic-anomaly"
-    const candidate = await context.request.post(`${origin}/api/v1/candidates`, {
-      headers,
-      data: {
+    const candidateBody = {
         schema_version: "1.0", source_event_id: sourceId,
         warehouse_id: warehouseId, batch_id: (await batch.json()).id,
         observation_ids: ["synthetic-browser-observation"], metric_code: "temperature",
@@ -127,7 +126,9 @@ async function run() {
         kind: "temperature_high", severity: "warning", rule_version: "v1",
         algorithm_version: "synthetic-browser-proof/1",
         evidence: { comparison: ">", threshold: 8, synthetic_input: true },
-      },
+    }
+    const candidate = await context.request.post(`${origin}/api/v1/candidates`, {
+      headers, data: candidateBody,
     })
     assert.equal(candidate.status(), 201)
     const eventId = (await candidate.json()).event_id
@@ -154,6 +155,46 @@ async function run() {
     assert.equal(lifecycle.status, "open")
     assert.deepEqual(lifecycle.transitions, [])
     await readerPage.screenshot({ path: path.join(results, "alerts-reader-real-readonly.png"), fullPage: true })
+    const ackPath = `/api/v1/alerts/${eventId}/acknowledge`
+    const ackResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === ackPath && response.request().method() === "POST")
+    await page.getByRole("dialog").getByRole("button", { name: "确认告警", exact: true }).click()
+    const acknowledged = await ackResponse
+    assert.equal(acknowledged.status(), 200)
+    const ackBody = await acknowledged.json()
+    assert.equal(ackBody.status, "acknowledged")
+    assert.equal(ackBody.transition_created, true)
+    assert.equal(ackBody.transitions.length, 1)
+    await expect(page.getByRole("dialog").getByRole("button", { name: "确认告警", exact: true })).toBeDisabled()
+    await expect(page.getByRole("dialog").getByRole("region", { name: "状态迁移记录", exact: true }))
+      .toContainText("待处理 → 已确认")
+    await page.screenshot({ path: path.join(results, "alerts-admin-real-ack.png"), fullPage: true })
+    const ackReplay = await context.request.post(`${origin}${ackPath}`, { headers })
+    assert.equal(ackReplay.status(), 200)
+    assert.equal((await ackReplay.json()).transition_created, false)
+    const recovery = await context.request.post(`${origin}/api/v1/candidates`, {
+      headers, data: {
+        ...candidateBody,
+        source_event_id: "alerts-browser-synthetic-recovery",
+        related_source_event_id: sourceId,
+        kind: "temperature_recovered", value: 7,
+        sampled_at: new Date().toISOString(),
+      },
+    })
+    assert.equal(recovery.status(), 201)
+    const lateAck = await context.request.post(`${origin}${ackPath}`, { headers })
+    assert.equal(lateAck.status(), 409)
+    const resolvedResponse = await context.request.get(`${origin}/api/v1/alerts/${eventId}/status`, { headers })
+    assert.equal(resolvedResponse.status(), 200)
+    const resolved = await resolvedResponse.json()
+    assert.equal(resolved.status, "resolved")
+    assert.equal(resolved.transitions.length, 2)
+    assert.deepEqual(resolved.transitions.map((item) => [item.from_status, item.to_status]), [
+      ["open", "acknowledged"], ["acknowledged", "resolved"],
+    ])
+    await expect(page.getByRole("dialog").getByRole("region", { name: "状态迁移记录", exact: true }))
+      .toContainText("已确认 → 已恢复", { timeout: 15000 })
+    await page.screenshot({ path: path.join(results, "alerts-admin-real-resolved.png"), fullPage: true })
     fs.writeFileSync(path.join(results, "browser.json"), JSON.stringify({
       phase: "real_browser_http_mqtt_control_passed",
       command_id: submitted.command_id,
@@ -168,8 +209,12 @@ async function run() {
       alerts_synthetic_source: sourceId,
       alerts_event_id: eventId,
       alerts_denied_write_left_zero_transitions: true,
+      alerts_admin_ui_ack_real_http: true,
+      alerts_same_id_ack_replay_created_no_second_transition: true,
+      alerts_synthetic_recovery_then_late_ack_409: true,
+      alerts_final_append_only_transitions: resolved.transitions.length,
       no_mocked_api: true,
-      not_tested: ["administrator ACK and recovery concurrency", "C history/CSV", "two real notifications", "full E1"],
+      not_tested: ["concurrency (separate PG suite)", "C-triggered anomaly/recovery", "C history/CSV", "two real notifications", "full E1"],
     }, null, 2), { flag: "wx" })
     console.log("PASS real browser login/control/receipt/reload/ordinary-user refusal; no API mocks")
   } finally {
