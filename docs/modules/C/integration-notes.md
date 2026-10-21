@@ -1,5 +1,41 @@
 # C 共享接线请求
 
+## 2026-10-21 A24 后 C 必须补的最小写门禁（提案，尚未实现）
+
+A [PR43 `a5f27e6ffe7d56844aa388dbedef2ba2a06ee9ee`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/43)
+提供了**默认未启用**的 `read_complete_frontier(Connection, device_id,
+warehouse_id, epoch) -> FrontierStamp | None` 与
+`stamp_is_current(Connection, stamp) -> bool`。C 已[按精确头批准该候选范围](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/43#pullrequestreview-5598813842)。
+这不是对任何 C 写入或自动恢复的放行。为避免只在定时器外层检查而遗漏
+直写入口，正式接线须在以下**同一 PG READ COMMITTED 事务**中检查：
+
+1. `storage_candidate.py::ingest_observation` 的 `observations`、`receptions`、
+   `reception_reuse_conflicts`、`quality_tags`、`evaluation_jobs` 写入，尤其
+   invalid/冲突没有新 observation，仍要使同设备恢复前沿失效。A worker 调 C
+   不得先用未锁定的 C 事务提交、随后才取得流锁。
+2. `rule_evaluation_candidate.py::_mark/evaluate_one_batch_candidate` 的风险和
+   `outbox_candidate.py::stage_f03_candidate`，以及
+   `recovery_progress_candidate.py::advance_persisted_recovery_window` 和
+   `recovery_outbox_candidate.py::stage_eligible_recovery_on_connection_candidate`。
+   现有 Engine 包装器各自开事务，不能当成已持 A 锁。规则服务 HTTP 调用必须
+   在短事务外完成，入库前按原采样时刻重核规则与观测归属。
+3. 冻结恢复时，持 A 流锁取得 `FrontierStamp`，在同一 Connection 校验原异常
+   所属设备、冷库、世代和已存观测，然后将 `stream_epoch`、
+   `admitted_seq`、`evidence_revision` 与原异常 `source_event_id` 一起持久关联
+   恢复候选。现在 C outbox **没有这些字段**；迁移只能在 B01→A04→C 的唯一
+   已合并链后由 A 协调，不在本分支另开平行正式 head。
+4. `delivery_candidate.py::deliver_once_candidate` 当前只检查 B 受理摘要和
+   原事件 resolved，不读取 A 前沿。自动恢复发往 B 前须以同一设备锁复核
+   冻结戳、C 坏接收及规则/绑定版本，失效则持久停发并标记待人工复核；晚到
+   invalid/冲突即使 `sampled_at` 较早，也不能被旧窗口跳过。需要 A/B 一起确认
+   **复核与外部 HTTP 之间的线性化/更正语义**；不在锁内做网络请求，也不能仅凭
+   一次无锁预检宣称消除竞态。
+
+当前可审核出口：A 提供已审锁入口与正式运行调用点；C 提供同事务写端口和
+失效标记，测试同设备并发写/冻结、晚到 invalid/冲突、重启后戳回读、发送
+超时重试与历史规则更换；B 确认已受理恢复之后的更正/重开语义。上述结果
+未完成前自动恢复外发保持关闭，独立候选测试不能记作 E1。
+
 ## 2026-10-21 最新对接状态（独立候选，未发布主程序）
 
 - A [PR40 `e69094ff2c2bf81790a7402befdd8b18066d7c3c`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/40)

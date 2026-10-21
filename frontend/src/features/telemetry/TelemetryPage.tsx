@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
-import { type FormEvent, useState } from "react"
+import { type FormEvent, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { type TelemetryFilters, telemetryApi, telemetryError } from "./api"
+import { isLatestObservationStale } from "./freshness"
 
 type Selection = {
   filters: TelemetryFilters
@@ -49,6 +50,7 @@ export default function TelemetryPage() {
   const [csvError, setCsvError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const hasLatestScope = Boolean(
     selection.filters.device_id || selection.filters.warehouse_id,
   )
@@ -64,15 +66,19 @@ export default function TelemetryPage() {
     refetchInterval: 10_000,
     retry: false,
   })
-  const latestAgeMs = latest.data?.item
-    ? Date.parse(latest.data.checked_at) -
-      Date.parse(latest.data.item.received_at)
-    : null
-  const latestIsStale =
-    latestAgeMs !== null &&
-    (!Number.isFinite(latestAgeMs) ||
-      latestAgeMs > 60_000 ||
-      latestAgeMs < -5_000)
+  useEffect(() => {
+    if (!hasLatestScope) return
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [hasLatestScope])
+  const latestIsStale = latest.data?.item
+    ? isLatestObservationStale(
+        latest.data.checked_at,
+        latest.data.item.received_at,
+        latest.dataUpdatedAt,
+        nowMs,
+      )
+    : false
 
   const page = useQuery({
     queryKey: ["telemetry", selection],
