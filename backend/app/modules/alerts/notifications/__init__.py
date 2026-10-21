@@ -31,6 +31,13 @@ from .app_push import (
     PermanentPushError,
     TransientPushError,
 )
+from .dispatch import (
+    AlertNotificationDispatcher,
+    DispatchReport,
+    build_envelope,
+    build_transports,
+    format_alert_time,
+)
 from .feishu import FeishuWebhookConfig, FeishuWebhookTransport
 from .smtp import SMTPConfig, SMTPTransport
 from .transport import (
@@ -42,9 +49,11 @@ from .transport import (
 )
 
 __all__ = [
+    "AlertNotificationDispatcher",
     "AppPushTransport",
     "DeliveryOutcome",
     "DisabledAppPushTransport",
+    "DispatchReport",
     "FeishuWebhookConfig",
     "FeishuWebhookTransport",
     "NotConfigured",
@@ -56,4 +65,7 @@ __all__ = [
     "SMTPConfig",
     "SMTPTransport",
     "TransientPushError",
+    "build_envelope",
+    "build_transports",
+    "format_alert_time",
 ]
