@@ -2,6 +2,7 @@
 const assert = require("node:assert/strict")
 const fs = require("node:fs")
 const path = require("node:path")
+const crypto = require("node:crypto")
 
 async function run() {
   const [origin, results, moduleRoot, executablePath] = process.argv.slice(2)
@@ -12,19 +13,28 @@ async function run() {
   assert(fs.existsSync(path.join(results, "ready.json")))
   assert(!fs.existsSync(path.join(results, "browser.json")))
   const { chromium, expect } = require(path.resolve(moduleRoot, "playwright/test"))
-  const browser = await chromium.launch({ executablePath, headless: true })
+  const recordVideo = process.env.FRESHLINK_BROWSER_RECORD_VIDEO === "1"
+  const browser = await chromium.launch({ executablePath, headless: true, slowMo: recordVideo ? 100 : 0 })
   const actuatorId = "66666666-6666-4666-8666-666666666666"
   const commandPath = `/api/v1/devices/${actuatorId}/commands`
   let submitted
   let postCount = 0
+  let recordedContext
+  let recordedVideo
+  let proofPassed = false
   try {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+      ...(recordVideo ? { recordVideo: { dir: path.join(results, "videos"), size: { width: 1280, height: 900 } } } : {}),
+    })
+    recordedContext = context
     // Block outside origins; same-origin requests are NEVER fulfilled/mocked.
     await context.route("**/*", (route) => {
       const target = new URL(route.request().url())
       return target.origin === url.origin ? route.continue() : route.abort()
     })
     const page = await context.newPage()
+    recordedVideo = page.video()
     page.on("request", (request) => {
       if (new URL(request.url()).pathname === commandPath && request.method() === "POST") {
         postCount += 1
@@ -322,9 +332,33 @@ async function run() {
       no_mocked_api: true,
       not_tested: ["concurrency (separate PG suite)", "C-triggered B anomaly/recovery", "two real notifications", "formal A/C migration chain", "full E1"],
     }, null, 2), { flag: "wx" })
+    proofPassed = true
     console.log("PASS real browser login/control/receipt/reload/ordinary-user refusal; no API mocks")
   } finally {
-    await browser.close()
+    try {
+      if (recordedContext) await recordedContext.close()
+      if (recordVideo && recordedVideo) {
+        const target = path.join(results, "videos", "candidate-admin-raw.webm")
+        assert(!fs.existsSync(target), "refuse existing video output")
+        await recordedVideo.saveAs(target)
+        const bytes = fs.readFileSync(target)
+        assert(bytes.length > 1000, "recording is empty or incomplete")
+        fs.writeFileSync(path.join(results, "video.json"), JSON.stringify({
+          source: process.env.CONTROL_BROWSER_SOURCE,
+          status: proofPassed ? "candidate_real_browser_recorded_not_final_video" : "failed_proof_recording_do_not_present_as_passed",
+          file: "videos/candidate-admin-raw.webm",
+          bytes: bytes.length,
+          sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+          viewport: { width: 1280, height: 900 },
+          synthetic_isolated_accounts_only: true,
+          no_mocked_api: true,
+          contains_synthetic_b_recovery: true,
+          not_verified: ["formal C migration", "C-triggered anomaly/recovery", "two notification receipts", "second machine", "narrated final release video", "full E1", "submission"],
+        }, null, 2), { flag: "wx" })
+      }
+    } finally {
+      await browser.close()
+    }
   }
 }
 run().catch((error) => {
