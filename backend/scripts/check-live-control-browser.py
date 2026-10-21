@@ -81,12 +81,17 @@ def run() -> None:
         raise RuntimeError("Refusing fake warehouse lookup")
     # Never invent substitute B DDL: Compose must have run actual candidate B01.
     require_b01_candidate_schema(engine)
-    # Explicit disposable proof fixtures ONLY, never application startup DDL.
-    # The formal A04/C migration chain still has its own review/release gate.
-    inbox_metadata.create_all(engine, checkfirst=False)
+    # A04 now comes from the actual candidate migration, never fallback DDL.
+    from sqlalchemy import inspect
+
+    require(
+        set(inbox_metadata.tables) <= set(inspect(engine).get_table_names()),
+        "actual A04 transport migration required",
+    )
+    with engine.connect() as connection:
+        require(connection.scalar(core_select(queue_guard.c.id)) == 1, "A04 queue seed")
+    # C schema remains explicit disposable proof fixtures ONLY.
     c_metadata.create_all(engine, checkfirst=False)
-    with engine.begin() as connection:
-        connection.execute(queue_guard.insert().values(id=1))
     server = uvicorn.Server(
         uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning")
     )
@@ -312,7 +317,7 @@ def run() -> None:
                 "temperature_before": before,
                 "temperature_after": after,
                 "warehouse_lookup": "actual B HTTP/service; no dependency override",
-                "ddl_scope": "candidate B01 Alembic plus explicit A/C test DDL; not published chain",
+                "ddl_scope": "actual candidate B01/A04 Alembic plus C test DDL; not published chain",
                 "actual_c_observation_count": stored_count,
                 "telemetry_delivery_completed": delivery.completed,
                 "telemetry_delivery_failures": delivery.failures,

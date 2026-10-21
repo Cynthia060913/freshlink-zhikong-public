@@ -49,11 +49,27 @@ def test_generic_inbox_opt_in_does_not_enable_strict_migration_proof():
             assert migration_pg_enabled()
 
 
-def test_candidate_is_not_an_active_alembic_head():
+def test_promoted_candidate_has_one_parent_and_identical_frozen_ddl():
     revisions = active_revisions()
-    assert candidate.revision not in {
-        item.revision for item in revisions.walk_revisions()
-    }
+    active = revisions.get_revision(candidate.revision)
+    assert active is not None
+    assert active.down_revision == candidate.down_revision
+    assert len(revisions.get_heads()) == 1
+    # Promotion must not silently change the independently reviewed six-table
+    # DDL. C/A24 successors are separate reviews, never injected here.
+    import ast
+
+    frozen_tree = ast.parse(Path(spec.origin).read_text(encoding="utf-8"))
+    active_tree = ast.parse(Path(active.path).read_text(encoding="utf-8"))
+
+    def functions(tree):
+        return [
+            ast.dump(node, include_attributes=False)
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+        ]
+
+    assert functions(frozen_tree) == functions(active_tree)
     assert candidate.down_revision == "b01_alerts_storage"
 
 

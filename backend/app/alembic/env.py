@@ -24,9 +24,13 @@ from app.models import SQLModel  # noqa
 from app.modules.alerts import models as alerts_models  # noqa: F401
 from app.modules.iot.models import Device  # noqa: F401
 from app.modules.iot.control_models import DeviceCommand, CommandAttempt, CommandReceipt  # noqa: F401
+from app.modules.iot.event_dispatch_models import metadata as event_metadata
+from app.modules.iot.telemetry_inbox_models import metadata as inbox_metadata
 from app.core.config import settings # noqa
 
-target_metadata = SQLModel.metadata
+# Only the frozen six A04 tables join the shared schema comparison. A24 stream
+# and C candidate metadata stay out until their own reviewed unique successor.
+target_metadata = [SQLModel.metadata, event_metadata, inbox_metadata]
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
