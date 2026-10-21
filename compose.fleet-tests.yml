@@ -1,0 +1,23 @@
+# Explicitly disposable 14-device software-runtime proof, not E1 or deployment.
+services:
+  broker:
+    image: eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408
+    entrypoint: ["sh", "/fixtures/start.sh"]
+    volumes:
+      - ./scripts/mqtt-fleet:/fixtures:ro
+  test-runner:
+    image: ${FLEET_APP_IMAGE:-freshlink-app:p0}
+    working_dir: /app/backend
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /app/backend
+      FRESHLINK_FLEET_PROOF: "1"
+      FLEET_SOURCE: ${FLEET_SOURCE:?Use check-simulator-fleet.ps1}
+      FLEET_SOURCE_DIRTY: ${FLEET_SOURCE_DIRTY:?Use check-simulator-fleet.ps1}
+    volumes:
+      - ./backend:/app/backend:ro
+      - ${FLEET_RESULT_DIR:?Use check-simulator-fleet.ps1}:/results
+    entrypoint: ["python", "scripts/check-simulator-fleet.py"]
+networks:
+  default:
+    internal: true
