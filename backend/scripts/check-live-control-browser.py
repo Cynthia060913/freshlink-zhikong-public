@@ -42,6 +42,8 @@ def run() -> None:
     import paho.mqtt.client as mqtt
     import uvicorn
     from paho.mqtt.enums import CallbackAPIVersion
+    from sqlalchemy import func
+    from sqlalchemy import select as core_select
     from sqlmodel import Session, select
 
     from app.core.db import engine
@@ -56,7 +58,18 @@ def run() -> None:
     from app.modules.iot.models import Device
     from app.modules.iot.proof_schema_guard import require_b01_candidate_schema
     from app.modules.iot.simulator_runtime import DeviceRuntime, RuntimeSettings
+    from app.modules.iot.telemetry_inbox_models import metadata as inbox_metadata
+    from app.modules.iot.telemetry_inbox_models import queue_guard
+    from app.modules.iot.telemetry_worker import (
+        TelemetryDeliveryWorker,
+        TelemetryReceiver,
+    )
     from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
+    from app.modules.telemetry.storage_candidate import (
+        ingest_observation,
+        observations,
+    )
+    from app.modules.telemetry.storage_candidate import metadata as c_metadata
 
     sensor = UUID("11111111-1111-4111-8111-111111111111")
     actuator = UUID("66666666-6666-4666-8666-666666666666")
@@ -68,6 +81,12 @@ def run() -> None:
         raise RuntimeError("Refusing fake warehouse lookup")
     # Never invent substitute B DDL: Compose must have run actual candidate B01.
     require_b01_candidate_schema(engine)
+    # Explicit disposable proof fixtures ONLY, never application startup DDL.
+    # The formal A04/C migration chain still has its own review/release gate.
+    inbox_metadata.create_all(engine, checkfirst=False)
+    c_metadata.create_all(engine, checkfirst=False)
+    with engine.begin() as connection:
+        connection.execute(queue_guard.insert().values(id=1))
     server = uvicorn.Server(
         uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning")
     )
@@ -196,6 +215,22 @@ def run() -> None:
                 password="fixture-controller-only",
                 warehouse_lookup_factory=warehouse_lookup_for_session,
             )
+            telemetry = TelemetryReceiver(
+                HeartbeatWorkerSettings.model_validate(
+                    {
+                        **common,
+                        "client_id": "browser-telemetry-receiver",
+                        "device_ids": [sensor],
+                    }
+                ),
+                password="fixture-controller-only",
+                warehouse_lookup_factory=warehouse_lookup_for_session,
+            )
+            delivery = TelemetryDeliveryWorker(
+                engine,
+                lambda body: ingest_observation(engine, body),
+                poll_seconds=0.1,
+            )
             device = DeviceRuntime(
                 RuntimeSettings.model_validate(
                     {
@@ -219,13 +254,15 @@ def run() -> None:
             )
             observer.connect("broker", 1883)
             observer.loop_start()
-            for worker in (heartbeat, control, device):
+            for worker in (heartbeat, control, telemetry, delivery, device):
                 workers.append(worker)
                 launch(lambda worker=worker: worker.run(max_seconds=180))
             wait_until(
                 lambda: (
                     heartbeat.ready.is_set()
                     and control.ready.is_set()
+                    and telemetry.ready.is_set()
+                    and delivery.completed >= 3
                     and subscribed.is_set()
                     and bool(samples)
                     and api.get(f"/api/v1/devices/{actuator}", headers=headers).json()[
@@ -257,6 +294,15 @@ def run() -> None:
             wait_until(lambda: bool(samples) and samples[-1] < before - 0.05)
             with sample_lock:
                 after = samples[-1]
+            with engine.connect() as connection:
+                stored_count = connection.scalar(
+                    core_select(func.count())
+                    .select_from(observations)
+                    .where(observations.c.device_id == sensor)
+                )
+            require(stored_count >= 3, "actual C committed observation count")
+            require(telemetry.fatal_reason is None, "telemetry receiver healthy")
+            require(delivery.failures == 0, "no hidden C delivery failures")
             result = {
                 "phase": "browser_to_real_http_pg_mqtt_device_ack_passed",
                 "source": source,
@@ -266,9 +312,13 @@ def run() -> None:
                 "temperature_before": before,
                 "temperature_after": after,
                 "warehouse_lookup": "actual B HTTP/service; no dependency override",
-                "ddl_scope": "actual candidate B01 Alembic; not published B/C chain",
+                "ddl_scope": "candidate B01 Alembic plus explicit A/C test DDL; not published chain",
+                "actual_c_observation_count": stored_count,
+                "telemetry_delivery_completed": delivery.completed,
+                "telemetry_delivery_failures": delivery.failures,
+                "telemetry_mode": "actual continuous A receiver/inbox/delivery -> C PG; automatic recovery disabled",
                 "not_tested": [
-                    "C persistence/history/CSV",
+                    "C-triggered B anomaly/recovery",
                     "real notifications",
                     "formal B/C migrations",
                     "full E1",
