@@ -8,6 +8,9 @@ from app.modules.iot.binding_routes import router as device_binding_router
 from app.modules.iot.control_routes import router as device_control_router
 from app.modules.iot.routes import router as devices_router
 from app.modules.telemetry.http_candidate import router as telemetry_router
+from app.modules.telemetry.reception_audit_candidate import (
+    router as telemetry_audit_router,
+)
 
 api_router = APIRouter()
 api_router.include_router(login.router)
@@ -19,6 +22,7 @@ api_router.include_router(device_binding_router)
 api_router.include_router(alerts_router, dependencies=[Depends(guard_alert_ingestion)])
 api_router.include_router(device_control_router)
 api_router.include_router(telemetry_router)
+api_router.include_router(telemetry_audit_router)
 
 
 if settings.FASTAPI_ENV == "development":
