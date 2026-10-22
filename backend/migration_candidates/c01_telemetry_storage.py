@@ -104,6 +104,12 @@ def upgrade() -> None:
         "telemetry_candidate_outbox_candidate",
         sa.Column("source_event_id", sa.Uuid(), primary_key=True),
         sa.Column("related_source_event_id", sa.Uuid()),
+        sa.Column("frozen_device_id", sa.Uuid()),
+        sa.Column("frozen_warehouse_id", sa.Uuid()),
+        sa.Column("frozen_stream_epoch", sa.Uuid()),
+        sa.Column("frozen_admitted_seq", sa.Integer()),
+        sa.Column("frozen_settled_through", sa.Integer()),
+        sa.Column("frozen_evidence_revision", sa.Integer()),
         sa.Column(
             "observation_id",
             sa.Uuid(),
