@@ -16,6 +16,7 @@ from app.modules.alerts.models.warehouse import Warehouse
 from app.modules.iot.models import Device
 from app.modules.iot.telemetry_inbox import claim_next, deliver_claim
 from app.modules.iot.telemetry_storage_bridge import GatedTelemetrySink
+from app.modules.telemetry.outbox_candidate import outbox
 from app.modules.telemetry.storage_candidate import metadata as c_metadata
 from app.modules.telemetry.storage_candidate import observations
 from tests.api.routes import test_stream_frontier as checks
@@ -223,6 +224,187 @@ class GatedTelemetryStorageTests(unittest.TestCase):
         self.assertEqual(
             checks.state(self.store)["gap_reason"], "unsettled_bad_evidence"
         )
+
+    def recovery_fixture(self):
+        """Actual A/C ingestion, synthetic outbox business state; no B/send."""
+        observation_ids = []
+        for _ in range(2):
+            envelope = self.frame()
+            self.assertEqual(checks.admit(self.store, envelope).status, "queued")
+            claim = claim_next(self.store.engine, now=checks.T0)
+            result = deliver_claim(
+                self.store.engine,
+                claim,
+                self.sink,
+                now=checks.T0,
+                frontier_epoch=self.store.epoch,
+            )
+            self.assertEqual(result.status, "delivered")
+            observation_ids.append(result.observation_id)
+        original_id, recovery_id = uuid4(), uuid4()
+        with self.store.engine.begin() as conn:
+            for source_id, observation_id, kind, related, status in (
+                (
+                    original_id,
+                    observation_ids[0],
+                    "temperature_high",
+                    None,
+                    "delivered",
+                ),
+                (
+                    recovery_id,
+                    observation_ids[1],
+                    "temperature_recovered",
+                    original_id,
+                    "pending",
+                ),
+            ):
+                body = {
+                    "source_event_id": str(source_id),
+                    "kind": kind,
+                    "warehouse_id": str(self.store.warehouse_id),
+                    "observation_ids": [str(observation_id)],
+                }
+                if related is not None:
+                    body["related_source_event_id"] = str(related)
+                conn.execute(
+                    outbox.insert().values(
+                        source_event_id=source_id,
+                        related_source_event_id=related,
+                        observation_id=observation_id,
+                        body_sha256="0" * 64,
+                        body=body,
+                        state=status,
+                        attempt_count=0,
+                        next_attempt_at_utc=checks.T0,
+                    )
+                )
+        return original_id, recovery_id
+
+    def freeze(self, conn, original_id, recovery_id, stamp):
+        from app.modules.telemetry.recovery_outbox_candidate import (
+            freeze_recovery_frontier_on_connection_candidate,
+        )
+
+        return freeze_recovery_frontier_on_connection_candidate(
+            conn,
+            original_source_event_id=original_id,
+            recovery_source_event_id=recovery_id,
+            stamp=stamp,
+        )
+
+    def gate(self, conn):
+        from app.modules.iot.stream_frontier import begin_evidence_write
+
+        return begin_evidence_write(
+            conn,
+            device_id=self.store.device_id,
+            warehouse_id=self.store.warehouse_id,
+            epoch=self.store.epoch,
+        )
+
+    def frozen_revision(self, recovery_id):
+        with self.store.engine.connect() as conn:
+            return conn.scalar(
+                select(outbox.c.frozen_evidence_revision).where(
+                    outbox.c.source_event_id == recovery_id
+                )
+            )
+
+    def test_real_frontier_freeze_rollback_commit_and_same_unit_replay(self):
+        original, recovery = self.recovery_fixture()
+        before = checks.state(self.store)["evidence_revision"]
+        with self.store.engine.connect() as writer:
+            transaction = writer.begin()
+            self.gate(writer)
+            stamp = checks.stamp(self.store, writer)
+            self.assertEqual(self.freeze(writer, original, recovery, stamp), "frozen")
+            self.assertEqual(
+                self.freeze(writer, original, recovery, stamp), "duplicate"
+            )
+            self.assertIsNone(self.frozen_revision(recovery))
+            transaction.rollback()
+        self.assertEqual(checks.state(self.store)["evidence_revision"], before)
+        self.assertIsNone(self.frozen_revision(recovery))
+        with self.store.engine.begin() as writer:
+            revision = self.gate(writer)
+            stamp = checks.stamp(self.store, writer)
+            self.assertEqual(stamp.evidence_revision, revision)
+            self.assertEqual(self.freeze(writer, original, recovery, stamp), "frozen")
+        # A fresh connection reads only the committed frozen stamp.
+        self.assertEqual(self.frozen_revision(recovery), before + 1)
+
+    def test_real_freeze_holds_device_lock_and_new_write_invalidates_stamp(self):
+        original, recovery = self.recovery_fixture()
+        entered = Event()
+
+        def seen(_conn, _cursor, statement, _params, _context, _many):
+            if "iot_stream_frontier" in statement and "FOR UPDATE" in statement:
+                entered.set()
+
+        with self.store.engine.connect() as writer:
+            transaction = writer.begin()
+            self.gate(writer)
+            stamp = checks.stamp(self.store, writer)
+            self.assertEqual(self.freeze(writer, original, recovery, stamp), "frozen")
+            event.listen(self.store.engine, "before_cursor_execute", seen)
+            try:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(self.sink, self.frame())
+                    try:
+                        self.assertTrue(entered.wait(3))
+                        self.assertFalse(future.done())
+                        self.assertEqual(self.count(), 2)
+                        self.assertIsNone(self.frozen_revision(recovery))
+                    finally:
+                        transaction.commit()
+                    self.assertEqual(future.result(timeout=6).status, "accepted_new")
+            finally:
+                event.remove(self.store.engine, "before_cursor_execute", seen)
+                if transaction.is_active:
+                    transaction.rollback()
+        self.assertGreater(
+            checks.state(self.store)["evidence_revision"], stamp.evidence_revision
+        )
+        with self.store.engine.begin() as conn:
+            with self.assertRaisesRegex(ValueError, "incomplete or changed"):
+                self.freeze(conn, original, recovery, stamp)
+        self.assertEqual(self.frozen_revision(recovery), stamp.evidence_revision)
+
+    def test_real_bad_evidence_blocks_unfrozen_recovery(self):
+        original, recovery = self.recovery_fixture()
+        stamp = checks.stamp(self.store)
+        self.assertEqual(
+            self.sink(checks.inbox_checks.frame(self.store)).status, "accepted_new"
+        )
+        self.assertIsNone(checks.stamp(self.store))
+        with self.store.engine.begin() as conn:
+            with self.assertRaisesRegex(ValueError, "incomplete or changed"):
+                self.freeze(conn, original, recovery, stamp)
+        self.assertIsNone(self.frozen_revision(recovery))
+
+    def test_real_wrong_epoch_refused_without_frozen_write(self):
+        from app.modules.iot.stream_frontier import FrontierUnavailable
+
+        original, recovery = self.recovery_fixture()
+        stamp = replace(checks.stamp(self.store), stream_epoch=uuid4())
+        with self.store.engine.begin() as conn:
+            with self.assertRaises(FrontierUnavailable):
+                self.freeze(conn, original, recovery, stamp)
+        self.assertIsNone(self.frozen_revision(recovery))
+
+    def test_real_new_gate_cannot_overwrite_previously_frozen_stamp(self):
+        original, recovery = self.recovery_fixture()
+        with self.store.engine.begin() as conn:
+            self.gate(conn)
+            first = checks.stamp(self.store, conn)
+            self.assertEqual(self.freeze(conn, original, recovery, first), "frozen")
+        with self.store.engine.begin() as conn:
+            self.gate(conn)
+            changed = checks.stamp(self.store, conn)
+            with self.assertRaisesRegex(ValueError, "different or partial"):
+                self.freeze(conn, original, recovery, changed)
+        self.assertEqual(self.frozen_revision(recovery), first.evidence_revision)
 
 
 if __name__ == "__main__":

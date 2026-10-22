@@ -381,7 +381,7 @@ def run():
                         "checked_at": datetime.now(UTC).isoformat(),
                         "source_revision": os.environ["GATED_SOURCE_REVISION"],
                         "source_dirty": os.environ["GATED_SOURCE_DIRTY"] == "1",
-                        "c_revision": "5603552718d64c36bf369d162b515dea9ce24150",
+                        "c_revision": "bad804c8dcd2d9656f33f23797b1590b703c2be5",
                         "actual_a05_migration": True,
                         "nonempty_database_refused_before_ddl": True,
                         "c01_inactive_test_proposal_only": True,

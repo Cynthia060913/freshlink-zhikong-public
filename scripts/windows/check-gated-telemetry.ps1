@@ -18,7 +18,7 @@ try {
         & $docker image inspect $image --format '{{.Id}}'
         if($LASTEXITCODE){throw 'Required cached image missing; no automatic pulls'}
     }
-    & git diff --quiet 5603552718d64c36bf369d162b515dea9ce24150 -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    & git diff --quiet bad804c8dcd2d9656f33f23797b1590b703c2be5 -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
     if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
     $revision=(& git rev-parse HEAD).Trim()
     if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}
