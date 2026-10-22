@@ -1,5 +1,18 @@
 # C 共享接线请求
 
+## 2026-10-22 温度高候选与评估状态同事务端口
+
+`rule_evaluation_candidate.py::stage_evaluated_high_on_connection_candidate(
+connection, observation_id, batch_id, body, now)` 接收调用方在锁外依据 B 的**历史**
+规则预选的完整 F03 正文。调用方须先在同一 PostgreSQL 事务取得 A 的
+`begin_evidence_write` 设备门禁；本端口重读待评估的已存 C 观测，核对确定性
+`source_event_id`、批次/冷库/时间/数值/质量及高温阈值，然后在**同一 Connection**
+冻结 outbox 正文并标记任务/风险。外层回滚同时撤销三者；重试相同正文去重，
+同来源异文只留冲突审计且不把风险标正常/候选。无 B 网络请求、自行提交或发送。
+这只解决单批温度高的局部原子写入；B 历史规则的可信选择、批次授权/重新核对、
+A worker 的真实调用、其他 C 写入口门禁及恢复冻结戳仍待共同接线与真实 PG 验证。
+旧 `evaluate_one_batch_candidate(engine, …)` 保持兼容，仍非同事务流程。
+
 ## 2026-10-22 非活动 C01 十表迁移提案（不得直接升级原库）
 
 C 已在 `backend/migration_candidates/c01_telemetry_storage.py` 准备**非活动**

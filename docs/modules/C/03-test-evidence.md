@@ -1,5 +1,15 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-22 温度高原子暂存候选
+
+本人 Windows 隔离 Python3.13.9 执行
+`python -m unittest tests.modules.test_telemetry_rule_evaluation_candidate`，
+**8/8 通过**。新增回归先从既有 F03 预览取已验证样例，再验证调用方事务回滚
+同时撤销 outbox/风险/任务，提交后三者一致，改变数值被拒，相同正文重试只留
+一条候选，同来源异文留冲突审计而风险保持 unknown。Ruff、单文件 mypy 已通过。
+此处 SQLite 的先行 UPDATE 模拟 A 门禁事务写入以避开 SQLite 旧式 SAVEPOINT
+行为；未运行此端口的真实 PostgreSQL、A 门禁 worker 或 B HTTP 联调。
+
 ## 2026-10-22 非活动 C01 迁移提案静态核对
 
 在本人 Windows 隔离 Python3.13.9 下，`test_telemetry_c01_migration_proposal`
