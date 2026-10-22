@@ -15,7 +15,7 @@ from typing import Any, Literal, Protocol
 from uuid import UUID, uuid5
 
 from sqlalchemy import select, update
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.modules.telemetry.candidate_preview import (
@@ -66,6 +66,50 @@ def _utc_text(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def mark_evaluation_on_connection_candidate(
+    connection: Connection,
+    *,
+    observation_id: UUID,
+    state: str,
+    risk: dict[str, Any] | None = None,
+) -> bool:
+    """Stage an evaluated job and risk in the caller's gated transaction.
+
+    The caller must verify the historical rule and persisted observation
+    before taking A's device write gate. This function never contacts B,
+    commits, or retries a failed outer transaction.
+    """
+    if not connection.in_transaction():
+        raise ValueError("an open caller transaction is required")
+    expected_risk = {"candidate_staged": "candidate", "within_rule": "normal"}
+    if state == "no_rule":
+        if risk is not None:
+            raise ValueError("no rule cannot assign normal or candidate risk")
+    elif (
+        state not in expected_risk
+        or not isinstance(risk, dict)
+        or risk.get("state") != expected_risk[state]
+    ):
+        raise ValueError("evaluation state and risk must agree")
+    updated = connection.execute(
+        update(evaluation_jobs)
+        .where(
+            evaluation_jobs.c.observation_id == observation_id,
+            evaluation_jobs.c.state == "pending",
+        )
+        .values(state=state)
+    )
+    if updated.rowcount != 1:
+        return False
+    if risk is not None:
+        connection.execute(
+            update(observations)
+            .where(observations.c.id == observation_id)
+            .values(risk=risk)
+        )
+    return True
+
+
 def _mark(
     engine: Engine,
     *,
@@ -74,23 +118,9 @@ def _mark(
     risk: dict[str, Any] | None = None,
 ) -> bool:
     with engine.begin() as connection:
-        updated = connection.execute(
-            update(evaluation_jobs)
-            .where(
-                evaluation_jobs.c.observation_id == observation_id,
-                evaluation_jobs.c.state == "pending",
-            )
-            .values(state=state)
+        return mark_evaluation_on_connection_candidate(
+            connection, observation_id=observation_id, state=state, risk=risk
         )
-        if updated.rowcount != 1:
-            return False
-        if risk is not None:
-            connection.execute(
-                update(observations)
-                .where(observations.c.id == observation_id)
-                .values(risk=risk)
-            )
-    return True
 
 
 def evaluate_one_batch_candidate(

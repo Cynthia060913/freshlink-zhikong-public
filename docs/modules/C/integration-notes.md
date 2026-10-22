@@ -1,5 +1,16 @@
 # C 共享接线请求
 
+## 2026-10-22 评估结果同连接写端口（局部准备）
+
+`rule_evaluation_candidate.py::mark_evaluation_on_connection_candidate`
+将 `evaluation_jobs` 状态及 observation 风险写在调用方已开启的同一事务内；
+不自行提交或向 B 查询规则。旧 `evaluate_one_batch_candidate(engine, …)`
+仍在锁外选择 B 历史规则，并使用独立 Engine 事务冻结 outbox 与标记结果，
+**尚未整体转换为 A 门禁内原子流程**。正式接线要先在短事务外查询 B 规则，
+再在持同设备门禁的事务内重读 observation/归属/规则版本、调用已有
+`stage_f03_on_connection_candidate` 和此标记端口；不能在锁内执行 B HTTP，
+也不能把本局部函数测试算作候选自动送达。C 本机隔离该组 7/7 通过。
+
 ## 2026-10-22 恢复窗口同连接入口（已准备，未启用自动恢复）
 
 `recovery_progress_candidate.py::advance_persisted_recovery_window_on_connection_candidate(

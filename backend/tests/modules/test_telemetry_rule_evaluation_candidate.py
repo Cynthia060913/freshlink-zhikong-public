@@ -15,7 +15,10 @@ from sqlalchemy.exc import OperationalError
 
 from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
 from app.modules.telemetry.outbox_candidate import outbox, outbox_conflicts
-from app.modules.telemetry.rule_evaluation_candidate import evaluate_one_batch_candidate
+from app.modules.telemetry.rule_evaluation_candidate import (
+    evaluate_one_batch_candidate,
+    mark_evaluation_on_connection_candidate,
+)
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
     read_snapshot_page_candidate,
@@ -115,6 +118,48 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
     def _read(self, table) -> list[dict]:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(select(table)).mappings()]
+
+    def test_evaluation_write_shares_caller_transaction(self) -> None:
+        observation_id, _ = self._ingest(11)
+        candidate_risk = {"state": "candidate", "reason": "threshold_exceeded"}
+        with self.engine.connect() as connection:
+            with self.assertRaisesRegex(ValueError, "open caller transaction"):
+                mark_evaluation_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    state="candidate_staged",
+                    risk=candidate_risk,
+                )
+            transaction = connection.begin()
+            self.assertTrue(
+                mark_evaluation_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    state="candidate_staged",
+                    risk=candidate_risk,
+                )
+            )
+            transaction.rollback()
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "pending")
+        self.assertEqual(self._read(observations)[0]["risk"]["state"], "unknown")
+        with self.engine.begin() as connection:
+            with self.assertRaisesRegex(ValueError, "no rule"):
+                mark_evaluation_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    state="no_rule",
+                    risk={"state": "normal"},
+                )
+            self.assertTrue(
+                mark_evaluation_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    state="candidate_staged",
+                    risk=candidate_risk,
+                )
+            )
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "candidate_staged")
+        self.assertEqual(self._read(observations)[0]["risk"], candidate_risk)
 
     def test_hot_missing_humidity_stages_once_without_losing_raw_or_quality(
         self,
