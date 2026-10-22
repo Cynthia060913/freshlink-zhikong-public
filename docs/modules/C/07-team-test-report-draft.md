@@ -1,5 +1,11 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-22 恢复窗口端口增量（M03 仍未签收）
+
+C 恢复窗口新增调用方同连接入口，本机 SQLite 相关 `unittest` **23通过**；
+严格 PG 文件本机 **8跳过**，新第8项真实 PG 提交/回滚待实测。本入口没有
+挂 A 门禁、冻结 stamp、发送 B 或开启自动恢复；不能计入 E1。
+
 ## 2026-10-22 增量（M03 仍未签收）
 
 C 已[按精确头审核 PR44 A04 共同候选](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/44#pullrequestreview-5607772122)，

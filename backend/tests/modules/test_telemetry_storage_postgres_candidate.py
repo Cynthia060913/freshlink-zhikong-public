@@ -37,6 +37,8 @@ from app.modules.telemetry.recovery_outbox_candidate import (
 )
 from app.modules.telemetry.recovery_progress_candidate import (
     advance_persisted_recovery_window,
+    advance_persisted_recovery_window_on_connection_candidate,
+    recovery_progress,
 )
 from app.modules.telemetry.recovery_progress_candidate import (
     metadata as progress_metadata,
@@ -163,6 +165,48 @@ class PostgresStorageCandidateTests(unittest.TestCase):
         self.assertEqual(self._count(receptions), 1)
         self.assertEqual(self._count(evaluation_jobs), 1)
         self.assertEqual(ingest_observation(self.engine, first), committed)
+
+    def test_recovery_progress_uses_caller_pg_transaction(self) -> None:
+        self.addCleanup(progress_metadata.drop_all, self.engine)
+        progress_metadata.create_all(self.engine)
+        initial = RecoveryWindowCandidate(
+            original_source_event_id=uuid4(),
+            device_id=_DEVICE_ID,
+            warehouse_id=_WAREHOUSE_ID,
+            batch_id=uuid4(),
+            anomaly_sampled_at=_RECEIVED_AT,
+        )
+        rule = RecoveryRuleCandidate("<=", 7.0, 3, 90)
+        sample = RecoverySampleCandidate(
+            observation_id=uuid4(),
+            device_id=_DEVICE_ID,
+            warehouse_id=_WAREHOUSE_ID,
+            batch_id=initial.batch_id,
+            sampled_at=_RECEIVED_AT + timedelta(seconds=10),
+            temperature_c=6.0,
+            quality=("ok",),
+            duplicate="new",
+        )
+        with self.engine.connect() as writer:
+            transaction = writer.begin()
+            staged, decision = (
+                advance_persisted_recovery_window_on_connection_candidate(
+                    writer, initial, rule, sample
+                )
+            )
+            self.assertEqual(decision, "progress")
+            self.assertEqual(self._count(recovery_progress), 0)
+            transaction.rollback()
+        self.assertEqual(self._count(recovery_progress), 0)
+        with self.engine.begin() as writer:
+            committed, decision = (
+                advance_persisted_recovery_window_on_connection_candidate(
+                    writer, initial, rule, sample
+                )
+            )
+            self.assertEqual(decision, "progress")
+        self.assertEqual(self._count(recovery_progress), 1)
+        self.assertEqual(committed, staged)
 
     def test_recovery_staging_shares_pg_caller_commit_and_rollback(self) -> None:
         """A future admission lock can own the same PG transaction as C staging.

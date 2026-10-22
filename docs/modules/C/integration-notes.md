@@ -1,5 +1,17 @@
 # C 共享接线请求
 
+## 2026-10-22 恢复窗口同连接入口（已准备，未启用自动恢复）
+
+`recovery_progress_candidate.py::advance_persisted_recovery_window_on_connection_candidate(
+connection, initial, rule, sample)` 在调用方外层事务内读写原异常的连续恢复窗口，
+不自行提交、重试或开另一连接。调用方须先持 A 同设备写门禁，再用这个
+Connection 核对持久观测/历史规则并推进；数据库错误或 CAS 冲突直接向外抛，
+由调用方整体回滚。旧 `advance_persisted_recovery_window(engine, …)` 保留独立
+重试行为，但不持 A 锁，不能用它宣布自动恢复已经接线。C 本机 SQLite 恢复
+相关 23/23 通过，严格 PG 文件共 8 项本机均跳过，新第8项已编写等待受控环境
+实跑。这一步尚无冻结 stamp、原异常关联、晚到坏证据失效或 B 接收线性化，
+自动恢复外发继续关闭。
+
 ## 2026-10-22 观测同连接入口（已准备，未挂正式 A 门禁）
 
 C 的 `storage_candidate.py::ingest_observation_on_connection_candidate(

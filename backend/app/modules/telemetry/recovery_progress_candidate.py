@@ -25,7 +25,7 @@ from sqlalchemy import (
     select,
     update,
 )
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
 from app.modules.telemetry.recovery_window_candidate import (
@@ -148,17 +148,7 @@ def load_recovery_progress(
     return _stored_window(row) if row is not None else None
 
 
-def advance_persisted_recovery_window(
-    engine: Engine,
-    initial: RecoveryWindowCandidate,
-    rule: RecoveryRuleCandidate,
-    sample: RecoverySampleCandidate,
-) -> tuple[RecoveryWindowCandidate, RecoveryDecision]:
-    """Save one decision with compare-and-swap; concurrent workers cannot lose a step.
-
-    The schema is a C-owned isolated candidate. A reviewed C Alembic revision
-    must later follow the merged B01 head; this function never creates tables.
-    """
+def _validate_initial(initial: RecoveryWindowCandidate) -> str:
     if (
         initial.last_sampled_at is not None
         or initial.observation_ids
@@ -167,87 +157,131 @@ def advance_persisted_recovery_window(
         or initial.last_received_observation_id is not None
     ):
         raise ValueError("initial recovery window must be empty")
-    anomaly_time = _utc_text(initial.anomaly_sampled_at)
+    return _utc_text(initial.anomaly_sampled_at)
+
+
+def _advance_once(
+    connection: Connection,
+    initial: RecoveryWindowCandidate,
+    rule: RecoveryRuleCandidate,
+    sample: RecoverySampleCandidate,
+) -> tuple[RecoveryWindowCandidate, RecoveryDecision] | None:
+    row = (
+        connection.execute(
+            select(recovery_progress).where(
+                recovery_progress.c.original_source_event_id
+                == initial.original_source_event_id
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        connection.execute(
+            recovery_progress.insert().values(
+                original_source_event_id=initial.original_source_event_id,
+                device_id=initial.device_id,
+                warehouse_id=initial.warehouse_id,
+                batch_id=initial.batch_id,
+                anomaly_sampled_at_utc=_validate_initial(initial),
+                comparison=rule.comparison,
+                threshold_c=rule.threshold_c,
+                min_samples=rule.min_samples,
+                max_gap_seconds=rule.max_gap_seconds,
+                last_sampled_at_utc=None,
+                last_received_at_utc=None,
+                last_received_observation_id=None,
+                last_matching_at_utc=None,
+                observation_ids=[],
+                eligible=False,
+                version=0,
+            )
+        )
+        row = (
+            connection.execute(
+                select(recovery_progress).where(
+                    recovery_progress.c.original_source_event_id
+                    == initial.original_source_event_id
+                )
+            )
+            .mappings()
+            .one()
+        )
+    _check_frozen(row, initial, rule)
+    before = _stored_window(row)
+    after, decision = advance_recovery_window(before, sample, rule)
+    if after == before:
+        return before, decision
+    changed = connection.execute(
+        update(recovery_progress)
+        .where(
+            recovery_progress.c.original_source_event_id
+            == initial.original_source_event_id,
+            recovery_progress.c.version == row["version"],
+        )
+        .values(
+            last_sampled_at_utc=(
+                _utc_text(after.last_sampled_at)
+                if after.last_sampled_at is not None
+                else None
+            ),
+            last_received_at_utc=(
+                _utc_text(after.last_received_at)
+                if after.last_received_at is not None
+                else None
+            ),
+            last_received_observation_id=after.last_received_observation_id,
+            last_matching_at_utc=(
+                _utc_text(after.last_matching_at)
+                if after.last_matching_at is not None
+                else None
+            ),
+            observation_ids=[str(value) for value in after.observation_ids],
+            eligible=after.eligible,
+            version=row["version"] + 1,
+        )
+    ).rowcount
+    return (after, decision) if changed == 1 else None
+
+
+def advance_persisted_recovery_window_on_connection_candidate(
+    connection: Connection,
+    initial: RecoveryWindowCandidate,
+    rule: RecoveryRuleCandidate,
+    sample: RecoverySampleCandidate,
+) -> tuple[RecoveryWindowCandidate, RecoveryDecision]:
+    """Stage one recovery step after the caller's A evidence gate, without commit.
+
+    A database error or CAS conflict must roll back the whole outer unit. This
+    port does not retry using another connection while the device lock is held.
+    """
+    if not connection.in_transaction():
+        raise ValueError("an open caller transaction is required")
+    _validate_initial(initial)
+    result = _advance_once(connection, initial, rule, sample)
+    if result is None:
+        raise RuntimeError("recovery progress changed concurrently")
+    return result
+
+
+def advance_persisted_recovery_window(
+    engine: Engine,
+    initial: RecoveryWindowCandidate,
+    rule: RecoveryRuleCandidate,
+    sample: RecoverySampleCandidate,
+) -> tuple[RecoveryWindowCandidate, RecoveryDecision]:
+    """Commit one standalone decision with compare-and-swap retries.
+
+    This existing Engine entry is not gated by A and cannot be used for A24
+    recovery. A reviewed C migration must follow the agreed unique head.
+    """
+    _validate_initial(initial)
     for _ in range(8):
         try:
             with engine.begin() as connection:
-                row = (
-                    connection.execute(
-                        select(recovery_progress).where(
-                            recovery_progress.c.original_source_event_id
-                            == initial.original_source_event_id
-                        )
-                    )
-                    .mappings()
-                    .first()
-                )
-                if row is None:
-                    connection.execute(
-                        recovery_progress.insert().values(
-                            original_source_event_id=initial.original_source_event_id,
-                            device_id=initial.device_id,
-                            warehouse_id=initial.warehouse_id,
-                            batch_id=initial.batch_id,
-                            anomaly_sampled_at_utc=anomaly_time,
-                            comparison=rule.comparison,
-                            threshold_c=rule.threshold_c,
-                            min_samples=rule.min_samples,
-                            max_gap_seconds=rule.max_gap_seconds,
-                            last_sampled_at_utc=None,
-                            last_received_at_utc=None,
-                            last_received_observation_id=None,
-                            last_matching_at_utc=None,
-                            observation_ids=[],
-                            eligible=False,
-                            version=0,
-                        )
-                    )
-                    row = (
-                        connection.execute(
-                            select(recovery_progress).where(
-                                recovery_progress.c.original_source_event_id
-                                == initial.original_source_event_id
-                            )
-                        )
-                        .mappings()
-                        .one()
-                    )
-                _check_frozen(row, initial, rule)
-                before = _stored_window(row)
-                after, decision = advance_recovery_window(before, sample, rule)
-                if after == before:
-                    return before, decision
-                changed = connection.execute(
-                    update(recovery_progress)
-                    .where(
-                        recovery_progress.c.original_source_event_id
-                        == initial.original_source_event_id,
-                        recovery_progress.c.version == row["version"],
-                    )
-                    .values(
-                        last_sampled_at_utc=(
-                            _utc_text(after.last_sampled_at)
-                            if after.last_sampled_at is not None
-                            else None
-                        ),
-                        last_received_at_utc=(
-                            _utc_text(after.last_received_at)
-                            if after.last_received_at is not None
-                            else None
-                        ),
-                        last_received_observation_id=after.last_received_observation_id,
-                        last_matching_at_utc=(
-                            _utc_text(after.last_matching_at)
-                            if after.last_matching_at is not None
-                            else None
-                        ),
-                        observation_ids=[str(value) for value in after.observation_ids],
-                        eligible=after.eligible,
-                        version=row["version"] + 1,
-                    )
-                ).rowcount
-                if changed == 1:
-                    return after, decision
+                result = _advance_once(connection, initial, rule, sample)
+                if result is not None:
+                    return result
         except IntegrityError:
             # Another worker may have inserted the same original anomaly.
             # Retry only if that row now exists; otherwise surface the error.
