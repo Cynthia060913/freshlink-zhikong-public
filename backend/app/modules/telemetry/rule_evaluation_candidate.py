@@ -155,6 +155,7 @@ def stage_evaluated_high_on_connection_candidate(
     normalized, quality = row["normalized"], row["quality"]
     metrics = normalized.get("metrics") if isinstance(normalized, dict) else None
     temperature = metrics.get("temperature") if isinstance(metrics, dict) else None
+    normalized_temperature = _number(temperature)
     threshold = _number(frozen["evidence"].get("threshold"))
     expected_source = uuid5(
         _SOURCE_NAMESPACE, f"{observation_id}:{batch_id}:temperature_high"
@@ -168,12 +169,12 @@ def stage_evaluated_high_on_connection_candidate(
         or frozen["warehouse_id"] != str(row["warehouse_id"])
         or not isinstance(normalized, dict)
         or frozen["sampled_at"] != normalized.get("sampled_at")
-        or _number(temperature) is None
+        or normalized_temperature is None
         or frozen["value"] != temperature
         or not isinstance(quality, list)
         or frozen["evidence"].get("quality") != quality
         or threshold is None
-        or temperature <= threshold
+        or normalized_temperature <= threshold
     ):
         raise ValueError("frozen high candidate differs from stored observation")
     staged = stage_f03_on_connection_candidate(
@@ -190,7 +191,7 @@ def stage_evaluated_high_on_connection_candidate(
     risk = {
         "state": "candidate",
         "reason": "threshold_exceeded",
-        "temperature_c": temperature,
+        "temperature_c": normalized_temperature,
         "threshold_c": threshold,
         "rule_snapshot_id": frozen["rule_snapshot_id"],
         "rule_version": frozen["rule_version"],
