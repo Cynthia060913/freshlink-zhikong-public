@@ -16,9 +16,11 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutAlertsRouteImport } from './routes/_layout/alerts'
 import { Route as LayoutDevicesRouteImport } from './routes/_layout/devices'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
+import { Route as LayoutTelemetryRouteImport } from './routes/_layout/telemetry'
 
 const LayoutRoute = LayoutRouteImport.update({
   id: '/_layout',
@@ -54,6 +56,11 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutAlertsRoute = LayoutAlertsRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
+  getParentRoute: () => LayoutRoute,
+} as any)
 const LayoutDevicesRoute = LayoutDevicesRouteImport.update({
   id: '/devices',
   path: '/devices',
@@ -69,6 +76,11 @@ const LayoutSettingsRoute = LayoutSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutTelemetryRoute = LayoutTelemetryRouteImport.update({
+  id: '/telemetry',
+  path: '/telemetry',
+  getParentRoute: () => LayoutRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
@@ -77,9 +89,11 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRoute
+  '/alerts': typeof LayoutAlertsRoute
   '/devices': typeof LayoutDevicesRoute
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
+  '/telemetry': typeof LayoutTelemetryRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -87,9 +101,11 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRoute
+  '/alerts': typeof LayoutAlertsRoute
   '/devices': typeof LayoutDevicesRoute
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
+  '/telemetry': typeof LayoutTelemetryRoute
   '/': typeof LayoutIndexRoute
 }
 export interface FileRoutesById {
@@ -100,9 +116,11 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/_layout/admin': typeof LayoutAdminRoute
+  '/_layout/alerts': typeof LayoutAlertsRoute
   '/_layout/devices': typeof LayoutDevicesRoute
   '/_layout/items': typeof LayoutItemsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
+  '/_layout/telemetry': typeof LayoutTelemetryRoute
   '/_layout/': typeof LayoutIndexRoute
 }
 export interface FileRouteTypes {
@@ -114,9 +132,11 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/admin'
+    | '/alerts'
     | '/devices'
     | '/items'
     | '/settings'
+    | '/telemetry'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -124,9 +144,11 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/admin'
+    | '/alerts'
     | '/devices'
     | '/items'
     | '/settings'
+    | '/telemetry'
     | '/'
   id:
     | '__root__'
@@ -136,9 +158,11 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/_layout/admin'
+    | '/_layout/alerts'
     | '/_layout/devices'
     | '/_layout/items'
     | '/_layout/settings'
+    | '/_layout/telemetry'
     | '/_layout/'
   fileRoutesById: FileRoutesById
 }
@@ -201,6 +225,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/alerts': {
+      id: '/_layout/alerts'
+      path: '/alerts'
+      fullPath: '/alerts'
+      preLoaderRoute: typeof LayoutAlertsRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/devices': {
       id: '/_layout/devices'
       path: '/devices'
@@ -222,22 +253,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutSettingsRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/telemetry': {
+      id: '/_layout/telemetry'
+      path: '/telemetry'
+      fullPath: '/telemetry'
+      preLoaderRoute: typeof LayoutTelemetryRouteImport
+      parentRoute: typeof LayoutRoute
+    }
   }
 }
 
 interface LayoutRouteChildren {
   LayoutAdminRoute: typeof LayoutAdminRoute
+  LayoutAlertsRoute: typeof LayoutAlertsRoute
   LayoutDevicesRoute: typeof LayoutDevicesRoute
   LayoutItemsRoute: typeof LayoutItemsRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
+  LayoutTelemetryRoute: typeof LayoutTelemetryRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminRoute: LayoutAdminRoute,
+  LayoutAlertsRoute: LayoutAlertsRoute,
   LayoutDevicesRoute: LayoutDevicesRoute,
   LayoutItemsRoute: LayoutItemsRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
+  LayoutTelemetryRoute: LayoutTelemetryRoute,
   LayoutIndexRoute: LayoutIndexRoute,
 }
 

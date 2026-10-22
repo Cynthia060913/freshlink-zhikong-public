@@ -29,8 +29,15 @@ services:
       COVERAGE_FILE: /results/.coverage
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: /app/backend
+      FRESHLINK_C_TEST_POSTGRES: "1"
+      FRESHLINK_INBOX_TEST_POSTGRES: "1"
+      FRESHLINK_EVENT_TEST_POSTGRES: "1"
+      FRESHLINK_TRANSPORT_TEST_POSTGRES: "1"
+      B01_LIVE_PG_TESTS: "1"
     volumes:
       - ./backend:/app/backend:ro
+      - ./contracts:/app/contracts:ro
+      - ./docs/modules/C:/app/docs/modules/C:ro
       - ${A01_RESULT_DIR:?Use check-a01-acceptance.ps1}:/results
     depends_on:
       test-db:
@@ -40,6 +47,7 @@ services:
       - >-
         set -e;
         alembic upgrade head;
+        alembic check;
         python app/initial_data.py;
         coverage run -m pytest -p no:cacheprovider tests/ --junitxml=/results/pytest.xml;
         coverage report --fail-under=90;

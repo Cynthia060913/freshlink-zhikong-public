@@ -1,0 +1,1136 @@
+"""PR #10 boundary regressions (four defects A reproduced on the
+migrated ``58546e9`` snapshot, recorded in the new repo #8 body).
+
+Each class pins one defect to a failing-then-green behaviour:
+
+1. **ISO-8601 JSON time rejected** — the ``mode="before"`` validator
+   only accepted ``datetime`` objects, so HTTP JSON string timestamps
+   (``"...Z"`` / ``"+08:00"``) were rejected with 422 before pydantic
+   could parse them. F03-RC2 requires BOTH ISO strings and internal
+   datetimes to work; naive values are never guessed.
+2. **F03 traceability fields silently dropped, digest unchanged** —
+   ``CandidateCreate`` ignored ``observation_ids`` / ``rule_*`` /
+   ``evidence`` inputs, so replaying the same ``source_event_id``
+   with different traceability answered ``accepted_duplicate``
+   instead of ``conflict``. F03-RC2: the canonical digest must cover
+   the traceability fields and the stored body must return them.
+3. **Read-phase OperationalError escapes** — only the INSERT phase
+   mapped storage failures to ``retryable_failure``; the batch /
+   warehouse pre-read, the idempotency lookup and the post-integrity
+   re-read all leaked ``OperationalError`` as raw 500s. F03-RC2:
+   前置读取、幂等查找、写提交、并发冲突后读取和提交后读取均要
+   考虑数据库故障。
+4. **S1→S2→S3 third open version misclassified as overlap** — the
+   write-side overlap check used stored intervals, so a superseded
+   open-ended S1 (whose read-side window already closed at S2's
+   start) blocked the S3 replacement. F02: the write check must use
+   the same successor-derived half-open windows the reader uses.
+
+Round-2 review (A 2026-10-15, review 5531187957) added two more:
+
+5. **Real-HTTP 503 without ``Retry-After``** — the by-source and
+   notification-attempts handlers set the header on an injected
+   ``Response`` and then raised ``HTTPException``; FastAPI builds the
+   error response from the exception, so the header never reached
+   the wire. The header must ride on the ``HTTPException`` itself.
+6. **Post-commit refresh failure leaked unclassified exceptions** —
+   ``_insert_event`` swallowed the refresh ``OperationalError`` and
+   the caller then read the expired ORM object (A reproduced a
+   ``PendingRollbackError`` escape). The committed row survives, so
+   the receipt must be ``retryable_failure`` (rollback, no reads of
+   expired fields); a replay of the same id/body then classifies as
+   ``accepted_duplicate`` without duplicating the row.
+"""
+
+from __future__ import annotations
+
+import unittest
+import uuid
+from collections.abc import Generator
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from unittest import mock
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine, func, select
+
+from app.api import deps as api_deps
+from app.modules.alerts.models import (
+    AlertEvent,
+    BatchCreate,
+    BatchRuleSnapshotCreate,
+    CandidateCreate,
+    CandidateKind,
+    DeviceEventCreate,
+    DeviceEventKind,
+    RuleDict,
+    RuleSeverity,
+    WarehouseCreate,
+    compute_content_digest,
+)
+from app.modules.alerts.routes import router as alerts_router
+from app.modules.alerts.services.batches import create_batch
+from app.modules.alerts.services.events import (
+    get_event_by_source,
+    receive_candidate,
+    receive_device_event,
+)
+from app.modules.alerts.services.rules import (
+    SnapshotOverlapConflict,
+    create_snapshot,
+    select_rules_for_observation,
+)
+from app.modules.alerts.services.warehouses import create_warehouse
+from tests.modules.alerts.test_alerts_routes import (
+    _ENGINE,
+    _client,
+    _IsolatedCase,
+    _override_current_user,
+)
+
+T0 = datetime(2026, 10, 13, 8, 0, 0, tzinfo=UTC)
+T1 = T0 + timedelta(days=1)
+T2 = T0 + timedelta(days=2)
+
+_OBS_A = "00000000-0000-4000-8000-000000000004"
+_OBS_B = "00000000-0000-4000-8000-000000000005"
+
+
+def _rc2(**over: Any) -> CandidateCreate:
+    """The F03-RC2 example shape (contracts/examples/candidate-f03-rc2.json),
+    built directly from literals so these tests do not depend on the
+    shared fixtures evolving."""
+
+    base: dict[str, Any] = {
+        "schema_version": "1.0",
+        "source_event_id": "77777777-7777-4777-8777-777777777777",
+        "warehouse_id": uuid.UUID("22222222-2222-4222-8222-222222222222"),
+        "batch_id": uuid.UUID("55555555-5555-4555-8555-555555555555"),
+        "observation_ids": [_OBS_A],
+        "metric_code": "temperature",
+        "sampled_at": "2026-10-14T00:01:00Z",
+        "value": 11.0,
+        "unit": "°C",
+        "kind": CandidateKind.TEMPERATURE_HIGH,
+        "severity": "warning",
+        "rule_snapshot_id": uuid.UUID("88888888-8888-4888-8888-888888888888"),
+        "rule_version": "v1",
+        "algorithm_version": "threshold-rule/0.2.0-rc2",
+        "evidence": {"comparison": ">", "threshold": 8.0, "quality": ["ok"]},
+    }
+    base.update(over)
+    return CandidateCreate(**base)
+
+
+def _engine() -> Any:
+    eng = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(eng)
+    return eng
+
+
+class _World(unittest.TestCase):
+    """One warehouse + one batch on a fresh engine."""
+
+    wid: uuid.UUID
+    bid: uuid.UUID
+
+    def setUp(self) -> None:
+        self.eng = _engine()
+        with Session(self.eng) as session:
+            self.wid = create_warehouse(
+                session, WarehouseCreate(code="WH", name="W")
+            ).id
+            self.bid = create_batch(
+                session, self.wid, BatchCreate(code="B1", product="x")
+            ).id
+
+    def _world_candidate(self, **over: Any) -> CandidateCreate:
+        over.setdefault("warehouse_id", self.wid)
+        over.setdefault("batch_id", self.bid)
+        return _rc2(**over)
+
+
+# ---------------------------------------------------------------------------
+# Defect 1 — ISO-8601 JSON timestamps
+# ---------------------------------------------------------------------------
+
+
+class IsoJsonTimestampCase(unittest.TestCase):
+    def test_z_suffix_string_parsed_to_utc(self) -> None:
+        payload = _rc2()
+        self.assertEqual(payload.sampled_at, datetime(2026, 10, 14, 0, 1, tzinfo=UTC))
+
+    def test_offset_string_normalized_to_utc(self) -> None:
+        payload = _rc2(sampled_at="2026-10-14T08:01:00+08:00")
+        self.assertEqual(payload.sampled_at, datetime(2026, 10, 14, 0, 1, tzinfo=UTC))
+
+    def test_naive_string_rejected_not_guessed(self) -> None:
+        with self.assertRaises(ValueError):
+            _rc2(sampled_at="2026-10-14T00:01:00")
+
+    def test_garbage_string_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            _rc2(sampled_at="not-a-timestamp")
+
+    def test_internal_datetime_still_accepted(self) -> None:
+        payload = _rc2(sampled_at=datetime(2026, 10, 14, 0, 1, tzinfo=UTC))
+        self.assertEqual(payload.sampled_at, datetime(2026, 10, 14, 0, 1, tzinfo=UTC))
+
+    def test_device_event_iso_string_accepted(self) -> None:
+        payload = DeviceEventCreate(
+            source_event_id="dev-evt-1",
+            kind=DeviceEventKind.OFFLINE,
+            warehouse_id=uuid.uuid4(),
+            device_id="device-01",
+            sampled_at="2026-10-13T08:00:00Z",
+        )
+        self.assertEqual(payload.sampled_at, T0)
+
+    def test_device_event_naive_string_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            DeviceEventCreate(
+                source_event_id="dev-evt-2",
+                kind=DeviceEventKind.OFFLINE,
+                warehouse_id=uuid.uuid4(),
+                device_id="device-01",
+                sampled_at="2026-10-13T08:00:00",
+            )
+
+
+class HttpIsoJsonCandidateCase(_IsolatedCase):
+    """POST /candidates with the RC2 JSON body — ISO strings must reach
+    the service through the real FastAPI parsing path."""
+
+    def _ids(self, client: Any) -> dict[str, str]:
+        wid = client.post("/warehouses/", json={"code": "WH", "name": "W"}).json()["id"]
+        bid = client.post(
+            f"/warehouses/{wid}/batches", json={"code": "B-001", "product": "x"}
+        ).json()["id"]
+        return {"wid": wid, "bid": bid}
+
+    def _body(self, ids: dict[str, str], **over: Any) -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "schema_version": "1.0",
+            "source_event_id": "77777777-7777-4777-8777-777777777777",
+            "warehouse_id": ids["wid"],
+            "batch_id": ids["bid"],
+            "observation_ids": [_OBS_A],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-14T00:01:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "warning",
+            "rule_snapshot_id": "88888888-8888-4888-8888-888888888888",
+            "rule_version": "v1",
+            "algorithm_version": "threshold-rule/0.2.0-rc2",
+            "evidence": {"comparison": ">", "threshold": 8.0, "quality": ["ok"]},
+        }
+        base.update(over)
+        return base
+
+    def test_iso_json_candidate_accepted(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        r = client.post("/candidates", json=self._body(ids))
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["status"], "accepted_new")
+
+    def test_naive_iso_json_rejected_422(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        r = client.post(
+            "/candidates", json=self._body(ids, sampled_at="2026-10-14T00:01:00")
+        )
+        self.assertEqual(r.status_code, 422)
+
+    def test_conflicting_traceability_replay_is_409(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        first = client.post("/candidates", json=self._body(ids))
+        self.assertEqual(first.status_code, 201, first.text)
+        replay = client.post(
+            "/candidates", json=self._body(ids, observation_ids=[_OBS_B])
+        )
+        self.assertEqual(replay.status_code, 409, replay.text)
+        self.assertEqual(replay.json()["status"], "conflict")
+
+    def test_same_content_replay_still_duplicate(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        first = client.post("/candidates", json=self._body(ids))
+        replay = client.post("/candidates", json=self._body(ids))
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertEqual(replay.json()["status"], "accepted_duplicate")
+        self.assertEqual(replay.json()["event_id"], first.json()["event_id"])
+
+    def test_by_source_returns_full_traceability(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        client.post("/candidates", json=self._body(ids))
+        r = client.get("/candidates/by-source/77777777-7777-4777-8777-777777777777")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["observation_ids"], [_OBS_A])
+        self.assertEqual(body["severity"], "warning")
+        self.assertEqual(
+            body["rule_snapshot_id"], "88888888-8888-4888-8888-888888888888"
+        )
+        self.assertEqual(body["rule_version"], "v1")
+        self.assertEqual(body["algorithm_version"], "threshold-rule/0.2.0-rc2")
+        self.assertEqual(body["evidence"]["threshold"], 8.0)
+
+    def test_batch_from_other_warehouse_is_invalid(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        other_wid = uuid.uuid4()
+        r = client.post(
+            "/candidates", json=self._body(ids, warehouse_id=str(other_wid))
+        )
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertEqual(r.json()["status"], "invalid")
+        self.assertEqual(r.json()["reason_code"], "batch_warehouse_mismatch")
+
+
+# ---------------------------------------------------------------------------
+# Defect 2 — traceability fields in the digest and the stored body
+# ---------------------------------------------------------------------------
+
+
+class TraceabilityDigestCase(unittest.TestCase):
+    def test_rc2_example_constructs(self) -> None:
+        payload = _rc2()
+        self.assertEqual(payload.severity, "warning")
+        self.assertEqual(payload.observation_ids, [_OBS_A])
+        self.assertEqual(
+            payload.evidence, {"comparison": ">", "threshold": 8.0, "quality": ["ok"]}
+        )
+
+    def test_digest_covers_observation_ids(self) -> None:
+        self.assertNotEqual(
+            compute_content_digest(_rc2()),
+            compute_content_digest(_rc2(observation_ids=[_OBS_B])),
+        )
+
+    def test_digest_covers_evidence(self) -> None:
+        changed = _rc2(
+            evidence={"comparison": ">", "threshold": 9.5, "quality": ["ok"]}
+        )
+        self.assertNotEqual(
+            compute_content_digest(_rc2()), compute_content_digest(changed)
+        )
+
+    def test_digest_covers_rule_snapshot_id(self) -> None:
+        self.assertNotEqual(
+            compute_content_digest(_rc2()),
+            compute_content_digest(
+                _rc2(rule_snapshot_id=uuid.UUID("99999999-9999-4999-8999-999999999999"))
+            ),
+        )
+
+    def test_observation_ids_upper_bound_enforced(self) -> None:
+        with self.assertRaises(ValueError):
+            _rc2(observation_ids=[f"obs-{i:03d}" for i in range(65)])
+
+    def test_observation_ids_at_bound_accepted(self) -> None:
+        payload = _rc2(observation_ids=[f"obs-{i:03d}" for i in range(64)])
+        self.assertEqual(len(payload.observation_ids), 64)
+
+    def test_unknown_schema_version_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            _rc2(schema_version="2.0")
+
+    def test_oversized_payload_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            _rc2(evidence={"blob": "x" * 40_000})
+
+
+class TraceabilityPersistenceCase(_World):
+    def test_replay_with_new_evidence_conflicts(self) -> None:
+        with Session(self.eng) as session:
+            first = receive_candidate(session, self._world_candidate())
+            replay = receive_candidate(
+                session, self._world_candidate(observation_ids=[_OBS_B])
+            )
+        self.assertEqual(first.status, "accepted_new")
+        self.assertEqual(replay.status, "conflict")
+        self.assertEqual(replay.reason_code, "content_digest_mismatch")
+
+    def test_by_source_exposes_full_body(self) -> None:
+        with Session(self.eng) as session:
+            receive_candidate(session, self._world_candidate())
+            stored = get_event_by_source(
+                session, "77777777-7777-4777-8777-777777777777"
+            )
+        self.assertEqual(stored.severity, "warning")
+        self.assertEqual(stored.warehouse_id, self.wid)
+        self.assertEqual(stored.rule_version, "v1")
+        self.assertEqual(stored.algorithm_version, "threshold-rule/0.2.0-rc2")
+        self.assertIn(_OBS_A, stored.observation_ids_json)
+        self.assertIn("threshold", stored.evidence_json or "")
+
+
+# ---------------------------------------------------------------------------
+# Defect 3 — read-phase storage failures stay in the receipt envelope
+# ---------------------------------------------------------------------------
+
+
+def _broken() -> OperationalError:
+    return OperationalError("SELECT", {}, RuntimeError("db busy"))
+
+
+class ReadPhaseFailureCase(_World):
+    def test_batch_lookup_failure_is_retryable(self) -> None:
+        with Session(self.eng) as session:
+            with (
+                mock.patch.object(session, "get", side_effect=_broken()),
+                mock.patch.object(session, "rollback"),
+            ):
+                receipt = receive_candidate(session, self._world_candidate())
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+        self.assertTrue(receipt.retryable)
+        self.assertEqual(receipt.retry_after_s, 30.0)
+
+    def test_idempotency_lookup_failure_is_retryable(self) -> None:
+        with Session(self.eng) as session:
+            with (
+                mock.patch.object(session, "exec", side_effect=_broken()),
+                mock.patch.object(session, "rollback"),
+            ):
+                receipt = receive_candidate(session, self._world_candidate())
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+
+    def test_post_integrity_fallback_read_failure_is_retryable(self) -> None:
+        with Session(self.eng) as session:
+            with (
+                mock.patch.object(
+                    session,
+                    "commit",
+                    side_effect=IntegrityError("INSERT", {}, RuntimeError("dup")),
+                ),
+                mock.patch.object(session, "rollback"),
+                mock.patch.object(session, "exec", side_effect=_broken()),
+            ):
+                receipt = receive_candidate(session, self._world_candidate())
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+
+    def test_device_event_warehouse_lookup_failure_is_retryable(self) -> None:
+        payload = DeviceEventCreate(
+            source_event_id="dev-evt-1",
+            kind=DeviceEventKind.OFFLINE,
+            warehouse_id=self.wid,
+            device_id="device-01",
+            sampled_at=T0,
+        )
+        with Session(self.eng) as session:
+            with (
+                mock.patch.object(session, "get", side_effect=_broken()),
+                mock.patch.object(session, "rollback"),
+            ):
+                receipt = receive_device_event(session, payload)
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+
+    def test_non_key_integrity_violation_is_retryable(self) -> None:
+        """A unique violation on a non-key constraint stored nothing
+        and fixed no caller input — classified retriable, not
+        duplicate/conflict."""
+        with Session(self.eng) as session:
+            with (
+                mock.patch.object(
+                    session,
+                    "commit",
+                    side_effect=IntegrityError("INSERT", {}, RuntimeError("dup")),
+                ),
+                mock.patch.object(session, "rollback"),
+                mock.patch(
+                    "app.modules.alerts.services.events._get_by_source",
+                    return_value=None,
+                ),
+            ):
+                receipt = receive_candidate(session, self._world_candidate())
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+
+    def test_device_event_idempotency_lookup_failure_is_retryable(self) -> None:
+        payload = DeviceEventCreate(
+            source_event_id="dev-evt-2",
+            kind=DeviceEventKind.OFFLINE,
+            warehouse_id=self.wid,
+            device_id="device-01",
+            sampled_at=T0,
+        )
+        with Session(self.eng) as session:
+            with (
+                mock.patch.object(session, "exec", side_effect=_broken()),
+                mock.patch.object(session, "rollback"),
+            ):
+                receipt = receive_device_event(session, payload)
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+
+    def test_device_event_post_integrity_fallback_read_failure_is_retryable(
+        self,
+    ) -> None:
+        payload = DeviceEventCreate(
+            source_event_id="dev-evt-3",
+            kind=DeviceEventKind.OFFLINE,
+            warehouse_id=self.wid,
+            device_id="device-01",
+            sampled_at=T0,
+        )
+        with Session(self.eng) as session:
+            with (
+                mock.patch.object(
+                    session,
+                    "commit",
+                    side_effect=IntegrityError("INSERT", {}, RuntimeError("dup")),
+                ),
+                mock.patch.object(session, "rollback"),
+                mock.patch.object(session, "exec", side_effect=_broken()),
+            ):
+                receipt = receive_device_event(session, payload)
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+
+    def test_candidate_post_commit_refresh_failure_is_retryable(self) -> None:
+        """Defect 6 (service level): the commit landed, the refresh
+        died — receipt stays retryable and the row survives."""
+        with Session(self.eng) as real:
+            proxy = _RefreshFailsProxy(real)
+            receipt = receive_candidate(proxy, self._world_candidate())
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+        with Session(self.eng) as session:
+            row = get_event_by_source(session, self._world_candidate().source_event_id)
+            self.assertIsNotNone(row)
+
+    def test_device_event_post_commit_refresh_failure_is_retryable(self) -> None:
+        payload = DeviceEventCreate(
+            source_event_id="dev-refresh-1",
+            kind=DeviceEventKind.OFFLINE,
+            warehouse_id=self.wid,
+            device_id="device-01",
+            sampled_at=T0,
+        )
+        with Session(self.eng) as real:
+            proxy = _RefreshFailsProxy(real)
+            receipt = receive_device_event(proxy, payload)
+        self.assertEqual(receipt.status, "retryable_failure")
+        self.assertEqual(receipt.reason_code, "storage_unavailable")
+        with Session(self.eng) as session:
+            row = get_event_by_source(session, "dev-refresh-1")
+            self.assertIsNotNone(row)
+
+    def test_refresh_failure_replay_is_duplicate_not_duplicated_row(self) -> None:
+        payload = self._world_candidate()
+        with Session(self.eng) as real:
+            proxy = _RefreshFailsProxy(real)
+            receipt = receive_candidate(proxy, payload)
+        self.assertEqual(receipt.status, "retryable_failure")
+        with Session(self.eng) as session:
+            receipt2 = receive_candidate(session, payload)
+            count = session.exec(select(func.count()).select_from(AlertEvent)).one()
+        self.assertEqual(receipt2.status, "accepted_duplicate")
+        self.assertEqual(count, 1)
+
+
+class _RefreshFailsProxy:
+    """Wrap a real Session whose commit works but whose post-commit
+    refresh fails — A's reproduction of a connection invalidated after
+    the row is already committed. Everything else delegates, so the
+    pre-reads see committed state."""
+
+    def __init__(self, real: Session) -> None:
+        self._real = real
+
+    def get(self, *args: Any, **kw: Any) -> Any:
+        return self._real.get(*args, **kw)
+
+    def exec(self, *args: Any, **kw: Any) -> Any:
+        return self._real.exec(*args, **kw)
+
+    def add(self, *args: Any, **kw: Any) -> None:
+        self._real.add(*args, **kw)
+
+    def commit(self) -> None:
+        self._real.commit()
+
+    def rollback(self) -> None:
+        self._real.rollback()
+
+    def refresh(self, *_args: Any, **_kw: Any) -> None:
+        raise OperationalError("REFRESH", {}, RuntimeError("conn gone"))
+
+    def close(self) -> None:
+        self._real.close()
+
+
+class _ExecFailsProxy:
+    """Wrap a real Session whose reads always raise OperationalError
+    (session.get delegates so the EventNotFound branch is NOT taken
+    — the failure must surface through exec, as in production)."""
+
+    def __init__(self, real: Session) -> None:
+        self._real = real
+
+    def get(self, *args: Any, **kw: Any) -> Any:
+        return self._real.get(*args, **kw)
+
+    def exec(self, *_args: Any, **_kw: Any) -> Any:
+        raise _broken()
+
+    def rollback(self) -> None:
+        self._real.rollback()
+
+    def close(self) -> None:
+        self._real.close()
+
+
+class _BrokenExecSession:
+    """Session stub where every exec raises — for routes whose whole
+    read path is one lookup (by-source), no real engine needed."""
+
+    def exec(self, *_args: Any, **_kw: Any) -> Any:
+        raise _broken()
+
+    def rollback(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def _client_with_db(session_factory: Any) -> TestClient:
+    """TestClient whose get_db builds the session from ``session_factory``
+    — used to route requests through the storage-failure proxies. The
+    session is closed in dependency teardown, mirroring ``_override_db``.
+    Auth stays bypassed exactly like ``_client``."""
+
+    def _override() -> Generator[Any]:
+        session = session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app = FastAPI()
+    app.include_router(alerts_router)
+    app.dependency_overrides[api_deps.get_db] = _override
+    app.dependency_overrides[api_deps.get_current_user] = _override_current_user
+    app.dependency_overrides[api_deps.get_current_active_superuser] = (
+        _override_current_user
+    )
+    return TestClient(app)
+
+
+# ---------------------------------------------------------------------------
+# Defects 5+6 (round-2 review) — real-HTTP Retry-After and post-commit
+# refresh failures
+# ---------------------------------------------------------------------------
+
+
+class Round2HttpFailureCase(_IsolatedCase):
+    """Round-2 review: assert on real TestClient responses — status,
+    wire headers and body — not on locally built Response objects."""
+
+    def _ids(self, client: Any) -> dict[str, str]:
+        wid = client.post("/warehouses/", json={"code": "WH", "name": "W"}).json()["id"]
+        bid = client.post(
+            f"/warehouses/{wid}/batches", json={"code": "B-001", "product": "x"}
+        ).json()["id"]
+        return {"wid": wid, "bid": bid}
+
+    def _body(self, ids: dict[str, str], **over: Any) -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "schema_version": "1.0",
+            "source_event_id": "77777777-7777-4777-8777-777777777777",
+            "warehouse_id": ids["wid"],
+            "batch_id": ids["bid"],
+            "observation_ids": [_OBS_A],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-14T00:01:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "warning",
+            "rule_snapshot_id": "88888888-8888-4888-8888-888888888888",
+            "rule_version": "v1",
+            "algorithm_version": "threshold-rule/0.2.0-rc2",
+            "evidence": {"comparison": ">", "threshold": 8.0, "quality": ["ok"]},
+        }
+        base.update(over)
+        return base
+
+    def test_by_source_storage_failure_503_carries_retry_after(self) -> None:
+        broken = _client_with_db(lambda: _BrokenExecSession())
+        r = broken.get("/candidates/by-source/evt-missing-or-not")
+        self.assertEqual(r.status_code, 503, r.text)
+        self.assertEqual(r.headers.get("retry-after"), "30")
+        self.assertIn("retryable_failure", r.json()["detail"])
+
+    def test_attempts_storage_failure_503_carries_retry_after(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        created = client.post("/candidates", json=self._body(ids))
+        self.assertEqual(created.status_code, 201, created.text)
+        event_id = created.json()["event_id"]
+
+        def _proxy() -> _ExecFailsProxy:
+            return _ExecFailsProxy(Session(_ENGINE))
+
+        broken = _client_with_db(_proxy)
+        r = broken.get(f"/alert-events/{event_id}/notification-attempts")
+        self.assertEqual(r.status_code, 503, r.text)
+        self.assertEqual(r.headers.get("retry-after"), "30")
+        self.assertIn("retryable_failure", r.json()["detail"])
+
+    def test_candidate_post_commit_refresh_failure_503_and_replay(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        body = self._body(ids)
+
+        def _proxy() -> _RefreshFailsProxy:
+            return _RefreshFailsProxy(Session(_ENGINE))
+
+        broken = _client_with_db(_proxy)
+        r = broken.post("/candidates", json=body)
+        self.assertEqual(r.status_code, 503, r.text)
+        self.assertEqual(r.headers.get("retry-after"), "30")
+        self.assertEqual(r.json()["status"], "retryable_failure")
+        self.assertEqual(r.json()["reason_code"], "storage_unavailable")
+
+        # The committed row survives the failed refresh + rollback.
+        with Session(_ENGINE) as session:
+            row = get_event_by_source(session, body["source_event_id"])
+            self.assertIsNotNone(row)
+
+        # Same id/body replay classifies duplicate — no second row.
+        replay = client.post("/candidates", json=body)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertEqual(replay.json()["status"], "accepted_duplicate")
+        self.assertIsNotNone(replay.json()["stored_event_id"])
+        with Session(_ENGINE) as session:
+            count = session.exec(select(func.count()).select_from(AlertEvent)).one()
+        self.assertEqual(count, 1)
+
+    def test_device_event_post_commit_refresh_failure_503_and_replay(self) -> None:
+        client = _client()
+        ids = self._ids(client)
+        body = {
+            "source_event_id": "dev-refresh-http-1",
+            "kind": "offline",
+            "warehouse_id": ids["wid"],
+            "device_id": "device-01",
+            "sampled_at": "2026-10-14T00:01:00Z",
+        }
+
+        def _proxy() -> _RefreshFailsProxy:
+            return _RefreshFailsProxy(Session(_ENGINE))
+
+        broken = _client_with_db(_proxy)
+        r = broken.post("/device-events", json=body)
+        self.assertEqual(r.status_code, 503, r.text)
+        self.assertEqual(r.headers.get("retry-after"), "30")
+        self.assertEqual(r.json()["status"], "retryable_failure")
+
+        with Session(_ENGINE) as session:
+            row = get_event_by_source(session, body["source_event_id"])
+            self.assertIsNotNone(row)
+
+        replay = client.post("/device-events", json=body)
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertEqual(replay.json()["status"], "accepted_duplicate")
+        with Session(_ENGINE) as session:
+            count = session.exec(select(func.count()).select_from(AlertEvent)).one()
+        self.assertEqual(count, 1)
+
+
+# ---------------------------------------------------------------------------
+# Defect 4 — S1 → S2 → S3 open-ended chain replacement
+# ---------------------------------------------------------------------------
+
+
+def _snapshot(
+    start: datetime,
+    supersedes: tuple[uuid.UUID, ...] = (),
+    *,
+    end: datetime | None = None,
+) -> BatchRuleSnapshotCreate:
+    return BatchRuleSnapshotCreate(
+        version_id=uuid.uuid4(),
+        rules=[
+            RuleDict(
+                metric_code="temperature_high",
+                candidate_kind="threshold_high",
+                severity=RuleSeverity.WARNING,
+                threshold_low=None,
+                threshold_high=8.0,
+            )
+        ],
+        effective_start_at=start,
+        effective_end_at=end,
+        supersedes_snapshot_ids=list(supersedes),
+    )
+
+
+class ChainReplacementCase(_World):
+    def test_third_open_version_replacement_accepted(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            s2 = create_snapshot(session, self.bid, _snapshot(T1, (s1.id,)))
+            s3 = create_snapshot(session, self.bid, _snapshot(T2, (s2.id,)))
+            ids = [s1.id, s2.id, s3.id]
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(hours=1),
+            )
+        self.assertEqual(len(set(ids)), 3)
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual([e.snapshot_id for e in selection.rules], [ids[2]])
+
+    def test_chain_selection_returns_each_version_in_its_window(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            s2 = create_snapshot(session, self.bid, _snapshot(T1, (s1.id,)))
+            s3 = create_snapshot(session, self.bid, _snapshot(T2, (s2.id,)))
+            picks = []
+            for probe in (
+                T0 + timedelta(hours=1),
+                T1 + timedelta(hours=1),
+                T2 + timedelta(hours=1),
+            ):
+                selection = select_rules_for_observation(
+                    session,
+                    warehouse_id=self.wid,
+                    batch_ids=[self.bid],
+                    metric_code="temperature_high",
+                    sampled_at=probe,
+                )
+                picks.append([e.snapshot_id for e in selection.rules])
+        self.assertEqual(picks[0], [s1.id])
+        self.assertEqual(picks[1], [s2.id])
+        self.assertEqual(picks[2], [s3.id])
+
+    def test_out_of_order_replacement_still_conflicts(self) -> None:
+        """An earlier-starting successor leaves S1's derived window
+        still covering the new start — a genuine overlap that must
+        stay rejected (guards against over-exempting)."""
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            s2 = create_snapshot(session, self.bid, _snapshot(T2, (s1.id,)))
+            with self.assertRaises(SnapshotOverlapConflict):
+                create_snapshot(session, self.bid, _snapshot(T1, (s2.id,)))
+
+    def test_unsuperseded_open_overlap_still_rejected(self) -> None:
+        with Session(self.eng) as session:
+            create_snapshot(session, self.bid, _snapshot(T0))
+            with self.assertRaises(SnapshotOverlapConflict):
+                create_snapshot(session, self.bid, _snapshot(T1))
+
+
+# ---------------------------------------------------------------------------
+# Round-3 item 1 — a transient storage failure inside rule selection must
+# PROPAGATE (SQLAlchemyError) so C retries; only BatchNotFound is the
+# permanent invalid/unknown_batch answer (PR #10 review 5535120012).
+# ---------------------------------------------------------------------------
+
+
+class SelectionReadFailureCase(_World):
+    def test_batch_lookup_operational_error_propagates(self) -> None:
+        with Session(self.eng) as session:
+            with mock.patch(
+                "app.modules.alerts.services.rules.get_batch", side_effect=_broken()
+            ):
+                with self.assertRaises(OperationalError):
+                    select_rules_for_observation(
+                        session,
+                        warehouse_id=self.wid,
+                        batch_ids=[self.bid],
+                        metric_code="temperature_high",
+                        sampled_at=T0,
+                    )
+
+    def test_snapshot_query_operational_error_propagates(self) -> None:
+        with Session(self.eng) as session:
+            with mock.patch.object(session, "exec", side_effect=_broken()):
+                with self.assertRaises(OperationalError):
+                    select_rules_for_observation(
+                        session,
+                        warehouse_id=self.wid,
+                        batch_ids=[self.bid],
+                        metric_code="temperature_high",
+                        sampled_at=T0,
+                    )
+
+    def test_unknown_batch_still_invalid(self) -> None:
+        with Session(self.eng) as session:
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[uuid.uuid4()],
+                metric_code="temperature_high",
+                sampled_at=T0,
+            )
+        self.assertEqual(selection.status, "invalid")
+        self.assertEqual(selection.reason_code, "unknown_batch")
+
+    def test_foreign_batch_still_invalid(self) -> None:
+        with Session(self.eng) as session:
+            other_wid = create_warehouse(
+                session, WarehouseCreate(code="WH2", name="W2")
+            ).id
+            other_bid = create_batch(
+                session, other_wid, BatchCreate(code="B2", product="x")
+            ).id
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[other_bid],
+                metric_code="temperature_high",
+                sampled_at=T0,
+            )
+        self.assertEqual(selection.status, "invalid")
+        self.assertEqual(selection.reason_code, "unknown_batch")
+
+
+# ---------------------------------------------------------------------------
+# Round-3 item 2 — supersedes closure is PERMANENT: a bounded successor's
+# expiry must not revive its closed predecessor. A's proof case: S1 open
+# from T0, S2 [T1, T2) supersedes S1 — an observation after T2 must be
+# no_rule, never S1 again (PR #10 review 5535120012).
+# ---------------------------------------------------------------------------
+
+
+class PermanentSupersedesClosureCase(_World):
+    def test_expired_bounded_successor_does_not_revive_predecessor(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "no_rule")
+        self.assertEqual(selection.rules, [])
+
+    def test_predecessor_covers_before_bounded_successor_starts(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T0 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual([e.snapshot_id for e in selection.rules], [s1.id])
+
+    def test_bounded_successor_covers_inside_its_own_window(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            s2 = create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T1 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual([e.snapshot_id for e in selection.rules], [s2.id])
+
+    def test_new_snapshot_after_closure_is_accepted_and_selected(self) -> None:
+        """Read/write consistency: once S1's window closed at S2's start,
+        a later snapshot starting after S2's expiry is a legal insert
+        (no overlap) and is the rule the reader returns."""
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            s3 = create_snapshot(session, self.bid, _snapshot(T2 + timedelta(days=1)))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(days=1, hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual([e.snapshot_id for e in selection.rules], [s3.id])
+
+    def test_bounded_middle_of_three_version_chain(self) -> None:
+        """S1 open → S2 [T1,T2) supersedes S1 → S3 open at T2 supersedes
+        S2: after T2 the reader returns S3, and S1 never revives."""
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            s3 = create_snapshot(session, self.bid, _snapshot(T2, ()))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual([e.snapshot_id for e in selection.rules], [s3.id])
+
+    def test_gap_after_bounded_expiry_is_no_rule(self) -> None:
+        with Session(self.eng) as session:
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(minutes=1),
+            )
+        self.assertEqual(selection.status, "no_rule")
+
+    def test_closure_is_per_batch_independent(self) -> None:
+        """A permanently closed S1 in batch A must not affect batch B's
+        own open rule at the same sampled_at."""
+        with Session(self.eng) as session:
+            other_bid = create_batch(
+                session, self.wid, BatchCreate(code="B2", product="x")
+            ).id
+            s1 = create_snapshot(session, self.bid, _snapshot(T0))
+            create_snapshot(session, self.bid, _snapshot(T1, (s1.id,), end=T2))
+            s_b = create_snapshot(session, other_bid, _snapshot(T0))
+            selection = select_rules_for_observation(
+                session,
+                warehouse_id=self.wid,
+                batch_ids=[self.bid, other_bid],
+                metric_code="temperature_high",
+                sampled_at=T2 + timedelta(hours=1),
+            )
+        self.assertEqual(selection.status, "configured")
+        self.assertEqual(
+            sorted((e.batch_id, e.snapshot_id) for e in selection.rules),
+            [(other_bid, s_b.id)],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Round-3 item 3 — severity is a closed set: info / warning / critical
+# (PR #10 review 5535120012). Anything else is an explicit 422 invalid,
+# never silently stored free text.
+# ---------------------------------------------------------------------------
+
+
+class SeverityClosedSetCase(_World):
+    def test_all_three_levels_accepted_and_round_trip(self) -> None:
+        with Session(self.eng) as session:
+            for level in ("info", "warning", "critical"):
+                payload = self._world_candidate(
+                    source_event_id=f"sev-{level}", severity=level
+                )
+                receipt = receive_candidate(session, payload)
+                self.assertEqual(receipt.status, "accepted_new")
+                row = get_event_by_source(session, f"sev-{level}")
+                assert row is not None
+                self.assertEqual(row.severity, level)
+
+    def test_unknown_text_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._world_candidate(severity="high")
+
+    def test_empty_and_whitespace_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._world_candidate(severity="")
+        with self.assertRaises(ValueError):
+            self._world_candidate(severity="   ")
+
+    def test_non_text_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._world_candidate(severity=5)
+
+    def test_case_folded_to_lowercase(self) -> None:
+        payload = self._world_candidate(severity="WARNING")
+        self.assertEqual(payload.severity, "warning")
+
+    def test_case_folded_replay_is_duplicate(self) -> None:
+        """Normalization is part of the canonical payload: "WARNING"
+        and "warning" carry the same digest, so the replay is a
+        duplicate, not a conflict."""
+        with Session(self.eng) as session:
+            first = receive_candidate(
+                session,
+                self._world_candidate(source_event_id="sev-case", severity="WARNING"),
+            )
+            replay = receive_candidate(
+                session,
+                self._world_candidate(source_event_id="sev-case", severity="warning"),
+            )
+        self.assertEqual(first.status, "accepted_new")
+        self.assertEqual(replay.status, "accepted_duplicate")
+
+
+class SeverityHttpCase(_IsolatedCase):
+    def test_unknown_severity_rejected_422(self) -> None:
+        client = _client()
+        wid = client.post("/warehouses/", json={"code": "WH", "name": "W"}).json()["id"]
+        bid = client.post(
+            f"/warehouses/{wid}/batches", json={"code": "B-001", "product": "x"}
+        ).json()["id"]
+        body = {
+            "source_event_id": "sev-http-1",
+            "warehouse_id": wid,
+            "batch_id": bid,
+            "observation_ids": [_OBS_A],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-14T00:01:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "urgent",
+            "rule_version": "v1",
+        }
+        r = client.post("/candidates", json=body)
+        self.assertEqual(r.status_code, 422)
+
+    def test_valid_severity_accepted_201(self) -> None:
+        client = _client()
+        wid = client.post("/warehouses/", json={"code": "WH", "name": "W"}).json()["id"]
+        bid = client.post(
+            f"/warehouses/{wid}/batches", json={"code": "B-001", "product": "x"}
+        ).json()["id"]
+        body = {
+            "source_event_id": "sev-http-2",
+            "warehouse_id": wid,
+            "batch_id": bid,
+            "observation_ids": [_OBS_A],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-14T00:01:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "critical",
+            "rule_version": "v1",
+        }
+        r = client.post("/candidates", json=body)
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["status"], "accepted_new")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,55 @@
+# No production configuration, host ports, persistent volumes or real notifications.
+services:
+  test-db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: freshlink_test
+      POSTGRES_PASSWORD: a01_disposable_only
+      POSTGRES_DB: freshlink_test
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freshlink_test -d freshlink_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  broker:
+    image: eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408
+    entrypoint: ["sh", "/fixtures/start.sh"]
+    volumes:
+      - ./scripts/mqtt-runtime:/fixtures:ro
+  test-runner:
+    image: ${TELEMETRY_APP_IMAGE:-freshlink-app:p0}
+    environment:
+      PROJECT_NAME: FreshLink-test
+      FASTAPI_ENV: development
+      SECRET_KEY: a01-disposable-test-key-only-32-characters
+      FIRST_SUPERUSER: admin@example.com
+      FIRST_SUPERUSER_PASSWORD: a01-disposable-admin-only
+      DATABASE_URL: postgresql://freshlink_test:a01_disposable_only@test-db:5432/freshlink_test
+      SMTP_HOST: ""
+      EMAILS_FROM_EMAIL: ""
+      SENTRY_DSN: ""
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /tmp/telemetry-proof/backend
+      TELEMETRY_A_REVISION: ${TELEMETRY_A_REVISION:?Use check-telemetry-mqtt.ps1}
+      TELEMETRY_A_DIRTY: ${TELEMETRY_A_DIRTY:?Use check-telemetry-mqtt.ps1}
+      TELEMETRY_C_REVISION: "58f6bf76710bbbe68cde94dafea65bdf30232be2"
+    volumes:
+      - ./backend:/source/backend:ro
+      - ${TELEMETRY_C_ARCHIVE:?Use check-telemetry-mqtt.ps1}:/source-c.tar:ro
+      - ${TELEMETRY_RESULT_DIR:?Use check-telemetry-mqtt.ps1}:/results
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        set -e; mkdir -p /tmp/telemetry-proof/backend;
+        cp -a /source/backend/. /tmp/telemetry-proof/backend/;
+        tar -xf /source-c.tar -C /tmp/telemetry-proof;
+        cd /tmp/telemetry-proof/backend;
+        alembic upgrade head; python app/initial_data.py;
+        python scripts/check-telemetry-mqtt.py;
+        python scripts/check-telemetry-inbox.py;
+        python scripts/check-telemetry-recovery.py
+networks:
+  default:
+    internal: true

@@ -1,0 +1,60 @@
+name: Test archive application candidate
+on:
+  pull_request:
+    paths:
+      - backend/**
+      - frontend/**
+      - packages/react-email/package.json
+      - pyproject.toml
+      - uv.lock
+      - package.json
+      - bun.lock
+      - scripts/windows/*source-candidate*.ps1
+      - scripts/windows/*application-candidate.ps1
+      - scripts/windows/common.ps1
+      - scripts/windows/application-image-guards.ps1
+      - scripts/windows/test-application-image-guards.ps1
+      - compose.application-candidate-tests.yml
+      - .github/workflows/test-application-candidate.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: archive-image-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  archive-image-default-cmd-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build only pinned Git archive and verify image source
+        shell: pwsh
+        run: |
+          try {
+            ./scripts/windows/test-application-image-guards.ps1
+            ./scripts/windows/test-source-candidate-export.ps1
+            $source=(& git rev-parse HEAD).Trim()
+            ./scripts/windows/build-application-candidate.ps1 -Revision $source
+            if ($LASTEXITCODE -ne 0) { throw 'Archive image build failed' }
+          } catch {
+            $message=$_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Archive build gate::$message"
+            throw
+          }
+      - name: Run default image CMD with owned DB and no source mounts
+        shell: pwsh
+        run: |
+          try {
+            docker pull postgres:18
+            if ($LASTEXITCODE -ne 0) { throw 'Disposable PG image unavailable' }
+            $reports=@(Get-ChildItem -LiteralPath ./work/source-candidates -Recurse -Filter application-build.json)
+            if ($reports.Count -ne 1) { throw 'Cannot identify exactly one archive build report' }
+            ./scripts/windows/check-application-candidate.ps1 -BuildReport $reports[0].FullName
+          } catch {
+            $message=$_.Exception.Message.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Default image HTTP gate::$message"
+            throw
+          }
