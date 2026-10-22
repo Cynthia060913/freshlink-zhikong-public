@@ -33,7 +33,7 @@ try {
     $testExit = $LASTEXITCODE
     if ($testExit -ne 0) { throw 'Backend tests or 90% coverage check failed; keep the output for your Agent.' }
     Write-Output 'PASS isolated backend pytest and coverage >=90%.'
-    Write-Output 'NOT CHECKED: frontend SDK generation, browser, remote CI or B/C modules.'
+    Write-Output 'NOT CHECKED: frontend SDK generation, browser, remote CI or complete cross-module E1.'
     Write-Output ('Evidence directory: ' + $resultDir)
 } catch {
     $testExit = 1

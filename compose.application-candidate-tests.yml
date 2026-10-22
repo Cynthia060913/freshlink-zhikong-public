@@ -1,0 +1,45 @@
+# Default application CMD from the image; no host ports or application source mounts.
+x-test-environment: &test-environment
+  PROJECT_NAME: FreshLink-test
+  FASTAPI_ENV: development
+  SECRET_KEY: image-proof-disposable-key-only-32-characters
+  FIRST_SUPERUSER: image-proof@example.com
+  FIRST_SUPERUSER_PASSWORD: image-proof-disposable-admin-only
+  DATABASE_URL: postgresql://freshlink_test:a01_disposable_only@test-db:5432/freshlink_test
+  SMTP_HOST: ""
+  SMTP_USER: ""
+  SMTP_PASSWORD: ""
+  EMAILS_FROM_EMAIL: ""
+  SENTRY_DSN: ""
+  IMAGE_CANDIDATE_PROOF: "1"
+  IMAGE_PROOF_SOURCE: ${IMAGE_PROOF_SOURCE:?Use guarded image proof}
+services:
+  test-db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: freshlink_test
+      POSTGRES_PASSWORD: a01_disposable_only
+      POSTGRES_DB: freshlink_test
+    tmpfs: [/var/lib/postgresql]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U freshlink_test -d freshlink_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  prestart:
+    image: ${IMAGE_PROOF_IMAGE:?Use guarded image proof}
+    environment: *test-environment
+    entrypoint: [bash, -c]
+    command: ["set -e; python -B scripts/check-application-image.py --preflight; bash scripts/prestart.sh"]
+  application:
+    image: ${IMAGE_PROOF_IMAGE:?Use guarded image proof}
+    environment: *test-environment
+  probe:
+    image: ${IMAGE_PROOF_IMAGE:?Use guarded image proof}
+    environment: *test-environment
+    volumes:
+      - ${IMAGE_PROOF_RESULTS:?Use guarded image proof}:/results
+    entrypoint: [python, -B, scripts/check-application-image.py]
+networks:
+  default:
+    internal: true

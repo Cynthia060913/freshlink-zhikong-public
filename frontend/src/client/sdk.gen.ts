@@ -2,7 +2,7 @@
 
 import { type Client, type Options as Options2, type TDataShape, urlSearchParamsBodySerializer } from './client';
 import { client } from './client.gen';
-import type { deviceControlListCommandsData, deviceControlListCommandsErrors, deviceControlListCommandsResponses, deviceControlQueueCommandData, deviceControlQueueCommandErrors, deviceControlQueueCommandResponses, deviceControlReadCommandData, deviceControlReadCommandErrors, deviceControlReadCommandResponses, devicesListDevicesData, devicesListDevicesErrors, devicesListDevicesResponses, devicesReadConnectivityEventsData, devicesReadConnectivityEventsErrors, devicesReadConnectivityEventsResponses, devicesReadDeviceData, devicesReadDeviceErrors, devicesReadDeviceResponses, devicesRegisterDeviceData, devicesRegisterDeviceErrors, devicesRegisterDeviceResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
+import type { alertEventsCreateCandidateData, alertEventsCreateCandidateErrors, alertEventsCreateCandidateResponses, alertEventsCreateDeviceEventData, alertEventsCreateDeviceEventErrors, alertEventsCreateDeviceEventResponses, alertEventsListAttemptsData, alertEventsListAttemptsErrors, alertEventsListAttemptsResponses, alertEventsReadCandidateBySourceData, alertEventsReadCandidateBySourceErrors, alertEventsReadCandidateBySourceResponses, alertLifecycleAcknowledgeAlertEndpointData, alertLifecycleAcknowledgeAlertEndpointErrors, alertLifecycleAcknowledgeAlertEndpointResponses, alertLifecycleListAlertsData, alertLifecycleListAlertsErrors, alertLifecycleListAlertsResponses, alertLifecycleReadAlertStatusData, alertLifecycleReadAlertStatusErrors, alertLifecycleReadAlertStatusResponses, batchesListBatchesEndpointData, batchesListBatchesEndpointErrors, batchesListBatchesEndpointResponses, batchesReadBatchData, batchesReadBatchErrors, batchesReadBatchResponses, batchesRegisterBatchData, batchesRegisterBatchErrors, batchesRegisterBatchResponses, deviceControlListCommandsData, deviceControlListCommandsErrors, deviceControlListCommandsResponses, deviceControlQueueCommandData, deviceControlQueueCommandErrors, deviceControlQueueCommandResponses, deviceControlReadCommandData, deviceControlReadCommandErrors, deviceControlReadCommandResponses, devicesBindDeviceData, devicesBindDeviceErrors, devicesBindDeviceResponses, devicesListDevicesData, devicesListDevicesErrors, devicesListDevicesResponses, devicesReadConnectivityEventsData, devicesReadConnectivityEventsErrors, devicesReadConnectivityEventsResponses, devicesReadDeviceData, devicesReadDeviceErrors, devicesReadDeviceResponses, devicesRegisterDeviceData, devicesRegisterDeviceErrors, devicesRegisterDeviceResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, ruleSnapshotsCreateSnapshotEndpointData, ruleSnapshotsCreateSnapshotEndpointErrors, ruleSnapshotsCreateSnapshotEndpointResponses, ruleSnapshotsListSnapshotsEndpointData, ruleSnapshotsListSnapshotsEndpointErrors, ruleSnapshotsListSnapshotsEndpointResponses, ruleSnapshotsReadCurrentSnapshotData, ruleSnapshotsReadCurrentSnapshotErrors, ruleSnapshotsReadCurrentSnapshotResponses, ruleSnapshotsReadSnapshotData, ruleSnapshotsReadSnapshotErrors, ruleSnapshotsReadSnapshotResponses, telemetryExportObservationsData, telemetryExportObservationsErrors, telemetryExportObservationsResponses, telemetryListObservationsData, telemetryListObservationsErrors, telemetryListObservationsResponses, telemetryReadLatestObservationData, telemetryReadLatestObservationErrors, telemetryReadLatestObservationResponses, telemetryReadObservationData, telemetryReadObservationErrors, telemetryReadObservationResponses, telemetryRejectedReceptionsData, telemetryRejectedReceptionsErrors, telemetryRejectedReceptionsResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses, warehousesListWarehousesEndpointData, warehousesListWarehousesEndpointErrors, warehousesListWarehousesEndpointResponses, warehousesReadWarehouseData, warehousesReadWarehouseErrors, warehousesReadWarehouseResponses, warehousesRegisterWarehouseData, warehousesRegisterWarehouseErrors, warehousesRegisterWarehouseResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -420,6 +420,267 @@ export class DevicesService {
             ...options
         });
     }
+
+    /**
+     * Bind Device
+     *
+     * Same device/warehouse is retry-safe; moving to another returns 409.
+     *
+     * Registration stays unbound. Binding neither claims online nor rewrites old
+     * heartbeat/outbox/command evidence. A committed write whose refresh fails
+     * returns retryable 503; resending the same binding safely reads that write.
+     */
+    public static bindDevice<ThrowOnError extends boolean = true>(options: Options<devicesBindDeviceData, ThrowOnError>) {
+        return (options.client ?? client).post<devicesBindDeviceResponses, devicesBindDeviceErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/devices/{device_id}/binding',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+}
+
+export class WarehousesService {
+    /**
+     * List Warehouses Endpoint
+     */
+    public static listWarehousesEndpoint<ThrowOnError extends boolean = true>(options?: Options<warehousesListWarehousesEndpointData, ThrowOnError>) {
+        return (options?.client ?? client).get<warehousesListWarehousesEndpointResponses, warehousesListWarehousesEndpointErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/warehouses/',
+            ...options
+        });
+    }
+
+    /**
+     * Register Warehouse
+     */
+    public static registerWarehouse<ThrowOnError extends boolean = true>(options: Options<warehousesRegisterWarehouseData, ThrowOnError>) {
+        return (options.client ?? client).post<warehousesRegisterWarehouseResponses, warehousesRegisterWarehouseErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/warehouses/',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+
+    /**
+     * Read Warehouse
+     */
+    public static readWarehouse<ThrowOnError extends boolean = true>(options: Options<warehousesReadWarehouseData, ThrowOnError>) {
+        return (options.client ?? client).get<warehousesReadWarehouseResponses, warehousesReadWarehouseErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/warehouses/{warehouse_id}',
+            ...options
+        });
+    }
+}
+
+export class BatchesService {
+    /**
+     * List Batches Endpoint
+     */
+    public static listBatchesEndpoint<ThrowOnError extends boolean = true>(options: Options<batchesListBatchesEndpointData, ThrowOnError>) {
+        return (options.client ?? client).get<batchesListBatchesEndpointResponses, batchesListBatchesEndpointErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/warehouses/{warehouse_id}/batches',
+            ...options
+        });
+    }
+
+    /**
+     * Register Batch
+     */
+    public static registerBatch<ThrowOnError extends boolean = true>(options: Options<batchesRegisterBatchData, ThrowOnError>) {
+        return (options.client ?? client).post<batchesRegisterBatchResponses, batchesRegisterBatchErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/warehouses/{warehouse_id}/batches',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+
+    /**
+     * Read Batch
+     */
+    public static readBatch<ThrowOnError extends boolean = true>(options: Options<batchesReadBatchData, ThrowOnError>) {
+        return (options.client ?? client).get<batchesReadBatchResponses, batchesReadBatchErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/batches/{batch_id}',
+            ...options
+        });
+    }
+}
+
+export class RuleSnapshotsService {
+    /**
+     * List Snapshots Endpoint
+     */
+    public static snapshotsListSnapshotsEndpoint<ThrowOnError extends boolean = true>(options: Options<ruleSnapshotsListSnapshotsEndpointData, ThrowOnError>) {
+        return (options.client ?? client).get<ruleSnapshotsListSnapshotsEndpointResponses, ruleSnapshotsListSnapshotsEndpointErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/batches/{batch_id}/rule-snapshots',
+            ...options
+        });
+    }
+
+    /**
+     * Create Snapshot Endpoint
+     */
+    public static snapshotsCreateSnapshotEndpoint<ThrowOnError extends boolean = true>(options: Options<ruleSnapshotsCreateSnapshotEndpointData, ThrowOnError>) {
+        return (options.client ?? client).post<ruleSnapshotsCreateSnapshotEndpointResponses, ruleSnapshotsCreateSnapshotEndpointErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/batches/{batch_id}/rule-snapshots',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+
+    /**
+     * Read Current Snapshot
+     */
+    public static snapshotsReadCurrentSnapshot<ThrowOnError extends boolean = true>(options: Options<ruleSnapshotsReadCurrentSnapshotData, ThrowOnError>) {
+        return (options.client ?? client).get<ruleSnapshotsReadCurrentSnapshotResponses, ruleSnapshotsReadCurrentSnapshotErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/batches/{batch_id}/rule-snapshots/current',
+            ...options
+        });
+    }
+
+    /**
+     * Read Snapshot
+     */
+    public static snapshotsReadSnapshot<ThrowOnError extends boolean = true>(options: Options<ruleSnapshotsReadSnapshotData, ThrowOnError>) {
+        return (options.client ?? client).get<ruleSnapshotsReadSnapshotResponses, ruleSnapshotsReadSnapshotErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rule-snapshots/{snapshot_id}',
+            ...options
+        });
+    }
+}
+
+export class AlertEventsService {
+    /**
+     * Create Candidate
+     */
+    public static eventsCreateCandidate<ThrowOnError extends boolean = true>(options: Options<alertEventsCreateCandidateData, ThrowOnError>) {
+        return (options.client ?? client).post<alertEventsCreateCandidateResponses, alertEventsCreateCandidateErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/candidates',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+
+    /**
+     * Read Candidate By Source
+     */
+    public static eventsReadCandidateBySource<ThrowOnError extends boolean = true>(options: Options<alertEventsReadCandidateBySourceData, ThrowOnError>) {
+        return (options.client ?? client).get<alertEventsReadCandidateBySourceResponses, alertEventsReadCandidateBySourceErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/candidates/by-source/{source_event_id}',
+            ...options
+        });
+    }
+
+    /**
+     * Create Device Event
+     */
+    public static eventsCreateDeviceEvent<ThrowOnError extends boolean = true>(options: Options<alertEventsCreateDeviceEventData, ThrowOnError>) {
+        return (options.client ?? client).post<alertEventsCreateDeviceEventResponses, alertEventsCreateDeviceEventErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/device-events',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+
+    /**
+     * List Attempts
+     */
+    public static eventsListAttempts<ThrowOnError extends boolean = true>(options: Options<alertEventsListAttemptsData, ThrowOnError>) {
+        return (options.client ?? client).get<alertEventsListAttemptsResponses, alertEventsListAttemptsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/alert-events/{event_id}/notification-attempts',
+            ...options
+        });
+    }
+}
+
+export class AlertLifecycleService {
+    /**
+     * List Alerts
+     *
+     * Disposition list: anomalies newest first, optional state/severity.
+     *
+     * Only events that open an alert appear here; recovery candidates and
+     * device lifecycle events are excluded (see ``list_alert_events``).
+     */
+    public static lifecycleListAlerts<ThrowOnError extends boolean = true>(options?: Options<alertLifecycleListAlertsData, ThrowOnError>) {
+        return (options?.client ?? client).get<alertLifecycleListAlertsResponses, alertLifecycleListAlertsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/alerts/',
+            ...options
+        });
+    }
+
+    /**
+     * Read Alert Status
+     */
+    public static lifecycleReadAlertStatus<ThrowOnError extends boolean = true>(options: Options<alertLifecycleReadAlertStatusData, ThrowOnError>) {
+        return (options.client ?? client).get<alertLifecycleReadAlertStatusResponses, alertLifecycleReadAlertStatusErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/alerts/{alert_event_id}/status',
+            ...options
+        });
+    }
+
+    /**
+     * Acknowledge Alert Endpoint
+     */
+    public static lifecycleAcknowledgeAlertEndpoint<ThrowOnError extends boolean = true>(options: Options<alertLifecycleAcknowledgeAlertEndpointData, ThrowOnError>) {
+        return (options.client ?? client).post<alertLifecycleAcknowledgeAlertEndpointResponses, alertLifecycleAcknowledgeAlertEndpointErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/alerts/{alert_event_id}/acknowledge',
+            ...options
+        });
+    }
 }
 
 export class DeviceControlService {
@@ -459,6 +720,78 @@ export class DeviceControlService {
             responseType: 'json',
             security: [{ scheme: 'bearer', type: 'http' }],
             url: '/api/v1/devices/{device_id}/commands/{command_id}',
+            ...options
+        });
+    }
+}
+
+export class TelemetryService {
+    /**
+     * List Observations
+     *
+     * Freeze a selection on first request; subsequent pages use signed cursors.
+     */
+    public static listObservations<ThrowOnError extends boolean = true>(options?: Options<telemetryListObservationsData, ThrowOnError>) {
+        return (options?.client ?? client).get<telemetryListObservationsResponses, telemetryListObservationsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/telemetry/observations/',
+            ...options
+        });
+    }
+
+    /**
+     * Export Observations
+     *
+     * Export exactly the authenticated snapshot membership and projection.
+     */
+    public static exportObservations<ThrowOnError extends boolean = true>(options: Options<telemetryExportObservationsData, ThrowOnError>) {
+        return (options.client ?? client).get<telemetryExportObservationsResponses, telemetryExportObservationsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/telemetry/observations/export.csv',
+            ...options
+        });
+    }
+
+    /**
+     * Read Latest Observation
+     *
+     * Poll one saved measurement without allocating a history snapshot.
+     */
+    public static readLatestObservation<ThrowOnError extends boolean = true>(options?: Options<telemetryReadLatestObservationData, ThrowOnError>) {
+        return (options?.client ?? client).get<telemetryReadLatestObservationResponses, telemetryReadLatestObservationErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/telemetry/observations/latest',
+            ...options
+        });
+    }
+
+    /**
+     * Read Observation
+     *
+     * Expose exact raw and reception evidence to an active logged-in user.
+     */
+    public static readObservation<ThrowOnError extends boolean = true>(options: Options<telemetryReadObservationData, ThrowOnError>) {
+        return (options.client ?? client).get<telemetryReadObservationResponses, telemetryReadObservationErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/telemetry/observations/{observation_id}',
+            ...options
+        });
+    }
+
+    /**
+     * Rejected Receptions
+     *
+     * Read exact rejected evidence for one trusted device/warehouse pair.
+     */
+    public static rejectedReceptions<ThrowOnError extends boolean = true>(options: Options<telemetryRejectedReceptionsData, ThrowOnError>) {
+        return (options.client ?? client).get<telemetryRejectedReceptionsResponses, telemetryRejectedReceptionsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/telemetry/receptions/rejected',
             ...options
         });
     }

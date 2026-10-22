@@ -1,0 +1,11 @@
+# typos (crate-ci/typos) configuration.
+#
+# HELO is the SMTP protocol greeting verb (RFC 5321), not a misspelling
+# of "hello". The alerts SMTP transport and its tests quote it verbatim
+# in details/docstrings, so the word is accepted as-is.
+# Added by B with the PR #10 pre-commit fix round — shared root config,
+# flagged for A's cross-review.
+[default.extend-words]
+helo = "helo"
+# Eclipse Mosquitto is the actual MQTT broker product name, not the insect.
+mosquitto = "mosquitto"

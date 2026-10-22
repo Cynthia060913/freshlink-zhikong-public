@@ -13,6 +13,9 @@ jobs:
   test-backend:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      FRESHLINK_INBOX_TEST_POSTGRES: "1"
+      FRESHLINK_EVENT_TEST_POSTGRES: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,6 +35,11 @@ jobs:
         run: uv run bash scripts/prestart.sh
         working-directory: backend
       - name: Run tests
+        env:
+          # Controlled test entry for B's live PostgreSQL migration checks:
+          # they create/drop their own random throwaway DB and never touch
+          # the configured application database.
+          B01_LIVE_PG_TESTS: "1"
         run: uv run bash scripts/tests-start.sh "Coverage for ${{ github.sha }}"
         working-directory: backend
       - run: docker compose down -v --remove-orphans
