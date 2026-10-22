@@ -825,3 +825,22 @@ PostgreSQL 回归。它沿用严格 `test-db/freshlink_test/FreshLink-test` 守�
 冻结候选、C outbox 可靠投递及 B 原告警 resolved 回读。正式 PG 接线时
 需把观测读取与窗口推进置于审核后的事务/锁边界，复核并发原文修改和
 设备绑定变更；当前 SQLite 文件库测试不证明这些生产并发性质。
+
+## 2026-10-22：预选高温候选的 A 门禁事务端口
+
+`rule_evaluation_candidate.py::stage_gated_high_candidate(engine, *,
+device_id, warehouse_id, stream_epoch, observation_id, batch_id, body, now)`
+是当前**显式调用** A `begin_evidence_write` 的 C 高温写入口。B 的历史规则
+选择、可信设备/冷库/批次关联和完整 F03 正文构建必须在进入此端口前完成；
+不能拿设备上报的批次或未经核实的 epoch 调用。端口取得 A 同设备行锁后，
+在同一 Connection/事务核对已存观测归属、冻结 F03 outbox、更新 C 任务与
+risk；冲突 ID 记录审计并用 A `mark_uncertain` 留 hold，不会把它标成正常。
+无写入的重放回滚门禁 revision，异常则回滚整个事务。锁内不访问 B 网络。
+
+该端口仍未由共享 worker 调用；旧独立 `evaluate_one_batch_candidate` 仍是
+隔离试验入口，**不能作为正式自动调度器**。本地 SQLite 单测用 Mock A
+门禁覆盖成功/无写重放、错归属、冲突 hold 调用和门禁失败，不能证明真实
+PostgreSQL 行锁。A 的唯一 C01 活动候选和真正 PG 锁组合在 PR #54，
+正式迁移发布与高温规则/告警联调仍须按其精确头共同审核。恢复窗口、
+invalid/冲突接纳、候选投递和发送前复核等其他写入口仍待同版门禁覆盖；
+本端口不启用自动恢复，也不表示完整 E1 已通过。
