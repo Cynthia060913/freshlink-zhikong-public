@@ -1,5 +1,25 @@
 # C 共享接线请求
 
+## 2026-10-22 观测同连接入口（已准备，未挂正式 A 门禁）
+
+C 的 `storage_candidate.py::ingest_observation_on_connection_candidate(
+connection, envelope)` 已在 C 分支准备。调用方须先开启外层事务，并在**同一
+Connection** 按 A [PR45 `f52e495`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/45)
+候选的 `begin_evidence_write(connection, device_id=…, warehouse_id=…,
+epoch=…)` 获取设备写门禁，再调用 C 入口；本函数不自行提交、回滚、重试或
+调用 B。有效观测的原文/质量/评估任务及 invalid、消息冲突、reception ID
+异文复用审计都受外层事务控制。唯一约束/数据库错误直接抛给调用方，调用方须
+整体回滚；成功返回仍只是暂存，不能在 commit 前回复 A 已持久交付。
+原 `ingest_observation(engine, envelope)` 独立入口保留兼容性，**不持 A 锁**，
+不能作为 A24 正式 worker 的交付端口。A 集成时要在已确认设备绑定/epoch 的
+同一事务里替换调用点，不能先写 C 再补门禁。C 本机 SQLite 13/13，新增
+严格 PG 第7项仅已编写、未在本人本机运行；A 的 PR45 端口及活动 A05、C
+后继均需独立审核/发布。此增量未触及规则评估、恢复窗口、冻结或发送端口，
+自动恢复继续关闭。
+
+C 已对 [PR44 精确 `a35a1e3`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/44#pullrequestreview-5607772122)
+提交共同基础候选批准；仅 A03→B01→A04 范围，不覆盖 PR45—53 或正式 C 表。
+
 ## 2026-10-21 A24 后 C 必须补的最小写门禁（提案，尚未实现）
 
 A [PR43 `a5f27e6ffe7d56844aa388dbedef2ba2a06ee9ee`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/43)

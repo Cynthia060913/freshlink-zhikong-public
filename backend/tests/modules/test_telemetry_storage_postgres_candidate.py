@@ -55,6 +55,7 @@ from app.modules.telemetry.snapshot_candidate import (
 from app.modules.telemetry.storage_candidate import (
     evaluation_jobs,
     ingest_observation,
+    ingest_observation_on_connection_candidate,
     metadata,
     observations,
     quality_tags,
@@ -139,6 +140,29 @@ class PostgresStorageCandidateTests(unittest.TestCase):
     def _count(self, table) -> int:
         with self.engine.connect() as connection:
             return int(connection.scalar(select(func.count()).select_from(table)))
+
+    def test_ingest_on_caller_connection_is_invisible_until_pg_commit(self) -> None:
+        """A's later device gate can own the same real PG transaction."""
+        first = _reception(uuid4(), temperature=11)
+        with self.engine.connect() as writer:
+            transaction = writer.begin()
+            staged = ingest_observation_on_connection_candidate(writer, first)
+            self.assertEqual(staged.status, "accepted_new")
+            self.assertEqual(self._count(observations), 0)
+            self.assertEqual(self._count(receptions), 0)
+            transaction.rollback()
+        self.assertEqual(self._count(observations), 0)
+        self.assertEqual(self._count(evaluation_jobs), 0)
+        with self.engine.connect() as writer:
+            transaction = writer.begin()
+            committed = ingest_observation_on_connection_candidate(writer, first)
+            self.assertEqual(committed.status, "accepted_new")
+            self.assertEqual(self._count(observations), 0)
+            transaction.commit()
+        self.assertEqual(self._count(observations), 1)
+        self.assertEqual(self._count(receptions), 1)
+        self.assertEqual(self._count(evaluation_jobs), 1)
+        self.assertEqual(ingest_observation(self.engine, first), committed)
 
     def test_recovery_staging_shares_pg_caller_commit_and_rollback(self) -> None:
         """A future admission lock can own the same PG transaction as C staging.

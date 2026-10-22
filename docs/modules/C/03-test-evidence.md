@@ -1,5 +1,23 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-22 C 观测同事务入口（未接生产）
+
+`ingest_observation_on_connection_candidate` 复用现有原文/质量/回执写入逻辑，
+由调用方 Connection 决定提交或回滚；Engine 独立入口原有重试边界保留。
+C 本机隔离 Python 3.13.9 以 `unittest` 实跑
+`test_telemetry_storage_candidate` **13/13通过**，其中三项新增用例验证
+原始高温与质量/评估/回执同事务回滚或提交，以及 invalid 和 reception ID
+异文审计的整组回滚，以及数据库故障向外抛出后整组回滚。`ruff check`
+三个改动 Python 文件通过。
+严格 PG 文件共 7 项，本机未启用受控 `test-db`，运行时 **7项跳过**；
+新第7项已编写，在真实 PG 两连接上验证提交前不可见、外层回滚无残留和
+提交后持久回读，**尚未实际 PG 通过**。这不是 A 门禁已挂载、正式 C 迁移、
+容器重启或 E1 的证据。A 之前 A31 的 6/6 实跑只对应旧六项，不能外推到新增项。
+
+C 对 [PR44 精确 a35a1e3 的正式 review](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/44#pullrequestreview-5607772122)
+为共同基础候选审核证据，A04 DDL 函数与冻结候选 AST 一致，适用云端七项
+success；不等于 C 本机 PG/浏览器实测。
+
 ## 2026-10-21 最新页风险过期修复与 A31 核验（M03 未签收）
 
 - C `frontend/src/features/telemetry/TelemetryPage.tsx` 以前只在最新观测 HTTP
