@@ -1,13 +1,70 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-22 温度高原子暂存候选
+
+本人 Windows 隔离 Python3.13.9 执行
+`python -m unittest tests.modules.test_telemetry_rule_evaluation_candidate`，
+**8/8 通过**。新增回归先从既有 F03 预览取已验证样例，再验证调用方事务回滚
+同时撤销 outbox/风险/任务，提交后三者一致，改变数值被拒，相同正文重试只留
+一条候选，伪造原始测量证据被拒，同来源异文留冲突审计而风险保持 unknown。
+Ruff、ty、单文件 mypy 已通过。
+此处 SQLite 的先行 UPDATE 模拟 A 门禁事务写入以避开 SQLite 旧式 SAVEPOINT
+行为。另新增严格 opt-in PostgreSQL 第9项，以两连接检查提交前不可见、回滚和
+提交后 outbox/任务/风险一致；本人环境 **9项全部跳过**，新项未实跑。
+未运行此端口的真实 PostgreSQL、A 门禁 worker 或 B HTTP 联调。
+
+## 2026-10-22 非活动 C01 迁移提案静态核对
+
+在本人 Windows 隔离 Python3.13.9 下，`test_telemetry_c01_migration_proposal`
+**3/3通过**：提案父节点 A05 且未进入活动 versions；模拟 Alembic op 逐项
+比较十表的列/类型/空值/主键/外键/唯一约束/两索引与当前 C 模型；降级只按依赖
+顺序操作 C 表。没有 PostgreSQL 连接/升级/`alembic check`/旧行保留或重启验证，
+也没有安装/启用新的活动迁移。
+
+## 2026-10-22 评估写标记局部同事务测试
+
+C 将风险和评估任务状态写入调用方 Connection 的局部端口，原 Engine
+评估服务行为保留。本机隔离 Python3.13.9 该组 `unittest` **7/7通过**，
+覆盖外层回滚后任务仍 pending/风险仍 unknown，提交后两者同变；该文件
+Ruff 与单文件 mypy 通过。B 规则选择和 outbox 冻结尚非同一 A 门禁事务，
+本测试不能证明正式评估、C→B 投递或 E1。
+
+## 2026-10-22 恢复窗口同事务补件
+
+C 复用现有 CAS 持久窗口逻辑，新增调用方 Connection 入口。本人 Windows
+隔离 Python3.13.9 的恢复进度/恢复 outbox `unittest` **23/23通过**，
+覆盖外层回滚无窗口、外层提交后重读及旧 Engine 入口原有重启/重复/缺测/冲突
+回归。含新第8项的严格 PG 文件本机 **8项跳过**；该项真实两连接提交前
+不可见/回滚/提交验证尚未实跑。不能把旧 A31 六项或本机 SQLite 当作新
+PG/正式 A 写门禁/自动恢复证据。
+
+## 2026-10-22 C 观测同事务入口（未接生产）
+
+`ingest_observation_on_connection_candidate` 复用现有原文/质量/回执写入逻辑，
+由调用方 Connection 决定提交或回滚；Engine 独立入口原有重试边界保留。
+C 本机隔离 Python 3.13.9 以 `unittest` 实跑
+`test_telemetry_storage_candidate` **13/13通过**，其中三项新增用例验证
+原始高温与质量/评估/回执同事务回滚或提交，以及 invalid 和 reception ID
+异文审计的整组回滚，以及数据库故障向外抛出后整组回滚。`ruff check`
+三个改动 Python 文件通过。
+严格 PG 文件共 7 项，本机未启用受控 `test-db`，运行时 **7项跳过**；
+新第7项已编写，在真实 PG 两连接上验证提交前不可见、外层回滚无残留和
+提交后持久回读，**尚未实际 PG 通过**。这不是 A 门禁已挂载、正式 C 迁移、
+容器重启或 E1 的证据。A 之前 A31 的 6/6 实跑只对应旧六项，不能外推到新增项。
+
+C 对 [PR44 精确 a35a1e3 的正式 review](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/44#pullrequestreview-5607772122)
+为共同基础候选审核证据，A04 DDL 函数与冻结候选 AST 一致，适用云端七项
+success；不等于 C 本机 PG/浏览器实测。
+
 ## 2026-10-21 最新页风险过期修复与 A31 核验（M03 未签收）
 
 - C `frontend/src/features/telemetry/TelemetryPage.tsx` 以前只在最新观测 HTTP
   返回时比较服务端 `checked_at` 与可信 `received_at`。轮询暂停后该年龄不会增长，
   可能继续展示旧的正常风险。现以服务端年龄加上成功响应到本次渲染的时间，
-  每秒更新；超过 60 秒、非法时间、超出 5 秒未来偏差或本地时间回拨时显示
-  `风险未知`。Node24 `node --test frontend/unit/telemetry-freshness.test.mjs` 实跑
-  **3/3 通过**，覆盖轮询停后过期、无效/未来时间和本地回拨。本机缺 Bun 和
+  每秒更新；超过 60 秒、无显式 UTC/非法时间、超出 5 秒未来偏差或本地时间
+  回拨时显示 `风险未知`。Node24
+  `node --test frontend/unit/telemetry-freshness.test.mjs` 实跑 **4/4 通过**，
+  覆盖轮询停后过期、无效/非 UTC/未来时间和本地回拨。本机缺 Bun 和
   前端依赖，未在本机跑 Vite/TypeScript/浏览器；待本提交 CI 回读后补精确头。
 - A [PR43 `a5f27e6ffe7d56844aa388dbedef2ba2a06ee9ee`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/43)
   的 [A31 报告](https://github.com/Cynthia060913/freshlink-zhikong-public/blob/a5f27e6ffe7d56844aa388dbedef2ba2a06ee9ee/docs/modules/A/31-current-c-postgres-followup.md)

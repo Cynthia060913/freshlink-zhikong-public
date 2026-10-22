@@ -26,7 +26,7 @@ from sqlalchemy import (
     Uuid,
     select,
 )
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.modules.telemetry.envelope_preview import ReceptionLike, prepare_receptions
@@ -189,141 +189,151 @@ def _write_receipt(
     )
 
 
-def _ingest_once(engine: Engine, view: dict[str, Any]) -> IngestResult:
+def _ingest_once(connection: Connection, view: dict[str, Any]) -> IngestResult:
     trusted = view["trusted"]
     reception_id = UUID(trusted["reception_id"])
-    with engine.begin() as connection:
-        previous_receipt = (
-            connection.execute(
-                select(receptions).where(receptions.c.id == reception_id)
-            )
-            .mappings()
-            .first()
-        )
-        if previous_receipt is not None:
-            digest = _receipt_digest(view)
-            if previous_receipt["receipt_sha256"] != digest:
-                # Preserve the rejected exact raw separately. A repeat of the
-                # same tampered attempt is idempotent by claimed ID + digest.
-                existing_attempt = connection.execute(
-                    select(reception_reuse_conflicts.c.id).where(
-                        reception_reuse_conflicts.c.claimed_reception_id
-                        == reception_id,
-                        reception_reuse_conflicts.c.receipt_sha256 == digest,
-                    )
-                ).scalar_one_or_none()
-                if existing_attempt is None:
-                    connection.execute(
-                        reception_reuse_conflicts.insert().values(
-                            id=uuid4(),
-                            claimed_reception_id=reception_id,
-                            device_id=UUID(trusted["authenticated_device_id"]),
-                            warehouse_id=UUID(trusted["warehouse_id"]),
-                            received_at_utc=trusted["received_at"],
-                            raw_text=view["raw_text"],
-                            receipt_sha256=digest,
-                        )
-                    )
-                return IngestResult(
-                    "conflict", reception_id, reason="reception_id_reuse"
+    previous_receipt = (
+        connection.execute(select(receptions).where(receptions.c.id == reception_id))
+        .mappings()
+        .first()
+    )
+    if previous_receipt is not None:
+        digest = _receipt_digest(view)
+        if previous_receipt["receipt_sha256"] != digest:
+            # Preserve the rejected exact raw separately. A repeat of the
+            # same tampered attempt is idempotent by claimed ID + digest.
+            existing_attempt = connection.execute(
+                select(reception_reuse_conflicts.c.id).where(
+                    reception_reuse_conflicts.c.claimed_reception_id == reception_id,
+                    reception_reuse_conflicts.c.receipt_sha256 == digest,
                 )
-            return IngestResult(
-                previous_receipt["outcome"],
-                reception_id,
-                previous_receipt["observation_id"],
-                previous_receipt["reason"],
-            )
-
-        invalid_reason = _invalid_reason(view)
-        if invalid_reason is not None:
-            _write_receipt(
-                connection,
-                view,
-                observation_id=None,
-                outcome="invalid",
-                reason=invalid_reason,
-            )
-            return IngestResult("invalid", reception_id, reason=invalid_reason)
-
-        normalized = view["normalized"]
-        device_id = UUID(trusted["authenticated_device_id"])
-        message_id = UUID(normalized["message_id"])
-        previous = (
-            connection.execute(
-                select(observations).where(
-                    observations.c.device_id == device_id,
-                    observations.c.message_id == message_id,
-                )
-            )
-            .mappings()
-            .first()
-        )
-        if previous is not None:
-            same = previous["content_sha256"] == _content_digest(view)
-            status: IngestStatus = "accepted_duplicate" if same else "conflict"
-            reason = "duplicate_message" if same else "conflicting_message"
-            _write_receipt(
-                connection,
-                view,
-                observation_id=previous["id"],
-                outcome=status,
-                reason=reason,
-            )
-            return IngestResult(status, reception_id, previous["id"], reason)
-
-        observation_id = uuid4()
-        connection.execute(
-            observations.insert().values(
-                id=observation_id,
-                device_id=device_id,
-                message_id=message_id,
-                warehouse_id=UUID(trusted["warehouse_id"]),
-                content_sha256=_content_digest(view),
-                raw_text=view["raw_text"],
-                raw_payload=view["raw_payload"],
-                sampled_at_utc=(
-                    datetime.fromisoformat(
-                        normalized["sampled_at"].replace("Z", "+00:00")
+            ).scalar_one_or_none()
+            if existing_attempt is None:
+                connection.execute(
+                    reception_reuse_conflicts.insert().values(
+                        id=uuid4(),
+                        claimed_reception_id=reception_id,
+                        device_id=UUID(trusted["authenticated_device_id"]),
+                        warehouse_id=UUID(trusted["warehouse_id"]),
+                        received_at_utc=trusted["received_at"],
+                        raw_text=view["raw_text"],
+                        receipt_sha256=digest,
                     )
-                    if "sampled_at" in normalized
-                    else None
-                ),
-                first_received_at_utc=datetime.fromisoformat(
-                    trusted["received_at"].replace("Z", "+00:00")
-                ),
-                normalized=normalized,
-                quality=view["quality"],
-                risk=view["risk"],
-            )
+                )
+            return IngestResult("conflict", reception_id, reason="reception_id_reuse")
+        return IngestResult(
+            previous_receipt["outcome"],
+            reception_id,
+            previous_receipt["observation_id"],
+            previous_receipt["reason"],
         )
-        if view["quality"]:
-            connection.execute(
-                quality_tags.insert(),
-                [
-                    {"observation_id": observation_id, "tag": tag}
-                    for tag in sorted(set(view["quality"]))
-                ],
-            )
-        evaluation_state = (
-            "pending"
-            if "sampled_at" in normalized
-            and "temperature" in normalized.get("metrics", {})
-            and view["risk"]["reason"] == "no_threshold_rule"
-            else "held_unknown"
-        )
-        connection.execute(
-            evaluation_jobs.insert().values(
-                observation_id=observation_id, state=evaluation_state
-            )
-        )
+
+    invalid_reason = _invalid_reason(view)
+    if invalid_reason is not None:
         _write_receipt(
             connection,
             view,
-            observation_id=observation_id,
-            outcome="accepted_new",
-            reason="",
+            observation_id=None,
+            outcome="invalid",
+            reason=invalid_reason,
         )
-        return IngestResult("accepted_new", reception_id, observation_id)
+        return IngestResult("invalid", reception_id, reason=invalid_reason)
+
+    normalized = view["normalized"]
+    device_id = UUID(trusted["authenticated_device_id"])
+    message_id = UUID(normalized["message_id"])
+    previous = (
+        connection.execute(
+            select(observations).where(
+                observations.c.device_id == device_id,
+                observations.c.message_id == message_id,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if previous is not None:
+        same = previous["content_sha256"] == _content_digest(view)
+        status: IngestStatus = "accepted_duplicate" if same else "conflict"
+        reason = "duplicate_message" if same else "conflicting_message"
+        _write_receipt(
+            connection,
+            view,
+            observation_id=previous["id"],
+            outcome=status,
+            reason=reason,
+        )
+        return IngestResult(status, reception_id, previous["id"], reason)
+
+    observation_id = uuid4()
+    connection.execute(
+        observations.insert().values(
+            id=observation_id,
+            device_id=device_id,
+            message_id=message_id,
+            warehouse_id=UUID(trusted["warehouse_id"]),
+            content_sha256=_content_digest(view),
+            raw_text=view["raw_text"],
+            raw_payload=view["raw_payload"],
+            sampled_at_utc=(
+                datetime.fromisoformat(normalized["sampled_at"].replace("Z", "+00:00"))
+                if "sampled_at" in normalized
+                else None
+            ),
+            first_received_at_utc=datetime.fromisoformat(
+                trusted["received_at"].replace("Z", "+00:00")
+            ),
+            normalized=normalized,
+            quality=view["quality"],
+            risk=view["risk"],
+        )
+    )
+    if view["quality"]:
+        connection.execute(
+            quality_tags.insert(),
+            [
+                {"observation_id": observation_id, "tag": tag}
+                for tag in sorted(set(view["quality"]))
+            ],
+        )
+    evaluation_state = (
+        "pending"
+        if "sampled_at" in normalized
+        and "temperature" in normalized.get("metrics", {})
+        and view["risk"]["reason"] == "no_threshold_rule"
+        else "held_unknown"
+    )
+    connection.execute(
+        evaluation_jobs.insert().values(
+            observation_id=observation_id, state=evaluation_state
+        )
+    )
+    _write_receipt(
+        connection,
+        view,
+        observation_id=observation_id,
+        outcome="accepted_new",
+        reason="",
+    )
+    return IngestResult("accepted_new", reception_id, observation_id)
+
+
+def ingest_observation_on_connection_candidate(
+    connection: Connection, envelope: ReceptionLike
+) -> IngestResult:
+    """Stage one trusted reception in the caller's open transaction.
+
+    The caller must acquire the reviewed per-device evidence write gate on
+    this connection before invoking this function. This port never commits,
+    rolls back, opens another connection, or calls B. A database exception
+    propagates so the caller can roll back the entire gated unit. The return
+    value is provisional until the caller commits; unlike the Engine wrapper,
+    this port does not retry a unique-key race in the same failed transaction.
+    """
+    if not connection.in_transaction():
+        raise ValueError("an open caller transaction is required")
+    view = prepare_receptions([envelope])[0]
+    return _ingest_once(connection, view)
 
 
 def ingest_observation(engine: Engine, envelope: ReceptionLike) -> IngestResult:
@@ -337,7 +347,8 @@ def ingest_observation(engine: Engine, envelope: ReceptionLike) -> IngestResult:
     reception_id = UUID(view["trusted"]["reception_id"])
     for _ in range(2):
         try:
-            return _ingest_once(engine, view)
+            with engine.begin() as connection:
+                return _ingest_once(connection, view)
         except IntegrityError:
             # Unique device/message or reception race. The failed transaction
             # is rolled back by engine.begin before the next lookup.

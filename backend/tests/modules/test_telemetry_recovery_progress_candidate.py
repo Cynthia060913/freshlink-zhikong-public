@@ -14,6 +14,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.modules.telemetry.recovery_progress_candidate import (
     advance_persisted_recovery_window,
+    advance_persisted_recovery_window_on_connection_candidate,
     load_recovery_progress,
     metadata,
 )
@@ -146,6 +147,37 @@ class RecoveryProgressCandidateCase(unittest.TestCase):
             advance_persisted_recovery_window(
                 other, self.initial, self.rule, self.sample(1, 10)
             )
+
+    def test_caller_connection_rolls_back_and_commits_whole_window(self) -> None:
+        with self.engine.connect() as connection:
+            with self.assertRaisesRegex(ValueError, "open caller transaction"):
+                advance_persisted_recovery_window_on_connection_candidate(
+                    connection, self.initial, self.rule, self.sample(1, 10)
+                )
+            transaction = connection.begin()
+            staged, decision = (
+                advance_persisted_recovery_window_on_connection_candidate(
+                    connection, self.initial, self.rule, self.sample(1, 10)
+                )
+            )
+            self.assertEqual(
+                (decision, staged.observation_ids), ("progress", (UUID(int=1),))
+            )
+            transaction.rollback()
+        self.assertIsNone(
+            load_recovery_progress(self.engine, self.initial.original_source_event_id)
+        )
+        with self.engine.begin() as connection:
+            committed, decision = (
+                advance_persisted_recovery_window_on_connection_candidate(
+                    connection, self.initial, self.rule, self.sample(1, 10)
+                )
+            )
+            self.assertEqual(decision, "progress")
+        self.assertEqual(
+            load_recovery_progress(self.engine, self.initial.original_source_event_id),
+            committed,
+        )
 
 
 if __name__ == "__main__":
