@@ -1,5 +1,28 @@
 # C 共享接线请求
 
+## 2026-10-22 恢复冻结戳持久字段候选（未启用投递）
+
+`outbox_candidate.outbox` 与非活动 `migration_candidates/c01_telemetry_storage.py`
+现包含六个可空的 A 前沿字段：`frozen_device_id`、`frozen_warehouse_id`、
+`frozen_stream_epoch`、`frozen_admitted_seq`、`frozen_settled_through`、
+`frozen_evidence_revision`。原异常 ID 沿用 `related_source_event_id`，不另造
+第二个可能不一致的关联字段。异常候选和旧独立恢复候选这些列为 `NULL`；
+**NULL 绝不是自动发送许可**。表仍为非活动提案，不能直接升级原库。
+
+新增 `freeze_recovery_frontier_on_connection_candidate(connection, *,
+recovery_source_event_id, original_source_event_id, stamp) -> "frozen"|"duplicate"`。
+调用方必须在同一外层 PostgreSQL READ COMMITTED 事务里先按 A
+`begin_evidence_write` 取得同设备写门禁、核 C 恢复窗口并暂存恢复候选，最后读取
+写后的完整 `FrontierStamp` 才调用此端口。端口本身再以 A 的
+`stamp_is_current` 持 stream 锁重核完整前沿，核恢复与已送达原异常、两端已存观测
+的设备/冷库归属，写六字段；同戳重放为 duplicate，变戳/部分字段/错关联失败并由
+调用方回滚。不自行提交、不发 B、不把坏证据解除 hold。
+
+本人隔离 SQLite 单测用**Mock A 前沿判定**验证字段回滚、提交后重开、同戳重放、
+变戳与错原异常拒绝；它不证明真实 PG 设备锁。A/B 集成前还需真实 PG 同设备
+写/冻结并发、所有 C 写入口门禁、晚到坏证据失效、发送前复核与已受理后更正
+语义；恢复自动外发继续关闭。此字段小包不替代正式 C01 唯一链提升。
+
 ## 2026-10-22 温度高候选与评估状态同事务端口
 
 `rule_evaluation_candidate.py::stage_evaluated_high_on_connection_candidate(
@@ -27,8 +50,9 @@ Alembic 源码，提案父节点为 A [PR46 候选 `a05_stream_frontier`](https:
 
 A 作为唯一集成方应在 A04/A05 真正审定并合入唯一链后，先核对当时真实 head、
 C metadata/表名及恢复冻结 stamp 必需字段，再决定是否提升这份提案为活动后继，
-同时登记两个 C metadata。**当前 C01 缺冻结 stamp 与原异常关联字段**，所以
-即使十表提案逐项匹配现有候选，也不能直接当作自动恢复可发布 schema。
+同时登记两个 C metadata。当前提案虽补冻结 stamp，原异常关联沿用
+`related_source_event_id`，但全部写入口和发送线性化仍未接通，不能直接当作
+自动恢复可发布 schema。
 需真实 PostgreSQL 空库→唯一链升级、保留 A/B 旧行、`alembic check`、
 重启留存及降级边界验证；本机 3 项只证明源码静态一致性。
 

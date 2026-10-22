@@ -46,6 +46,14 @@ outbox = Table(
     metadata,
     Column("source_event_id", Uuid(as_uuid=True), primary_key=True),
     Column("related_source_event_id", Uuid(as_uuid=True)),
+    # Recovery-only A frontier evidence. Null on anomalies and on legacy
+    # isolated candidates; null is never proof that recovery may be sent.
+    Column("frozen_device_id", Uuid(as_uuid=True)),
+    Column("frozen_warehouse_id", Uuid(as_uuid=True)),
+    Column("frozen_stream_epoch", Uuid(as_uuid=True)),
+    Column("frozen_admitted_seq", Integer),
+    Column("frozen_settled_through", Integer),
+    Column("frozen_evidence_revision", Integer),
     Column(
         "observation_id",
         Uuid(as_uuid=True),
