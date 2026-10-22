@@ -14,13 +14,21 @@
    ``permanent_failure`` 与 ``accepted_by_service`` 终止；每次尝试
    （含失败）都追加一行 attempt 记录，重试间隔为指数退避与
    ``Retry-After`` 取大、并以 ``max_delay_s`` 封顶。
-4. **Attempt 持久化**：默认写入调用方 session（同一事务）；构造时
-   传 ``attempt_session_factory`` 则用独立 session 提交——即使主
-   事务回滚，审计记录仍然保留。记录失败**绝不**中断派发，只在
-   结果 detail 上如实标注。
-5. **同源去重**：同一告警事件 + 同一渠道若已有 ``delivered`` 的
-   attempt 记录，则跳过该渠道（INTERFACES"按 source_event_id 去重"），
-   不重复打扰收件人。
+4. **Attempt 持久化**：默认写入调用方 session，但插入在 SAVEPOINT
+   内——记录失败只回滚该插入，**绝不**rollback 调用方的业务事务；
+   构造时传 ``attempt_session_factory`` 则用独立 session 提交（推荐，
+   供 :func:`dispatch_committed_event` 使用）。记录失败不中断派发，
+   只在结果 detail 上如实标注。
+5. **同源去重（best-effort，非并发恰好一次）**：同一告警事件 + 同一
+   渠道若已有 ``delivered`` 的 attempt 记录，则跳过该渠道；去重查询
+   本身失败时**保守 fail-closed：零发送**（``DispatchReport.
+   dedup_error=True``），绝不因查重丢失而重复打扰收件人。
+6. **渠道隔离**：单个渠道违反"send 不抛异常"契约（如读取响应时
+   TimeoutError 逃逸）只影响该渠道——结构化记录后继续其余渠道；
+   异常文本与 URL 不入库。
+7. **只消费已提交事件**：用 :func:`dispatch_committed_event` 在业务
+   事务提交之后由派发 worker 调用；网络与退避 sleep 不进入业务
+   事务、告警行锁或 HTTP 请求内。
 
 边界如实声明：``delivered=True`` 仍是"服务已接受"，不证明终端实收；
 本层不做终端回执采集（那是带外证据流程）。
@@ -30,6 +38,8 @@ from __future__ import annotations
 
 import dataclasses
 import time
+import urllib.error
+import uuid
 from collections.abc import (
     Callable,
     Mapping,
@@ -135,10 +145,14 @@ class DispatchReport:
     ``results`` holds the LAST attempt's result per attempted channel
     (earlier attempts are in the attempt table); ``skipped_channels``
     lists channels skipped by the delivered-attempt dedup guard.
+    ``dedup_error=True`` means the dedup query itself failed: the
+    dispatcher FAILED CLOSED (zero sends) because a dispatch without a
+    trustworthy dedup read risks duplicate notifications.
     """
 
     results: tuple[NotificationResult, ...] = ()
     skipped_channels: tuple[NotificationKind, ...] = ()
+    dedup_error: bool = False
 
 
 class AlertNotificationDispatcher:
@@ -181,7 +195,13 @@ class AlertNotificationDispatcher:
         (event, channel) pairs. Never raises: transport ``send`` and
         attempt persistence failures are contained by contract."""
 
-        accepted = self._accepted_channels(session, event.id)
+        try:
+            accepted = self._accepted_channels(session, event.id)
+        except Exception:
+            # FAIL CLOSED: without a trustworthy dedup read, sending
+            # risks duplicate notifications to recipients. Zero sends,
+            # no raise — the caller sees dedup_error=True.
+            return DispatchReport(dedup_error=True)
         results: list[NotificationResult] = []
         skipped: list[NotificationKind] = []
         for transport in self._transports:
@@ -189,10 +209,45 @@ class AlertNotificationDispatcher:
                 skipped.append(transport.kind)
                 continue
             envelope = build_envelope(event, transport.kind, recipients=recipients)
-            results.append(self._send_with_retry(session, event, transport, envelope))
+            try:
+                results.append(
+                    self._send_with_retry(session, event, transport, envelope)
+                )
+            except Exception as exc:
+                # A transport leaked an exception past its never-raise
+                # contract (reproduced with a read TimeoutError on the
+                # first channel). Isolate THIS channel only and continue
+                # with the remaining ones; exception text is never
+                # stored.
+                failure = self._contract_violation_result(transport.kind, exc)
+                results.append(self._record_attempt(session, event, failure))
         return DispatchReport(results=tuple(results), skipped_channels=tuple(skipped))
 
     # -- internals -------------------------------------------------------
+
+    @staticmethod
+    def _contract_violation_result(
+        kind: NotificationKind, exc: Exception
+    ) -> NotificationResult:
+        if isinstance(exc, TimeoutError):
+            outcome = DeliveryOutcome.TIMEOUT
+        elif isinstance(exc, urllib.error.URLError | OSError):
+            outcome = DeliveryOutcome.TRANSIENT_FAILURE
+        else:
+            outcome = DeliveryOutcome.PERMANENT_FAILURE
+        detail = (
+            "transport raised an exception past its never-raise contract "
+            f"({type(exc).__name__}); channel isolated so remaining "
+            "channels were still attempted; exception text and any URLs "
+            "intentionally not stored"
+        )
+        return NotificationResult(
+            attempt_id=uuid.uuid4(),
+            transport=kind,
+            outcome=outcome,
+            delivered=False,
+            detail=detail,
+        )
 
     @staticmethod
     def _accepted_channels(
@@ -256,19 +311,63 @@ class AlertNotificationDispatcher:
                     result, detail=result.detail + _UNPERSISTED_SUFFIX
                 )
             return result
-        # Shared-session mode: the row joins the caller's transaction.
-        # A failed flush poisons that transaction; rolling back is the
-        # only honest recovery, and the caller learns about it via the
-        # annotation below (dispatch must not raise).
+        # Shared-session mode: the row joins the caller's transaction,
+        # but a failed insert must NOT poison the caller's business
+        # work — the insert runs inside a SAVEPOINT so only the attempt
+        # row rolls back (A review 6320881681: a shared-session
+        # rollback would undo the whole outer transaction).
         try:
-            session.add(row)
-            session.flush()
+            with session.begin_nested():
+                session.add(row)
+                session.flush()
         except Exception:
-            session.rollback()
             return dataclasses.replace(
                 result, detail=result.detail + _UNPERSISTED_SUFFIX
             )
         return result
+
+
+def dispatch_committed_event(
+    session_factory: Callable[[], AbstractContextManager[Session]],
+    alert_event_id: uuid.UUID,
+    *,
+    transports: Sequence[NotificationTransport] | None = None,
+    recipients: Sequence[str] = (),
+    max_attempts: int = 3,
+    base_delay_s: float = 1.0,
+    max_delay_s: float = _MAX_DELAY_S,
+    sleep: Callable[[float], None] = time.sleep,
+) -> DispatchReport:
+    """Minimal dispatch entry point for an ALREADY-COMMITTED alert event.
+
+    Call this AFTER the alert-ingestion transaction has committed (from
+    the ingestion worker's post-commit step), never inside a business
+    transaction, an HTTP request handler waiting on the response, or
+    while holding alert row locks: this function performs bounded
+    network I/O and retry sleeps.
+
+    It opens its own read session via ``session_factory`` and records
+    attempt rows through INDEPENDENT sessions, so an audit failure can
+    never roll back business work. The dedup guard here is an ordering
+    guard, NOT concurrent exactly-once: run a single dispatch worker
+    per deployment to keep the mutual-exclusion boundary clear.
+    """
+
+    if transports is None:
+        transports = build_transports()
+    dispatcher = AlertNotificationDispatcher(
+        transports,
+        max_attempts=max_attempts,
+        base_delay_s=base_delay_s,
+        max_delay_s=max_delay_s,
+        sleep=sleep,
+        attempt_session_factory=session_factory,
+    )
+    with session_factory() as session:
+        event = session.get(AlertEvent, alert_event_id)
+        if event is None:
+            return DispatchReport()
+        return dispatcher.dispatch(session, event, recipients=recipients)
 
 
 def build_transports(

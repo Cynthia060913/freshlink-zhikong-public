@@ -36,6 +36,7 @@ from .dispatch import (
     DispatchReport,
     build_envelope,
     build_transports,
+    dispatch_committed_event,
     format_alert_time,
 )
 from .feishu import FeishuWebhookConfig, FeishuWebhookTransport
@@ -67,5 +68,6 @@ __all__ = [
     "TransientPushError",
     "build_envelope",
     "build_transports",
+    "dispatch_committed_event",
     "format_alert_time",
 ]

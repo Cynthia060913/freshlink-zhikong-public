@@ -25,6 +25,7 @@ from app.modules.alerts.notifications.dispatch import (
     AlertNotificationDispatcher,
     build_envelope,
     build_transports,
+    dispatch_committed_event,
     format_alert_time,
 )
 from app.modules.alerts.notifications.transport import (
@@ -104,13 +105,31 @@ class _Sleep:
 
 
 class _FailingAddSession:
-    """Duck-typed Session whose ``add`` always raises (persistence guard)."""
+    """Duck-typed Session whose ``add`` always raises (persistence guard).
+
+    Records whether the dispatcher rolled back the WHOLE session
+    (forbidden: must not undo the caller's business work) versus only
+    the SAVEPOINT (required)."""
 
     def __init__(self) -> None:
         self.rollback_calls = 0
+        self.savepoint_rolls = 0
 
     def exec(self, statement: Any) -> list[Any]:
         return []
+
+    def begin_nested(self) -> Any:
+        outer = self
+
+        class _Savepoint:
+            def __enter__(self) -> Any:
+                return self
+
+            def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+                if exc_type is not None:
+                    outer.savepoint_rolls += 1
+
+        return _Savepoint()
 
     def add(self, obj: Any) -> None:
         raise RuntimeError("storage unavailable")
@@ -349,7 +368,8 @@ class AttemptPersistenceCase(unittest.TestCase):
         dispatcher = AlertNotificationDispatcher([smtp])
         stub = _FailingAddSession()
         report = dispatcher.dispatch(cast(Session, stub), _event(source="disp-guard-1"))
-        assert stub.rollback_calls == 1
+        assert stub.savepoint_rolls == 1
+        assert stub.rollback_calls == 0  # caller's transaction untouched
         assert report.results[0].detail == "ok [attempt record NOT persisted]"
 
         smtp2 = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result(detail="ok")])
@@ -490,3 +510,169 @@ class FactoryCase(unittest.TestCase):
             EMAILS_FROM_EMAIL="",
         )
         assert build_transports(settings=settings) == []
+
+
+class _FailingExecSession:
+    """Duck-typed Session whose ``exec`` always raises (dedup failure)."""
+
+    def exec(self, statement: Any) -> Any:
+        raise RuntimeError("dedup query failed")
+
+    def add(self, obj: Any) -> None:
+        return None
+
+    def flush(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
+
+
+class FailClosedCase(unittest.TestCase):
+    """Dedup query failure must fail closed: zero sends, no raise."""
+
+    def test_dedup_failure_sends_nothing(self) -> None:
+        smtp = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        app_push = _ScriptedTransport(
+            NotificationKind.APP_PUSH, [_result(kind=NotificationKind.APP_PUSH)]
+        )
+        dispatcher = AlertNotificationDispatcher([smtp, app_push])
+        report = dispatcher.dispatch(
+            cast(Session, _FailingExecSession()), _event(source="disp-fc-1")
+        )
+        assert report.dedup_error is True
+        assert report.results == ()
+        assert report.skipped_channels == ()
+        assert smtp.envelopes == []
+        assert app_push.envelopes == []
+
+    def test_dedup_success_reports_no_error(self) -> None:
+        smtp = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        dispatcher = AlertNotificationDispatcher([smtp])
+        with Session(engine) as session:
+            event = _event(source=f"disp-fc-ok-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            report = dispatcher.dispatch(session, event)
+            session.rollback()
+        assert report.dedup_error is False
+        assert len(report.results) == 1
+
+
+class ChannelIsolationCase(unittest.TestCase):
+    """A transport leaking past the never-raise contract affects only
+    its own channel; the remaining channels are still attempted."""
+
+    def test_raising_first_channel_does_not_block_second(self) -> None:
+        class _RaisingTransport(NotificationTransport):
+            kind = NotificationKind.SMTP_EMAIL
+
+            def send(self, envelope: NotificationEnvelope) -> NotificationResult:
+                raise RuntimeError("first channel exploded")
+
+        second = _ScriptedTransport(
+            NotificationKind.APP_PUSH, [_result(kind=NotificationKind.APP_PUSH)]
+        )
+        dispatcher = AlertNotificationDispatcher([_RaisingTransport(), second])
+        with Session(engine) as session:
+            event = _event(source=f"disp-iso-1-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            report = dispatcher.dispatch(session, event)
+            attempts = _attempts(session, event.id)
+            session.rollback()
+
+        assert len(second.envelopes) == 1
+        assert len(report.results) == 2
+        first = report.results[0]
+        assert first.outcome is DeliveryOutcome.PERMANENT_FAILURE
+        assert "RuntimeError" in first.detail
+        assert "first channel exploded" not in first.detail
+        assert report.results[1].outcome is DeliveryOutcome.ACCEPTED_BY_SERVICE
+        assert len(attempts) == 2
+
+    def test_timeout_escape_classified_and_isolated(self) -> None:
+        class _TimeoutTransport(NotificationTransport):
+            kind = NotificationKind.SMTP_EMAIL
+
+            def send(self, envelope: NotificationEnvelope) -> NotificationResult:
+                raise TimeoutError("read timed out")
+
+        second = _ScriptedTransport(
+            NotificationKind.APP_PUSH, [_result(kind=NotificationKind.APP_PUSH)]
+        )
+        dispatcher = AlertNotificationDispatcher(
+            [_TimeoutTransport(), second], sleep=_Sleep()
+        )
+        with Session(engine) as session:
+            event = _event(source=f"disp-iso-2-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            report = dispatcher.dispatch(session, event)
+            session.rollback()
+
+        assert report.results[0].outcome is DeliveryOutcome.TIMEOUT
+        assert len(second.envelopes) == 1
+
+
+class SavepointCase(unittest.TestCase):
+    """Attempt-record failure must not poison the caller's transaction:
+    the insert runs in a SAVEPOINT, business work still commits."""
+
+    def test_record_failure_leaves_caller_transaction_committable(self) -> None:
+        scripted = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        dispatcher = AlertNotificationDispatcher([scripted])
+        with Session(engine) as session:
+            business = _event(source=f"disp-svpt-biz-{uuid.uuid4()}")
+            session.add(business)
+            session.flush()
+            business_id = business.id
+            business_source = business.source_event_id
+            # The phantom event is never persisted: the attempt row's
+            # FK insert fails, which must roll back ONLY the savepoint.
+            phantom = _event(source="disp-svpt-phantom-unused")
+            report = dispatcher.dispatch(session, phantom)
+            session.commit()
+
+        assert report.results[0].detail.endswith("[attempt record NOT persisted]")
+        with Session(engine) as reader:
+            saved = reader.exec(
+                select(AlertEvent).where(AlertEvent.id == business_id)
+            ).one()
+            assert saved.source_event_id == business_source
+            assert _attempts(reader, business_id) == []
+
+
+class PostCommitEntryCase(unittest.TestCase):
+    """dispatch_committed_event: loads a COMMITTED event, sends with
+    independent attempt transactions, never on unknown ids."""
+
+    def test_committed_event_dispatched(self) -> None:
+        with Session(engine) as session:
+            event = _event(source=f"disp-post-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            event_id = event.id
+        scripted = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        sleeper = _Sleep()
+        report = dispatch_committed_event(
+            _independent_factory,
+            event_id,
+            transports=[scripted],
+            sleep=sleeper,
+        )
+        assert report.dedup_error is False
+        assert len(report.results) == 1
+        assert report.results[0].outcome is DeliveryOutcome.ACCEPTED_BY_SERVICE
+        with Session(engine) as reader:
+            assert len(_attempts(reader, event_id)) == 1
+
+    def test_unknown_event_is_noop(self) -> None:
+        scripted = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        report = dispatch_committed_event(
+            _independent_factory,
+            uuid.uuid4(),
+            transports=[scripted],
+        )
+        assert report.results == ()
+        assert scripted.envelopes == []
