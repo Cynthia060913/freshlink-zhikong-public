@@ -4,6 +4,7 @@ import csv
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import StringIO
@@ -215,6 +216,16 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
                     observation_id=observation_id,
                     batch_id=BATCH,
                     body=changed_body,
+                    now=NOW,
+                )
+            changed_evidence = deepcopy(body)
+            changed_evidence["evidence"]["raw_value"] = 12
+            with self.assertRaisesRegex(ValueError, "differs from raw evidence"):
+                stage_evaluated_high_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    batch_id=BATCH,
+                    body=changed_evidence,
                     now=NOW,
                 )
             staged = stage_evaluated_high_on_connection_candidate(

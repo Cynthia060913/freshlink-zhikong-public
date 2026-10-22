@@ -6,7 +6,8 @@
 `python -m unittest tests.modules.test_telemetry_rule_evaluation_candidate`，
 **8/8 通过**。新增回归先从既有 F03 预览取已验证样例，再验证调用方事务回滚
 同时撤销 outbox/风险/任务，提交后三者一致，改变数值被拒，相同正文重试只留
-一条候选，同来源异文留冲突审计而风险保持 unknown。Ruff、单文件 mypy 已通过。
+一条候选，伪造原始测量证据被拒，同来源异文留冲突审计而风险保持 unknown。
+Ruff、ty、单文件 mypy 已通过。
 此处 SQLite 的先行 UPDATE 模拟 A 门禁事务写入以避开 SQLite 旧式 SAVEPOINT
 行为。另新增严格 opt-in PostgreSQL 第9项，以两连接检查提交前不可见、回滚和
 提交后 outbox/任务/风险一致；本人环境 **9项全部跳过**，新项未实跑。

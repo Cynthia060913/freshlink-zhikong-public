@@ -177,6 +177,32 @@ def stage_evaluated_high_on_connection_candidate(
         or normalized_temperature <= threshold
     ):
         raise ValueError("frozen high candidate differs from stored observation")
+    view = deepcopy(row["raw_payload"])
+    view["warehouse_id"] = str(row["warehouse_id"])
+    view["received_at"] = _utc_text(row["first_received_at_utc"])
+    processed = process_batch([view], threshold)[0]
+    if processed["normalized"] != normalized or processed["quality"] != quality:
+        raise ValueError("stored quality differs from raw evidence")
+    rebuilt = build_candidate_preview(
+        processed,
+        observation_id=str(observation_id),
+        source_event_id=str(expected_source),
+        rule={
+            "warehouse_id": frozen["warehouse_id"],
+            "batch_id": frozen["batch_id"],
+            "rule_snapshot_id": frozen["rule_snapshot_id"],
+            "rule_version": frozen["rule_version"],
+            "metric_code": "temperature",
+            "unit": "°C",
+            "comparison": ">",
+            "severity": frozen["severity"],
+            "threshold": threshold,
+            "effective_from": frozen["sampled_at"],
+            "effective_to": None,
+        },
+    )
+    if rebuilt != frozen:
+        raise ValueError("frozen high candidate differs from raw evidence")
     staged = stage_f03_on_connection_candidate(
         connection,
         source_event_id=expected_source,
