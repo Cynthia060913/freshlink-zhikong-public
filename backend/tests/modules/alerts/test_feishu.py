@@ -15,12 +15,14 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import unittest
 import urllib.error
 import urllib.request
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import patch
 
 from app.modules.alerts.notifications.feishu import (
     FeishuWebhookConfig,
@@ -47,9 +49,13 @@ class _FakeResponse:
         self._body = body
         self.status = status
         self.headers = headers or {}
+        self.closed = False
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, size: int = -1) -> bytes:
+        return self._body[:size] if size >= 0 else self._body
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _Capture:
@@ -150,6 +156,15 @@ class ConfigValidationCase(unittest.TestCase):
         self.assertEqual(cfg.secret, _SECRET)
         self.assertEqual(cfg.timeout_seconds, 2.5)
 
+    def test_timeout_rejects_nonfinite_and_unbounded_values(self) -> None:
+        for value in (0, -1, 31, math.nan, math.inf, -math.inf, True):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                FeishuWebhookConfig(_URL, timeout_seconds=value).validate()
+        with self.assertRaisesRegex(ValueError, "invalid feishu timeout"):
+            FeishuWebhookConfig.from_env(
+                {"FEISHU_WEBHOOK_URL": _URL, "FEISHU_WEBHOOK_TIMEOUT_S": "not-a-number"}
+            )
+
 
 class SigningCase(unittest.TestCase):
     def test_signature_matches_official_algorithm(self) -> None:
@@ -190,7 +205,7 @@ class OutcomeClassificationCase(unittest.TestCase):
         self.assertIs(result.outcome, DeliveryOutcome.PERMANENT_FAILURE)
         self.assertFalse(result.delivered)
         self.assertIn("190021", result.detail)
-        self.assertIn("keyword not found", result.detail)
+        self.assertNotIn("keyword not found", result.detail)
 
     def test_html_200_is_transient_unrecognized(self) -> None:
         capture = _Capture(_FakeResponse(b"<html>gateway</html>"))
@@ -203,6 +218,15 @@ class OutcomeClassificationCase(unittest.TestCase):
         result = _transport(capture).send(_envelope())
         self.assertIs(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
         self.assertEqual(result.retry_after_s, 30.0)
+
+    def test_bad_retry_after_is_ignored(self) -> None:
+        for raw in ("NaN", "inf", "-1", "3601", "secret"):
+            with self.subTest(raw=raw):
+                result = _transport(
+                    _Capture(error=_http_error(429, {"Retry-After": raw}))
+                ).send(_envelope())
+                self.assertIs(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
+                self.assertIsNone(result.retry_after_s)
 
     def test_server_and_client_errors_split_transient_permanent(self) -> None:
         server = _transport(_Capture(error=_http_error(503))).send(_envelope())
@@ -227,10 +251,80 @@ class OutcomeClassificationCase(unittest.TestCase):
         capture = _Capture(error=urllib.error.URLError(OSError("connection refused")))
         result = _transport(capture).send(_envelope())
         self.assertIs(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
-        self.assertIn("connection refused", result.detail)
+        self.assertEqual(result.detail, "feishu connection or response read failed")
+
+    def test_remote_and_exception_text_never_enter_result(self) -> None:
+        marker = "synthetic-secret-marker"
+        for capture in (
+            _Capture(error=urllib.error.URLError(f"{_URL} {marker}")),
+            _Capture(
+                _FakeResponse(json.dumps({"code": 190021, "msg": marker}).encode())
+            ),
+            _Capture(_FakeResponse(json.dumps({"code": 0, "msg": marker}).encode())),
+        ):
+            with self.subTest(capture=capture):
+                result = _transport(capture, secret=marker).send(_envelope())
+                self.assertNotIn(marker, result.detail)
+                self.assertNotIn(marker, result.server_response or "")
+                self.assertNotIn(_URL, result.detail)
+
+    def test_response_read_timeout_and_error_are_classified_and_closed(self) -> None:
+        class BrokenRead(_FakeResponse):
+            def __init__(self, error: Exception) -> None:
+                super().__init__()
+                self.error = error
+
+            def read(self, size: int = -1) -> bytes:
+                raise self.error
+
+        for error, expected in (
+            (TimeoutError("secret"), DeliveryOutcome.TIMEOUT),
+            (OSError("secret"), DeliveryOutcome.TRANSIENT_FAILURE),
+        ):
+            response = BrokenRead(error)
+            result = _transport(_Capture(response)).send(_envelope())
+            self.assertIs(result.outcome, expected)
+            self.assertTrue(response.closed)
+            self.assertNotIn("secret", result.detail)
+
+    def test_oversize_or_malformed_response_never_accepts(self) -> None:
+        for body in (b"x" * 8193, b'{"code":true}', b'{"code":"0"}'):
+            response = _FakeResponse(body)
+            result = _transport(_Capture(response)).send(_envelope())
+            self.assertIs(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
+            self.assertTrue(response.closed)
 
 
 class RequestShapeCase(unittest.TestCase):
+    def test_default_opener_passes_keyword_timeout_without_replacing_json_data(
+        self,
+    ) -> None:
+        class FakeOpener:
+            def __init__(self) -> None:
+                self.request: urllib.request.Request | None = None
+                self.data: bytes | None = None
+                self.timeout: float | None = None
+
+            def open(
+                self,
+                request: urllib.request.Request,
+                data: bytes | None = None,
+                timeout: float = 0,
+            ) -> _FakeResponse:
+                self.request, self.data, self.timeout = request, data, timeout
+                return _FakeResponse()
+
+        opener = FakeOpener()
+        with patch("urllib.request.build_opener", return_value=opener):
+            result = FeishuWebhookTransport(
+                FeishuWebhookConfig(_URL, timeout_seconds=3.0)
+            ).send(_envelope())
+        self.assertIs(result.outcome, DeliveryOutcome.ACCEPTED_BY_SERVICE)
+        self.assertIsNone(opener.data)
+        self.assertEqual(opener.timeout, 3.0)
+        assert opener.request is not None
+        self.assertEqual(json.loads(opener.request.data)["msg_type"], "text")
+
     def test_request_targets_validated_url_with_json_and_timeout(self) -> None:
         capture = _Capture()
         _transport(capture).send(_envelope())

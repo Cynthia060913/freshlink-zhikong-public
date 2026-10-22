@@ -28,6 +28,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import os
 import urllib.error
 import urllib.parse
@@ -36,7 +37,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 from .transport import (
     DeliveryOutcome,
@@ -49,16 +50,13 @@ from .transport import (
 _ALLOWED_HOST = "open.feishu.cn"
 _ALLOWED_PATH_PREFIX = "/open-apis/bot/v2/hook/"
 _DEFAULT_TIMEOUT_S = 5.0
-_MAX_DETAIL = 200
+_MAX_RESPONSE_BYTES = 8192
+_MAX_TIMEOUT_S = 30.0
 
 # Injectable HTTP seam (mirrors SMTPTransport's smtp_factory): tests
 # pass a deterministic ``open_fn``; production uses a no-redirect
 # opener built once in __init__.
 OpenFn = Callable[[urllib.request.Request, float], Any]
-
-
-def _truncate(text: str) -> str:
-    return text if len(text) <= _MAX_DETAIL else text[: _MAX_DETAIL - 3] + "..."
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -97,11 +95,14 @@ class FeishuWebhookConfig:
         return cls(
             webhook_url=source.get("FEISHU_WEBHOOK_URL", ""),
             secret=source.get("FEISHU_WEBHOOK_SECRET", ""),
-            timeout_seconds=float(timeout_raw) if timeout_raw else _DEFAULT_TIMEOUT_S,
+            timeout_seconds=_parse_timeout(timeout_raw),
         )
 
     def validate(self) -> None:
-        parsed = urllib.parse.urlsplit(self.webhook_url)
+        try:
+            parsed = urllib.parse.urlsplit(self.webhook_url)
+        except ValueError:
+            raise ValueError("invalid feishu webhook URL") from None
         if parsed.scheme != "https":
             raise ValueError("feishu webhook must use https")
         if parsed.netloc.lower() != _ALLOWED_HOST:
@@ -110,8 +111,13 @@ class FeishuWebhookConfig:
             raise ValueError("feishu webhook path is not the official bot hook path")
         if parsed.query or parsed.fragment:
             raise ValueError("feishu webhook must not carry a query or fragment")
-        if self.timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be positive")
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or not math.isfinite(self.timeout_seconds)
+            or not 0 < self.timeout_seconds <= _MAX_TIMEOUT_S
+        ):
+            raise ValueError("timeout_seconds must be finite and within 0-30 seconds")
 
     def __repr__(self) -> str:
         # Dataclass repr would print the URL and secret; mask both.
@@ -149,14 +155,16 @@ class FeishuWebhookTransport(NotificationTransport):
             self._open = open_fn
         else:
             opener = urllib.request.build_opener(_NoRedirect())
-            self._open = cast(OpenFn, opener.open)
+            self._open = lambda request, timeout: opener.open(request, timeout=timeout)
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def send(self, envelope: NotificationEnvelope) -> NotificationResult:
         attempt_id = uuid.uuid4()
+        response: Any = None
         try:
             request = self._build_request(envelope)
             response = self._open(request, self._config.timeout_seconds)
+            return self._classify_response(attempt_id, response)
         except TimeoutError:
             return self._result(
                 attempt_id,
@@ -166,17 +174,39 @@ class FeishuWebhookTransport(NotificationTransport):
                 None,
             )
         except urllib.error.HTTPError as exc:
+            response = exc
             outcome, detail, retry_after = _classify_http_error(exc.code, exc.headers)
             return self._result(attempt_id, outcome, detail, retry_after)
-        except (urllib.error.URLError, OSError) as exc:
-            reason = getattr(exc, "reason", exc)
+        except (urllib.error.URLError, OSError):  # fmt: skip
             return self._result(
                 attempt_id,
                 DeliveryOutcome.TRANSIENT_FAILURE,
-                f"connection failure: {reason}",
+                "feishu connection or response read failed",
                 None,
             )
-        return self._classify_response(attempt_id, response)
+        except (ValueError, TypeError, UnicodeError):  # fmt: skip
+            return self._result(
+                attempt_id,
+                DeliveryOutcome.PERMANENT_FAILURE,
+                "invalid local feishu request",
+                None,
+            )
+        except Exception:
+            # The transport contract is never-raise. In particular, no remote
+            # body, URL, header or exception text may enter persisted results.
+            return self._result(
+                attempt_id,
+                DeliveryOutcome.TRANSIENT_FAILURE,
+                "feishu transport failed",
+                None,
+            )
+        finally:
+            try:
+                close = getattr(response, "close", None)
+                if callable(close):
+                    close()
+            except Exception:
+                pass
 
     # -- internals ------------------------------------------------------
 
@@ -211,15 +241,21 @@ class FeishuWebhookTransport(NotificationTransport):
     ) -> NotificationResult:
         status = getattr(response, "status", None)
         if status != 200:
+            outcome, detail, retry_after = _classify_http_error(
+                status, response.headers
+            )
             return self._result(
                 attempt_id,
-                DeliveryOutcome.PERMANENT_FAILURE,
-                f"unexpected HTTP status {status} from feishu endpoint",
-                None,
+                outcome,
+                detail,
+                retry_after,
             )
         try:
-            body = json.loads(response.read().decode("utf-8"))
-        except ValueError, UnicodeDecodeError:
+            raw = response.read(_MAX_RESPONSE_BYTES + 1)
+            if not isinstance(raw, bytes) or len(raw) > _MAX_RESPONSE_BYTES:
+                raise ValueError("invalid response size")
+            body = json.loads(raw.decode("utf-8"))
+        except (TypeError, ValueError, UnicodeDecodeError):  # fmt: skip
             # A 200 with a non-JSON body is a gateway/proxy artifact:
             # do not claim acceptance, do not claim permanent rejection.
             return self._result(
@@ -231,6 +267,13 @@ class FeishuWebhookTransport(NotificationTransport):
         code = (
             body.get("code", body.get("StatusCode")) if isinstance(body, dict) else None
         )
+        if type(code) is not int:
+            return self._result(
+                attempt_id,
+                DeliveryOutcome.TRANSIENT_FAILURE,
+                "feishu response has no numeric business code",
+                None,
+            )
         if code == 0:
             return self._result(
                 attempt_id,
@@ -239,12 +282,9 @@ class FeishuWebhookTransport(NotificationTransport):
                 "acceptance only — group members' phones may still have "
                 "notifications muted and MUST be verified out-of-band",
                 None,
-                server_response=_truncate(json.dumps(body, ensure_ascii=False)),
+                server_response="code=0",
             )
-        detail = _truncate(
-            f"feishu business rejection code={code} "
-            f"msg={body.get('msg') if isinstance(body, dict) else body!r}"
-        )
+        detail = f"feishu business rejection code={code}"
         return self._result(attempt_id, DeliveryOutcome.PERMANENT_FAILURE, detail, None)
 
     @staticmethod
@@ -266,8 +306,20 @@ class FeishuWebhookTransport(NotificationTransport):
         )
 
 
+def _parse_timeout(value: str) -> float:
+    if not value:
+        return _DEFAULT_TIMEOUT_S
+    try:
+        result = float(value)
+    except ValueError:
+        raise ValueError("invalid feishu timeout") from None
+    if not math.isfinite(result) or not 0 < result <= _MAX_TIMEOUT_S:
+        raise ValueError("invalid feishu timeout")
+    return result
+
+
 def _classify_http_error(
-    code: int, headers: Any
+    code: int | None, headers: Any
 ) -> tuple[DeliveryOutcome, str, float | None]:
     """Map a non-2xx HTTP response to the four-way outcome."""
 
@@ -276,28 +328,31 @@ def _classify_http_error(
         raw = (headers or {}).get("Retry-After") if headers else None
         if raw:
             try:
-                retry_after = float(raw)
-            except ValueError:
+                value = float(raw)
+                retry_after = (
+                    value if math.isfinite(value) and 0 <= value <= 3600 else None
+                )
+            except (TypeError, ValueError):  # fmt: skip
                 retry_after = None
         return (
             DeliveryOutcome.TRANSIENT_FAILURE,
             "feishu rate-limited the request (429)",
             retry_after,
         )
-    if 500 <= code <= 599:
+    if isinstance(code, int) and 500 <= code <= 599:
         return (
             DeliveryOutcome.TRANSIENT_FAILURE,
             f"feishu server error ({code}); retriable with backoff",
             None,
         )
-    if 300 <= code <= 399:
+    if isinstance(code, int) and 300 <= code <= 399:
         return (
             DeliveryOutcome.PERMANENT_FAILURE,
             "redirect responses are not allowed for the fixed official "
             "endpoint (constraint from the channel decision)",
             None,
         )
-    if 400 <= code <= 499:
+    if isinstance(code, int) and 400 <= code <= 499:
         return (
             DeliveryOutcome.PERMANENT_FAILURE,
             f"feishu rejected the request ({code}); not retriable",
@@ -305,6 +360,6 @@ def _classify_http_error(
         )
     return (
         DeliveryOutcome.TRANSIENT_FAILURE,
-        f"unexpected HTTP status {code}",
+        "unexpected feishu HTTP status",
         None,
     )
