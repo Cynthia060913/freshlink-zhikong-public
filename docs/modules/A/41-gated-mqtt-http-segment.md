@@ -34,6 +34,15 @@ internal 网络、tmpfs PG 与带认证/逐身份 ACL 的 Broker，无宿主端�
 状态或放宽失败标准。预检成功目录 `work/gated-f50c73e59a0445b880c7191ef0d471ea`
 为 dirty 开发快照，不冒称精确提交的最终证据；最终以随后清洁提交复测记录为准。
 
+最终清洁提交 **87b5edbf6375a4483c56d0d57c07241bc0431050** 实际复测成功：
+`work/gated-97b50f324b5d4d2cbc5da0bb327c106d/gated-telemetry.json`，
+`source_dirty=false`，SHA256
+`398460dfe495abc07650f1340427c6739e1cedc4a5e208e9a17570834ac441a0`。
+3条实际MQTT接收审计、2条业务观测、原消息重复幂等、失败回滚重试/重启、
+完整样本前沿可读/缺测后hold及JWT原文/同快照CSV均通过。cleanup记录退出0；
+Compose日志有一次重复停止已移除runner的提示，随后独立回读精确随机前缀的
+容器/网络均为空，确认没有残留；未清理其他资源。
+
 ## 可复跑与 CI
 
 先在已核验的本分支构建标准测试镜像，再执行
