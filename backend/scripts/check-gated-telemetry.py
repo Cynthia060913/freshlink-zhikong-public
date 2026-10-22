@@ -22,7 +22,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from fastapi.testclient import TestClient
 from paho.mqtt.enums import CallbackAPIVersion
-from sqlalchemy import event, func, select
+from sqlalchemy import event, func, inspect, select
 from sqlalchemy.exc import OperationalError
 from sqlmodel import Session
 
@@ -45,6 +45,28 @@ SENSOR = UUID("11111111-1111-4111-8111-111111111111")
 TOPIC = f"freshlink/v1/devices/{SENSOR}/telemetry"
 
 
+def require_empty_test_business(connection):
+    """Read-only refusal BEFORE any proposal DDL or test fixture writes."""
+    tables = set(inspect(connection).get_table_names())
+    if any(name.startswith("telemetry_") for name in tables):
+        raise RuntimeError("Preexisting C tables are not this fresh owned proof")
+    quote = connection.dialect.identifier_preparer.quote
+    for name in sorted(
+        tables - {"alembic_version", "iot_telemetry_queue_guard", "user"}
+    ):
+        if (
+            connection.exec_driver_sql(
+                "SELECT count(*) FROM " + quote(name)
+            ).scalar_one()
+            != 0
+        ):
+            raise RuntimeError("Preexisting business data; refusing test writes")
+    if connection.exec_driver_sql('SELECT count(*) FROM "user"').scalar_one() != 1:
+        raise RuntimeError(
+            "Expected only the newly initialized synthetic administrator"
+        )
+
+
 def run():
     database = urlparse(str(settings.DATABASE_URL))
     if (
@@ -59,6 +81,30 @@ def run():
     if target.exists():
         raise RuntimeError("Refusing proof overwrite")
     require_a04_candidate_schema(engine)
+    with engine.begin() as connection:
+        require_empty_test_business(connection)
+    # A real PG negative check, rolled back before any C DDL. Do not weaken the
+    # guard merely because the caller selected familiar database/host names.
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            connection.execute(
+                Device.__table__.insert().values(
+                    id=uuid4(),
+                    code="must-refuse-existing",
+                    name="Guard fixture",
+                    kind="temperature_sensor",
+                    created_at=datetime.now(UTC),
+                )
+            )
+            try:
+                require_empty_test_business(connection)
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("Nonempty business database guard failed")
+        finally:
+            transaction.rollback()
     path = Path("migration_candidates/c01_telemetry_storage.py")
     spec = importlib.util.spec_from_file_location("gated_c01_test_proposal", path)
     assert spec is not None and spec.loader is not None
@@ -66,6 +112,7 @@ def run():
     spec.loader.exec_module(proposal)
     # Only this guarded, owned, empty container DB. No activity registration.
     with engine.begin() as connection:
+        require_empty_test_business(connection)
         assert (
             connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
@@ -336,6 +383,7 @@ def run():
                         "source_dirty": os.environ["GATED_SOURCE_DIRTY"] == "1",
                         "c_revision": "5603552718d64c36bf369d162b515dea9ce24150",
                         "actual_a05_migration": True,
+                        "nonempty_database_refused_before_ddl": True,
                         "c01_inactive_test_proposal_only": True,
                         "explicit_fresh_origin": True,
                         "registered_sensor_is_fixture": True,
