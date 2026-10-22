@@ -1,5 +1,23 @@
 # C 共享接线请求
 
+## 2026-10-22 非活动 C01 十表迁移提案（不得直接升级原库）
+
+C 已在 `backend/migration_candidates/c01_telemetry_storage.py` 准备**非活动**
+Alembic 源码，提案父节点为 A [PR46 候选 `a05_stream_frontier`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/46)。
+它不放进 `backend/app/alembic/versions`，不改 `env.py`、共享 head、主程序或真实
+数据库。十张表与 C 当前九张 `storage_candidate.metadata` 加一张
+`recovery_progress_candidate.metadata` 的列、空值、类型、外键、唯一约束、
+两索引逐项一致，升级不插入数据/epoch/hold；本机静态及隔离模型测试 3/3。
+表名仍带 `_candidate`，因为当前 C 运行源码直接使用这些表名；团队若要在发布时
+命名去后缀，需同一包修改模块表映射与迁移并跑空库/旧数据/回滚测试，不能只改迁移。
+
+A 作为唯一集成方应在 A04/A05 真正审定并合入唯一链后，先核对当时真实 head、
+C metadata/表名及恢复冻结 stamp 必需字段，再决定是否提升这份提案为活动后继，
+同时登记两个 C metadata。**当前 C01 缺冻结 stamp 与原异常关联字段**，所以
+即使十表提案逐项匹配现有候选，也不能直接当作自动恢复可发布 schema。
+需真实 PostgreSQL 空库→唯一链升级、保留 A/B 旧行、`alembic check`、
+重启留存及降级边界验证；本机 3 项只证明源码静态一致性。
+
 ## 2026-10-22 评估结果同连接写端口（局部准备）
 
 `rule_evaluation_candidate.py::mark_evaluation_on_connection_candidate`

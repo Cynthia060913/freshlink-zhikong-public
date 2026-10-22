@@ -1,5 +1,13 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-22 非活动 C01 迁移提案静态核对
+
+在本人 Windows 隔离 Python3.13.9 下，`test_telemetry_c01_migration_proposal`
+**3/3通过**：提案父节点 A05 且未进入活动 versions；模拟 Alembic op 逐项
+比较十表的列/类型/空值/主键/外键/唯一约束/两索引与当前 C 模型；降级只按依赖
+顺序操作 C 表。没有 PostgreSQL 连接/升级/`alembic check`/旧行保留或重启验证，
+也没有安装/启用新的活动迁移。
+
 ## 2026-10-22 评估写标记局部同事务测试
 
 C 将风险和评估任务状态写入调用方 Connection 的局部端口，原 Engine
