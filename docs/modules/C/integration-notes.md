@@ -844,3 +844,9 @@ PostgreSQL 行锁。A 的唯一 C01 活动候选和真正 PG 锁组合在 PR #54
 正式迁移发布与高温规则/告警联调仍须按其精确头共同审核。恢复窗口、
 invalid/冲突接纳、候选投递和发送前复核等其他写入口仍待同版门禁覆盖；
 本端口不启用自动恢复，也不表示完整 E1 已通过。
+`test_telemetry_gated_high_postgres_candidate.py` 另在 A 的一次性私有 PG schema
+内建立测试用 C 表，核实际 A gate + C 高温 outbox/risk/job 同时提交、重放不
+增加 revision、错 epoch 拒绝。此测试需要项目 Python3.14 与明确的受控 PG
+开关；本人 Windows Python3.13 无法加载完整项目测试配置，待精确提交的
+远端门禁真实执行后再记录结果。测试中直接插入合成观测/规则正文，不证明
+真实 B 历史规则选择或正式 C01 升级。
