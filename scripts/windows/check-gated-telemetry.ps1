@@ -45,7 +45,7 @@ try {
     if($report.phase -ne 'actual_mqtt_gated_c_http_csv_passed' -or $report.source_revision -ne $revision -or $report.complete_e1 -or $report.notifications_sent -ne 0){throw 'Wrong proof identity/scope'}
     $exitCode=0
     Write-Output ('PASS gated MQTT/C/JWT-HTTP/CSV segment; evidence: '+$results)
-    Write-Output 'NOT FULL E1: C01 is a test proposal; no recovery/real notifications/second-machine acceptance.'
+    Write-Output 'NOT FULL E1: C01 is candidate-only; no recovery/real notifications/second-machine acceptance.'
 } catch {Write-Output ('STOP: '+$_.Exception.Message)}
 finally {
     if($docker -and $compose){

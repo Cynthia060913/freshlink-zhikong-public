@@ -52,7 +52,7 @@ def _signature(table: sa.Table) -> tuple:
 
 
 class C01MigrationProposalTests(unittest.TestCase):
-    def test_proposal_is_inactive_and_points_to_reviewed_a05_candidate(self) -> None:
+    def test_proposal_parent_and_any_promotion_preserve_frozen_functions(self) -> None:
         self.assertEqual(proposal.revision, "c01_telemetry_storage")
         self.assertEqual(proposal.down_revision, "a05_stream_frontier")
         for path in (BACKEND / "app/alembic/versions").glob("*.py"):
@@ -62,7 +62,18 @@ class C01MigrationProposalTests(unittest.TestCase):
                     isinstance(target, ast.Name) and target.id == "revision"
                     for target in node.targets
                 ):
-                    self.assertNotEqual(ast.literal_eval(node.value), proposal.revision)
+                    if ast.literal_eval(node.value) == proposal.revision:
+                        self.assertEqual(path.name, "c01_telemetry_storage.py")
+                        frozen = ast.parse(PATH.read_text(encoding="utf-8"))
+
+                        def functions(parsed):
+                            return [
+                                ast.dump(item, include_attributes=False)
+                                for item in parsed.body
+                                if isinstance(item, ast.FunctionDef)
+                            ]
+
+                        self.assertEqual(functions(tree), functions(frozen))
 
     def test_all_ten_tables_columns_constraints_and_indexes_match_c_models(
         self,

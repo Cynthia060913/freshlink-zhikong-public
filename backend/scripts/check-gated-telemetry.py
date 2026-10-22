@@ -1,11 +1,10 @@
 """Owned-container proof of actual MQTT -> gated C -> authenticated CSV.
 
-C01 is explicitly applied as an INACTIVE TEST PROPOSAL, not a released chain.
+C01 runs through the candidate Alembic chain, not ad-hoc test DDL.
 No notifications, recovery dispatch, original data or personal configuration.
 """
 
 import csv
-import importlib.util
 import json
 import os
 import threading
@@ -13,13 +12,10 @@ import time
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 import paho.mqtt.client as mqtt
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from fastapi.testclient import TestClient
 from paho.mqtt.enums import CallbackAPIVersion
 from sqlalchemy import event, func, inspect, select
@@ -29,7 +25,10 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.core.db import engine
 from app.main import app
-from app.modules.iot.frontier_bootstrap import initialize_fresh_streams
+from app.modules.iot.frontier_bootstrap import (
+    C_EVIDENCE_TABLES,
+    initialize_fresh_streams,
+)
 from app.modules.iot.heartbeat_worker import HeartbeatWorkerSettings
 from app.modules.iot.models import Device
 from app.modules.iot.proof_schema_guard import require_a04_candidate_schema
@@ -46,10 +45,10 @@ TOPIC = f"freshlink/v1/devices/{SENSOR}/telemetry"
 
 
 def require_empty_test_business(connection):
-    """Read-only refusal BEFORE any proposal DDL or test fixture writes."""
+    """Require actual C01 tables, all empty, BEFORE test fixture writes."""
     tables = set(inspect(connection).get_table_names())
-    if any(name.startswith("telemetry_") for name in tables):
-        raise RuntimeError("Preexisting C tables are not this fresh owned proof")
+    if {name for name in tables if name.startswith("telemetry_")} != C_EVIDENCE_TABLES:
+        raise RuntimeError("Actual complete C01 schema required; no fallback test DDL")
     quote = connection.dialect.identifier_preparer.quote
     for name in sorted(
         tables - {"alembic_version", "iot_telemetry_queue_guard", "user"}
@@ -83,7 +82,7 @@ def run():
     require_a04_candidate_schema(engine)
     with engine.begin() as connection:
         require_empty_test_business(connection)
-    # A real PG negative check, rolled back before any C DDL. Do not weaken the
+    # A real PG negative check, rolled back before fixtures. Do not weaken the
     # guard merely because the caller selected familiar database/host names.
     with engine.connect() as connection:
         transaction = connection.begin()
@@ -105,24 +104,14 @@ def run():
                 raise AssertionError("Nonempty business database guard failed")
         finally:
             transaction.rollback()
-    path = Path("migration_candidates/c01_telemetry_storage.py")
-    spec = importlib.util.spec_from_file_location("gated_c01_test_proposal", path)
-    assert spec is not None and spec.loader is not None
-    proposal = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(proposal)
-    # Only this guarded, owned, empty container DB. No activity registration.
-    with engine.begin() as connection:
+    with engine.connect() as connection:
         require_empty_test_business(connection)
         assert (
             connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
             ).scalar_one()
-            == "a05_stream_frontier"
+            == "c01_telemetry_storage"
         )
-        with patch.object(
-            proposal, "op", Operations(MigrationContext.configure(connection))
-        ):
-            proposal.upgrade()
 
     def rows(table):
         with engine.connect() as connection:
@@ -383,8 +372,9 @@ def run():
                         "source_dirty": os.environ["GATED_SOURCE_DIRTY"] == "1",
                         "c_revision": "bad804c8dcd2d9656f33f23797b1590b703c2be5",
                         "actual_a05_migration": True,
-                        "nonempty_database_refused_before_ddl": True,
-                        "c01_inactive_test_proposal_only": True,
+                        "nonempty_database_refused_before_fixtures": True,
+                        "actual_c01_candidate_alembic_migration": True,
+                        "c01_released_on_main": False,
                         "explicit_fresh_origin": True,
                         "registered_sensor_is_fixture": True,
                         "actual_b_http_warehouse_binding": True,

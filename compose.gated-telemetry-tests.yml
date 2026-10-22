@@ -1,4 +1,4 @@
-# Owned internal network only. C01 remains an explicitly labelled test proposal.
+# Owned internal network only. C01 runs through the candidate Alembic chain.
 services:
   test-db:
     image: postgres:18
