@@ -1,0 +1,52 @@
+# Owned internal network only. C01 remains an explicitly labelled test proposal.
+services:
+  test-db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: freshlink_test
+      POSTGRES_PASSWORD: gated_disposable_only
+      POSTGRES_DB: freshlink_test
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freshlink_test -d freshlink_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  broker:
+    image: eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408
+    entrypoint: ["sh", "/fixtures/start.sh"]
+    volumes:
+      - ./scripts/mqtt-runtime:/fixtures:ro
+  test-runner:
+    image: ${GATED_APP_IMAGE:?Use check-gated-telemetry.ps1}
+    working_dir: /source/backend
+    environment:
+      PROJECT_NAME: FreshLink-test
+      FASTAPI_ENV: development
+      SECRET_KEY: gated-disposable-test-key-only-32-characters
+      FIRST_SUPERUSER: admin@example.com
+      FIRST_SUPERUSER_PASSWORD: gated-disposable-admin-only
+      DATABASE_URL: postgresql://freshlink_test:gated_disposable_only@test-db:5432/freshlink_test
+      SMTP_HOST: ""
+      EMAILS_FROM_EMAIL: ""
+      SENTRY_DSN: ""
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /source/backend
+      FRESHLINK_GATED_PROOF: "1"
+      GATED_SOURCE_REVISION: ${GATED_SOURCE_REVISION:?Missing source identity}
+      GATED_SOURCE_DIRTY: ${GATED_SOURCE_DIRTY:?Missing worktree state}
+    volumes:
+      - ./backend:/source/backend:ro
+      - ${GATED_RESULT_DIR:?Missing private result directory}:/results
+    entrypoint: ["/app/.venv/bin/python", "-B", "-c"]
+    command:
+      - >-
+        import subprocess,sys;
+        subprocess.run([sys.executable,'-m','alembic','upgrade','head'],check=True);
+        subprocess.run([sys.executable,'-m','alembic','check'],check=True);
+        subprocess.run([sys.executable,'app/initial_data.py'],check=True);
+        subprocess.run([sys.executable,'scripts/check-gated-telemetry.py'],check=True)
+networks:
+  default:
+    internal: true
