@@ -80,6 +80,45 @@ def _context(row: RowMapping, epoch: UUID, warehouse_id: UUID) -> None:
         raise FrontierUnavailable("epoch or binding mismatch")
 
 
+def begin_evidence_write(
+    connection: Connection, *, device_id: UUID, warehouse_id: UUID, epoch: UUID
+) -> int:
+    """Candidate C write gate on the caller's transaction, never a commit.
+
+    Call BEFORE reading evidence or writing any C observation/receipt/conflict,
+    risk, window or frozen outbox. Keep this connection through the whole local
+    unit. The stream row stays locked until the OUTER commit/rollback; advancing
+    evidence_revision invalidates earlier frozen stamps even without a new A
+    admission. A rolled-back C unit also rolls back this revision increment.
+
+    This is not a complete-frontier check: pending samples must still be able
+    to enter C. Freeze only after all writes via read_complete_frontier, saving
+    its resulting stamp. Bad evidence must additionally call mark_uncertain in
+    this unit. Never acquire the inbox singleton after this gate, open another
+    C Engine transaction, or perform network I/O while holding the lock.
+
+    Does not initialize streams, enable production callers, solve concurrent
+    device rebinding, or authorize automatic recovery/external notification.
+    """
+    row = _locked(connection, {device_id})[device_id]
+    _context(row, epoch, warehouse_id)
+    binding = connection.execute(
+        select(col(Device.warehouse_id)).where(col(Device.id) == device_id)
+    ).scalar_one_or_none()
+    if binding != warehouse_id:
+        raise FrontierUnavailable("current device binding mismatch")
+    previous_revision = row["evidence_revision"]
+    if not isinstance(previous_revision, int) or isinstance(previous_revision, bool):
+        raise FrontierUnavailable("invalid stored evidence revision")
+    revision = previous_revision + 1
+    connection.execute(
+        update(streams)
+        .where(streams.c.device_id == device_id)
+        .values(evidence_revision=revision)
+    )
+    return revision
+
+
 def admission_preflight(
     connection: Connection,
     *,
