@@ -43,6 +43,13 @@ internal 网络、tmpfs PG 与带认证/逐身份 ACL 的 Broker，无宿主端�
 Compose日志有一次重复停止已移除runner的提示，随后独立回读精确随机前缀的
 容器/网络均为空，确认没有残留；未清理其他资源。
 
+进一步增加“任何提案DDL/夹具写入前拒绝已有业务数据”的只读守卫，并在真实
+PG 中插入一条事务内负例、确证拒绝再回滚。最终守卫版清洁提交
+**1b49a4fa4fe61cd0380a204e8b4684b563eead50** 又实际复测成功，
+`work/gated-6edc0e35650a4b4c9d91c8d5a5ecfe55/gated-telemetry.json`，SHA256
+`14d4083e7e46a1b41808fc7cae0a784bf5f5e774dcebd1943482b5e542e4e519`；
+保留全部前述断言，`nonempty_database_refused_before_ddl=true`、清理退出0。
+
 ## 可复跑与 CI
 
 先在已核验的本分支构建标准测试镜像，再执行
