@@ -53,6 +53,7 @@ def run():
     from app.main import app
     from app.modules.iot.control_worker import ControlWorker, ControlWorkerSettings
     from app.modules.iot.frontier_bootstrap import initialize_fresh_streams
+    from app.modules.iot.heartbeat import HeartbeatPolicy
     from app.modules.iot.heartbeat_worker import (
         HeartbeatWorker,
         HeartbeatWorkerSettings,
@@ -250,6 +251,7 @@ def run():
                     **common, client_id="gated-fleet-heartbeat", device_ids=all_ids
                 ),
                 password="fixture-controller-only",
+                policy=HeartbeatPolicy(offline_after_seconds=3),
             )
             control = ControlWorker(
                 ControlWorkerSettings(
@@ -383,6 +385,64 @@ def run():
                 if worker is fleet:
                     thread.join(10)
                     require(not thread.is_alive(), "all software devices stopped")
+
+            def all_offline():
+                response = api.get("/api/v1/devices/", headers=headers)
+                require(response.status_code == 200, "offline list read")
+                items = response.json()["data"]
+                return len(items) == 14 and all(
+                    item["connectivity"] == "offline" for item in items
+                )
+
+            wait_for(all_offline)
+            old_ids = {row["id"] for row in saved()}
+            restarted_at = datetime.now(UTC)
+            restarted = SimulatorFleet(
+                configuration, password_for=passwords.__getitem__
+            )
+            launch(restarted)
+
+            def resumed():
+                rows = saved()
+                return online_and_saved() and set(bindings) <= {
+                    row["device_id"]
+                    for row in rows
+                    if row["sampled_at_utc"] > restarted_at
+                }
+
+            wait_for(resumed)
+            require(
+                old_ids <= {row["id"] for row in saved()}, "restart retained C history"
+            )
+            require(
+                all(
+                    runtime.plant.state()["execution_count"] == 1
+                    for runtime in restarted.runtimes
+                ),
+                "durable simulator restart did not reexecute commands",
+            )
+            for device_id in all_ids:
+                response = api.get(
+                    f"/api/v1/devices/{device_id}/connectivity-events", headers=headers
+                )
+                require(response.status_code == 200, "connectivity trace read")
+                events = response.json()["data"]
+                offline = [event for event in events if event["kind"] == "offline"]
+                recovered = [event for event in events if event["kind"] == "recovered"]
+                require(
+                    len(offline) == 1
+                    and len(recovered) == 1
+                    and recovered[0]["related_source_event_id"]
+                    == offline[0]["source_event_id"],
+                    "offline/recovered trace links exact original event",
+                )
+            restarted.stop_requested.set()
+            for thread, worker in zip(threads, workers, strict=True):
+                if worker is restarted:
+                    thread.join(10)
+                    require(
+                        not thread.is_alive(), "restarted fleet stopped before draining"
+                    )
             receiver.stop_requested.set()
             for thread, worker in zip(threads, workers, strict=True):
                 if worker is receiver:
@@ -453,6 +513,10 @@ def run():
                 "online_devices": 14,
                 "sensor_streams_with_actual_c_data": 7,
                 "actuators_with_real_execution_ack_and_later_cooling_sample": 7,
+                "offline_recovered_trace_devices": 14,
+                "test_offline_threshold_seconds_not_production_default": 3,
+                "same_sqlite_runtime_restart_retained_execution_count": 1,
+                "restart_retained_c_history_and_resumed_7_streams": True,
                 "warehouse_snapshot_csv_counts": counts,
                 "actual_multi_batch_hold_and_single_batch_normal": outcomes,
                 "notifications_sent": 0,
