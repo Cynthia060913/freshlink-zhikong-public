@@ -1,0 +1,68 @@
+user fixture-controller
+topic read freshlink/v1/devices/+/heartbeat
+topic read freshlink/v1/devices/+/telemetry
+topic read freshlink/v1/devices/+/acks
+topic write freshlink/v1/devices/+/commands
+
+user fixture-sensor-1
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000001/telemetry
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000001/heartbeat
+
+user fixture-actuator-1
+topic read freshlink/v1/devices/20000000-0000-4000-8000-000000000001/commands
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000001/acks
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000001/heartbeat
+
+user fixture-sensor-2
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000002/telemetry
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000002/heartbeat
+
+user fixture-actuator-2
+topic read freshlink/v1/devices/20000000-0000-4000-8000-000000000002/commands
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000002/acks
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000002/heartbeat
+
+user fixture-sensor-3
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000003/telemetry
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000003/heartbeat
+
+user fixture-actuator-3
+topic read freshlink/v1/devices/20000000-0000-4000-8000-000000000003/commands
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000003/acks
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000003/heartbeat
+
+user fixture-sensor-4
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000004/telemetry
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000004/heartbeat
+
+user fixture-actuator-4
+topic read freshlink/v1/devices/20000000-0000-4000-8000-000000000004/commands
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000004/acks
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000004/heartbeat
+
+user fixture-sensor-5
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000005/telemetry
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000005/heartbeat
+
+user fixture-actuator-5
+topic read freshlink/v1/devices/20000000-0000-4000-8000-000000000005/commands
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000005/acks
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000005/heartbeat
+
+user fixture-sensor-6
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000006/telemetry
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000006/heartbeat
+
+user fixture-actuator-6
+topic read freshlink/v1/devices/20000000-0000-4000-8000-000000000006/commands
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000006/acks
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000006/heartbeat
+
+user fixture-sensor-7
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000007/telemetry
+topic write freshlink/v1/devices/10000000-0000-4000-8000-000000000007/heartbeat
+
+user fixture-actuator-7
+topic read freshlink/v1/devices/20000000-0000-4000-8000-000000000007/commands
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000007/acks
+topic write freshlink/v1/devices/20000000-0000-4000-8000-000000000007/heartbeat
