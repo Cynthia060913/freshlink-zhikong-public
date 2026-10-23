@@ -273,7 +273,7 @@ def run():
             delivery = TelemetryDeliveryWorker(
                 engine,
                 GatedTelemetrySink(engine, frontier_epochs=epochs),
-                poll_seconds=0.02,
+                poll_seconds=0.1,
                 frontier_epochs=epochs,
             )
             fleet = SimulatorFleet(configuration, password_for=passwords.__getitem__)
