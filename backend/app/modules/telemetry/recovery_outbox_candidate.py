@@ -17,7 +17,13 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.modules.iot.stream_frontier import FrontierStamp, stamp_is_current
+from app.modules.iot.stream_frontier import (
+    FrontierStamp,
+    begin_evidence_write,
+    mark_uncertain,
+    read_complete_frontier,
+    stamp_is_current,
+)
 from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
 from app.modules.telemetry.outbox_candidate import (
     outbox,
@@ -420,3 +426,84 @@ def stage_eligible_recovery_candidate(
         return RecoveryStageResultCandidate(
             "retryable_failure", reason="storage_unavailable"
         )
+
+
+def stage_gated_recovery_candidate(
+    engine: Engine,
+    *,
+    device_id: UUID,
+    warehouse_id: UUID,
+    stream_epoch: UUID,
+    original_source_event_id: UUID,
+    historical_rule: dict[str, Any] | None,
+    now: datetime,
+) -> RecoveryStageResultCandidate:
+    """Stage and freeze a recovery under A's write gate in one transaction.
+
+    B's historical rule is selected before this call; there is no network
+    activity or B read while holding the device lock. A's stream revision,
+    C's outbox row and the complete frontier stamp commit together. This is
+    an opt-in candidate port, not an automatic sender or worker.
+    """
+    if not all(
+        isinstance(value, UUID)
+        for value in (
+            device_id,
+            warehouse_id,
+            stream_epoch,
+            original_source_event_id,
+        )
+    ):
+        raise ValueError("trusted device, warehouse, epoch and anomaly UUIDs required")
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be an aware datetime")
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            begin_evidence_write(
+                connection,
+                device_id=device_id,
+                warehouse_id=warehouse_id,
+                epoch=stream_epoch,
+            )
+            result = stage_eligible_recovery_on_connection_candidate(
+                connection,
+                original_source_event_id=original_source_event_id,
+                historical_rule=historical_rule,
+                now=now,
+            )
+            if result.status == "staged":
+                stamp = read_complete_frontier(
+                    connection,
+                    device_id=device_id,
+                    warehouse_id=warehouse_id,
+                    epoch=stream_epoch,
+                )
+                if stamp is None:
+                    transaction.rollback()
+                    return RecoveryStageResultCandidate(
+                        "held_invalid_evidence", reason="frontier_incomplete"
+                    )
+                if result.source_event_id is None:
+                    raise ValueError("staged recovery has no source event ID")
+                freeze_recovery_frontier_on_connection_candidate(
+                    connection,
+                    recovery_source_event_id=result.source_event_id,
+                    original_source_event_id=original_source_event_id,
+                    stamp=stamp,
+                )
+                transaction.commit()
+            elif result.status == "conflict":
+                # Preserve the same-source different-body audit and A hold.
+                mark_uncertain(connection, device_id=device_id, epoch=stream_epoch)
+                transaction.commit()
+            else:
+                # A repeat or wait did not change C state. Roll back the
+                # otherwise unnecessary A revision so an existing frozen
+                # recovery is not invalidated by a no-op poll.
+                transaction.rollback()
+            return result
+        except BaseException:
+            if transaction.is_active:
+                transaction.rollback()
+            raise

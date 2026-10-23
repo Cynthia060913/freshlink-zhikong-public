@@ -305,7 +305,7 @@ class PostgresStorageCandidateTests(unittest.TestCase):
                             "rule_version": "temp-v1",
                             "metric_code": "temperature",
                             "unit": "°C",
-                            "kind": "temperature_high",
+                            "kind": "threshold_high",
                             "severity": "warning",
                             "comparison": ">",
                             "threshold": 8.0,
@@ -446,7 +446,7 @@ class PostgresStorageCandidateTests(unittest.TestCase):
             "staged",
         )
         historical_rule = {
-            "kind": "temperature_high",
+            "kind": "threshold_high",
             "warehouse_id": str(_WAREHOUSE_ID),
             "batch_id": str(batch_id),
             "metric_code": "temperature",
@@ -641,7 +641,7 @@ class PostgresStorageCandidateTests(unittest.TestCase):
                             "rule_version": self.version,
                             "metric_code": "temperature",
                             "unit": "°C",
-                            "kind": "temperature_high",
+                            "kind": "threshold_high",
                             "severity": "warning",
                             "comparison": ">",
                             "threshold": self.threshold,

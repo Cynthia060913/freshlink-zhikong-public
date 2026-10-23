@@ -2,11 +2,12 @@
 
 import csv
 import json
+import sys
 import tempfile
 import unittest
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +15,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import create_engine, delete, select, update
 from sqlalchemy.exc import OperationalError
+from sqlmodel import Session, SQLModel
 
 from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
 from app.modules.telemetry.outbox_candidate import (
@@ -21,11 +23,14 @@ from app.modules.telemetry.outbox_candidate import (
     outbox_conflicts,
     stage_f03_candidate,
 )
+from app.modules.telemetry.recovery_rule_candidate import bind_original_recovery_rule
 from app.modules.telemetry.rule_evaluation_candidate import (
     evaluate_one_batch_candidate,
     mark_evaluation_on_connection_candidate,
+    select_and_stage_gated_high_candidate,
     stage_evaluated_high_on_connection_candidate,
     stage_gated_high_candidate,
+    stage_gated_within_rule_candidate,
 )
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
@@ -79,7 +84,7 @@ def _rule(**changes: object) -> dict:
         "snapshot_id": str(SNAPSHOT),
         "metric_code": "temperature",
         "unit": "°C",
-        "kind": "temperature_high",
+        "kind": "threshold_high",
         "severity": "warning",
         "comparison": ">",
         "threshold": 8.0,
@@ -127,6 +132,71 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(select(table)).mappings()]
 
+    def test_gated_normal_requires_clean_raw_and_historical_rule(self) -> None:
+        clean_id, _ = self._ingest(7)
+        missing_id, _ = self._ingest(7, humidity=False)
+        hot_id, _ = self._ingest(13)
+        rule = _rule()["rules"][0]
+        kwargs = {
+            "device_id": DEVICE,
+            "warehouse_id": WAREHOUSE,
+            "stream_epoch": uuid4(),
+            "batch_id": BATCH,
+        }
+        with patch(
+            "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+            return_value=1,
+        ) as gate:
+            for identity, selected in (
+                (missing_id, rule),
+                (hot_id, rule),
+                (clean_id, {**rule, "unit": "°F"}),
+                (clean_id, {**rule, "effective_end_at": "2026-10-15T00:00:00Z"}),
+                (clean_id, {}),
+            ):
+                result = stage_gated_within_rule_candidate(
+                    self.engine,
+                    observation_id=identity,
+                    selected_rule=selected,
+                    **kwargs,
+                )
+                self.assertEqual(result.status, "held_unknown")
+            self.assertEqual(gate.call_count, 5)
+            self.assertTrue(
+                all(row["state"] == "pending" for row in self._read(evaluation_jobs))
+            )
+            self.assertTrue(
+                all(
+                    row["risk"]["state"] == "unknown"
+                    for row in self._read(observations)
+                )
+            )
+            self.assertEqual(self._read(outbox), [])
+            result = stage_gated_within_rule_candidate(
+                self.engine,
+                observation_id=clean_id,
+                selected_rule=rule,
+                **kwargs,
+            )
+            self.assertEqual(result.status, "within_rule")
+            replay = stage_gated_within_rule_candidate(
+                self.engine,
+                observation_id=clean_id,
+                selected_rule=rule,
+                **kwargs,
+            )
+            self.assertEqual(replay.status, "not_due")
+        state = next(
+            row
+            for row in self._read(evaluation_jobs)
+            if row["observation_id"] == clean_id
+        )
+        self.assertEqual(state["state"], "within_rule")
+        normal = next(row for row in self._read(observations) if row["id"] == clean_id)
+        self.assertEqual(normal["risk"]["state"], "normal")
+        self.assertEqual(normal["risk"]["rule_snapshot_id"], str(SNAPSHOT))
+        self.assertEqual(self._read(outbox), [])
+
     def _preselected_high(self) -> tuple[UUID, dict]:
         observation_id, _ = self._ingest(13)
         result = evaluate_one_batch_candidate(
@@ -143,6 +213,151 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
             connection.execute(update(evaluation_jobs).values(state="pending"))
             connection.execute(update(observations).values(risk={"state": "unknown"}))
         return observation_id, body
+
+    def test_actual_b_f02_rule_kind_projects_to_c_f03_and_recovery(self) -> None:
+        """Exercise B's real SQLite service DTO, not a handwritten F02 reply."""
+        if sys.version_info < (3, 14):  # noqa: UP036 - local 3.13 can run C-only tests
+            self.skipTest("B service uses Python 3.14 syntax")
+        from app.modules.alerts.models import (
+            Batch,
+            BatchCreate,
+            BatchRuleSnapshot,
+            BatchRuleSnapshotCreate,
+            RecoverySpec,
+            RuleDict,
+            RuleSeverity,
+            Warehouse,
+            WarehouseCreate,
+        )
+        from app.modules.alerts.services.batches import create_batch
+        from app.modules.alerts.services.rules import create_snapshot
+        from app.modules.alerts.services.warehouses import create_warehouse
+
+        SQLModel.metadata.create_all(
+            self.engine,
+            tables=[
+                Warehouse.__table__,
+                Batch.__table__,
+                BatchRuleSnapshot.__table__,
+            ],
+        )
+        with Session(self.engine) as session:
+            warehouse_id = create_warehouse(
+                session, WarehouseCreate(code="wh-c-f02", name="F02 test")
+            ).id
+            batch_id = create_batch(
+                session,
+                warehouse_id,
+                BatchCreate(code="batch-c-f02", product="apple", started_at=NOW),
+            ).id
+            create_snapshot(
+                session,
+                batch_id,
+                BatchRuleSnapshotCreate(
+                    version_id=uuid4(),
+                    rule_version="b-f02-v1",
+                    effective_start_at=NOW - timedelta(days=1),
+                    rules=[
+                        RuleDict(
+                            metric_code="temperature",
+                            candidate_kind="threshold_high",
+                            severity=RuleSeverity.WARNING,
+                            threshold_high=8.0,
+                            unit="°C",
+                            recovery=RecoverySpec(
+                                comparison="<=", threshold=7.0, min_samples=3
+                            ),
+                        )
+                    ],
+                ),
+            )
+        # C's device/warehouse identity must match B's trusted association.
+        raw = json.dumps(
+            {
+                "schema_version": "1.0",
+                "device_id": str(DEVICE),
+                "message_id": str(uuid4()),
+                "sampled_at": "2026-10-15T00:00:00Z",
+                "metrics": [
+                    {"key": "temperature", "value": 13.0, "unit": "°C"},
+                    {"key": "humidity", "value": 75, "unit": "%RH"},
+                ],
+            },
+            ensure_ascii=False,
+        )
+        created = ingest_observation(
+            self.engine,
+            Reception(raw, uuid4(), warehouse_id=warehouse_id),
+        )
+        self.assertEqual(created.status, "accepted_new")
+        assert created.observation_id is not None
+
+        from app.modules.telemetry.rule_evaluation_candidate import (
+            LocalBRuleSelectionCandidate,
+        )
+
+        selector = LocalBRuleSelectionCandidate(self.engine)
+        evaluated = evaluate_one_batch_candidate(
+            self.engine,
+            observation_id=created.observation_id,
+            batch_id=batch_id,
+            selector=selector,
+            now=NOW,
+        )
+        self.assertEqual(evaluated.status, "candidate_staged")
+        reply = selector.select_rules_for_observation(
+            warehouse_id=warehouse_id,
+            batch_ids=(batch_id,),
+            metric_code="temperature",
+            sampled_at=NOW,
+        )
+        self.assertEqual(reply["rules"][0]["kind"], "threshold_high")
+        body = self._read(outbox)[0]["body"]
+        self.assertEqual(body["kind"], "temperature_high")
+        recovered = bind_original_recovery_rule(body, reply["rules"][0])
+        self.assertIsNotNone(recovered)
+        assert recovered is not None
+        self.assertEqual((recovered.comparison, recovered.min_samples), ("<=", 3))
+
+        # The opt-in gated path must consume the same real B DTO. The A gate
+        # is mocked here; strict PostgreSQL tests separately exercise its lock.
+        with self.engine.begin() as connection:
+            connection.execute(delete(outbox))
+            connection.execute(
+                update(evaluation_jobs)
+                .where(evaluation_jobs.c.observation_id == created.observation_id)
+                .values(state="pending")
+            )
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == created.observation_id)
+                .values(risk={"state": "unknown"})
+            )
+
+        def simulated_gate(connection, **_kwargs):
+            connection.execute(
+                update(evaluation_jobs)
+                .where(evaluation_jobs.c.observation_id == created.observation_id)
+                .values(state=evaluation_jobs.c.state)
+            )
+            return 1
+
+        with patch(
+            "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+            side_effect=simulated_gate,
+        ):
+            gated = select_and_stage_gated_high_candidate(
+                self.engine,
+                device_id=DEVICE,
+                warehouse_id=warehouse_id,
+                stream_epoch=uuid4(),
+                observation_id=created.observation_id,
+                batch_id=batch_id,
+                selector=selector,
+                now=NOW,
+            )
+        self.assertEqual(gated.status, "candidate_staged")
+        self.assertEqual(self._read(outbox)[0]["body"]["kind"], "temperature_high")
 
     def test_gated_high_commits_once_and_rolls_back_noop_replay(self) -> None:
         """Mock A gate on SQLite; this does not prove the real PG row lock."""
@@ -194,6 +409,74 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
             )
             self.assertEqual(replay.status, "not_due")
             self.assertEqual(len(self._read(outbox)), 1)
+
+    def test_f02_selection_precedes_gated_high_write_and_no_rule_stays_unknown(
+        self,
+    ) -> None:
+        """SQLite mocks A gate; real PG lock remains a separate strict test."""
+        observation_id, _ = self._ingest(13)
+        selector = Selector(_rule())
+        epoch = uuid4()
+
+        def simulated_gate(connection, **_kwargs):
+            self.assertEqual(len(selector.calls), 1)
+            connection.execute(
+                update(evaluation_jobs)
+                .where(evaluation_jobs.c.observation_id == observation_id)
+                .values(state=evaluation_jobs.c.state)
+            )
+            return 1
+
+        with patch(
+            "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+            side_effect=simulated_gate,
+        ):
+            result = select_and_stage_gated_high_candidate(
+                self.engine,
+                device_id=DEVICE,
+                warehouse_id=WAREHOUSE,
+                stream_epoch=epoch,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                selector=selector,
+                now=NOW,
+            )
+        self.assertEqual(result.status, "candidate_staged")
+        self.assertEqual(self._read(outbox)[0]["body"]["kind"], "temperature_high")
+        self.assertEqual(len(selector.calls), 1)
+        replay = select_and_stage_gated_high_candidate(
+            self.engine,
+            device_id=DEVICE,
+            warehouse_id=WAREHOUSE,
+            stream_epoch=epoch,
+            observation_id=observation_id,
+            batch_id=BATCH,
+            selector=selector,
+            now=NOW,
+        )
+        self.assertEqual(replay.status, "not_due")
+        self.assertEqual(len(selector.calls), 1)
+
+        other_id, _ = self._ingest(13)
+        no_rule = select_and_stage_gated_high_candidate(
+            self.engine,
+            device_id=DEVICE,
+            warehouse_id=WAREHOUSE,
+            stream_epoch=epoch,
+            observation_id=other_id,
+            batch_id=BATCH,
+            selector=Selector({"status": "no_rule", "rules": []}),
+            now=NOW,
+        )
+        self.assertEqual(
+            (no_rule.status, no_rule.reason), ("held_unknown", "no_usable_rule")
+        )
+        self.assertEqual(
+            next(row for row in self._read(observations) if row["id"] == other_id)[
+                "risk"
+            ]["state"],
+            "unknown",
+        )
 
     def test_gated_high_rejects_wrong_owner_and_rolls_back(self) -> None:
         observation_id, body = self._preselected_high()

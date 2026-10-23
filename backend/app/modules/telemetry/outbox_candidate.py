@@ -96,7 +96,11 @@ _original_outbox = outbox.alias("original_candidate")
 
 
 def _dependency_ready() -> ColumnElement[bool]:
-    """A recovery is due only after its own original is delivered to B."""
+    """A recovery needs its original and a complete frozen A frontier.
+
+    This is a necessary local gate, not a current-frontier/send-time proof.
+    The recovery sender remains disabled until that separate check exists.
+    """
     original_delivered = (
         select(_original_outbox.c.source_event_id)
         .where(
@@ -106,7 +110,18 @@ def _dependency_ready() -> ColumnElement[bool]:
         .correlate(outbox)
         .exists()
     )
-    return or_(outbox.c.related_source_event_id.is_(None), original_delivered)
+    frozen = and_(
+        outbox.c.frozen_device_id.is_not(None),
+        outbox.c.frozen_warehouse_id.is_not(None),
+        outbox.c.frozen_stream_epoch.is_not(None),
+        outbox.c.frozen_admitted_seq > 0,
+        outbox.c.frozen_admitted_seq == outbox.c.frozen_settled_through,
+        outbox.c.frozen_evidence_revision.is_not(None),
+    )
+    return or_(
+        outbox.c.related_source_event_id.is_(None),
+        and_(original_delivered, frozen),
+    )
 
 
 StageStatus = Literal["staged", "duplicate", "conflict"]

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, update
 from sqlalchemy.engine import Engine
 
 from app.modules.telemetry.b_http_candidate import (
@@ -120,6 +120,22 @@ class CandidateDeliveryTests(unittest.TestCase):
                 )
                 .mappings()
                 .one()
+            )
+
+    def _synthetic_freeze(self, recovery_id: UUID) -> None:
+        """Exercise local eligibility only; this is not an actual A frontier."""
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == recovery_id)
+                .values(
+                    frozen_device_id=DEVICE,
+                    frozen_warehouse_id=WAREHOUSE,
+                    frozen_stream_epoch=uuid4(),
+                    frozen_admitted_seq=1,
+                    frozen_settled_through=1,
+                    frozen_evidence_revision=1,
+                )
             )
 
     def _receipt(self, status="accepted_new", *, digest: str | None = None):
@@ -412,6 +428,21 @@ class CandidateDeliveryTests(unittest.TestCase):
         self.assertEqual(
             self._run(FakePort(send_results=[self._receipt()])), "delivered"
         )
+        self.assertEqual(due_source_ids_candidate(self.engine, now=NOW), [])
+        self.assertEqual(
+            deliver_once_candidate(
+                self.engine, source_event_id=recovery_id, now=NOW, port=FakePort()
+            ),
+            "not_due",
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == recovery_id)
+                .values(frozen_device_id=DEVICE)
+            )
+        self.assertEqual(due_source_ids_candidate(self.engine, now=NOW), [])
+        self._synthetic_freeze(recovery_id)
         self.assertEqual(due_source_ids_candidate(self.engine, now=NOW), [recovery_id])
         with self.engine.connect() as connection:
             digest = connection.execute(
@@ -459,6 +490,7 @@ class CandidateDeliveryTests(unittest.TestCase):
         self.assertEqual(
             self._run(FakePort(send_results=[self._receipt()])), "delivered"
         )
+        self._synthetic_freeze(recovery_id)
         with self.engine.connect() as connection:
             digest = connection.execute(
                 select(outbox.c.body_sha256).where(
