@@ -906,4 +906,19 @@ stream_epoch, observation_id, batch_id, selector, now)` 先读已存 C 观测、
 临时失败返回 `retryable_failure`。原始观测和质量标记不变。SQLite 回归
 覆盖选择发生在门禁之前、写入/重放、无规则不改风险；Python3.14 远端还
 需执行真实 B DTO 到本端口的回归。Mock A 的 SQLite 用例不证明 PG 锁；
-严格 PG 高温写测试仍使用合成 B 规则，不证明完整 E1 或实际 B 接收。
+原有严格 PG 高温写测试使用合成 B 规则；新增同文件的实际 B F02 服务
+用例另验其到 A gate/C 写的组合。两者都不证明完整 E1 或 B F03 实际接收。
+
+## 2026-10-23：C outbox → B 实际路由/服务的接收回读测试
+
+`test_telemetry_b_service_delivery_candidate.py` 在两个隔离 SQLite 文件库中
+分别保存 C 原始观测/outbox 和 B 冷库/批次/告警。B 使用实际 events router 与
+`receive_candidate`，HTTP 请求由进程内 `TestClient` 转发给现有
+`BHttpCandidatePort`；C `deliver_once_candidate` 先按来源查询，再提交冻结 F03。
+测试特意在 B 已提交 POST 后丢掉响应，C 再按同一 `source_event_id` 回读摘要，
+只有正文摘要一致才把 outbox 标为 delivered；再次运行不再 POST，B 告警一条。
+需项目 Python3.14；本人本机3.13仅能验证测试被跳过，远端结果按精确头登记。
+
+这是实际 B 应用服务/数据库逻辑的隔离调用，不是部署后的 HTTP/TCP、真实
+MQTT 上报、后台调度、两渠道通知或完整 E1；用于在正式接线前发现 F03 回执
+字段/摘要/幂等不兼容。发布时仍需可信服务鉴权和同版 PG/重启/失败联调。
