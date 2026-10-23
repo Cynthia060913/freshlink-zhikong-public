@@ -367,15 +367,32 @@ def run():
                         connection.execute(
                             select(streams).with_for_update(nowait=True)
                         ).all()
-                    reply = api.request(method, path, content=body, headers={**headers, "Content-Type":"application/json"})
+                    reply = api.request(
+                        method,
+                        path,
+                        content=body,
+                        headers={**headers, "Content-Type": "application/json"},
+                    )
                     if reply.status_code == 422:
                         value = reply.json()
                         details = value.get("detail")
                         if isinstance(details, list):
-                            reasons = [{"loc":item.get("loc"),"type":item.get("type"),"msg":item.get("msg")} for item in details]
+                            reasons = [
+                                {
+                                    "loc": item.get("loc"),
+                                    "type": item.get("type"),
+                                    "msg": item.get("msg"),
+                                }
+                                for item in details
+                            ]
                         else:
-                            reasons = {"status":value.get("status"),"reason_code":value.get("reason_code")}
-                        raise AssertionError("Actual B rejected candidate: "+json.dumps(reasons))
+                            reasons = {
+                                "status": value.get("status"),
+                                "reason_code": value.get("reason_code"),
+                            }
+                        raise AssertionError(
+                            "Actual B rejected candidate: " + json.dumps(reasons)
+                        )
                     return HttpCandidateReply(reply.status_code, reply.content)
 
             port = BHttpCandidatePort(ActualRootTransport())
