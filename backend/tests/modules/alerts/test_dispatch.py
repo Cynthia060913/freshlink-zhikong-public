@@ -472,6 +472,7 @@ class DedupCase(unittest.TestCase):
             session.flush()
             report = dispatcher.dispatch(session, event)
             attempts = _attempts(session, event.id)
+            attempt_details = [row.detail for row in attempts]
             session.rollback()
 
         assert smtp.calls == 1
@@ -481,7 +482,7 @@ class DedupCase(unittest.TestCase):
             DeliveryOutcome.ACCEPTED_BY_SERVICE,
         ]
         assert report.results[0].detail == "transport_timeout"
-        assert [row.detail for row in attempts] == [
+        assert attempt_details == [
             "transport_timeout",
             None,
         ]
