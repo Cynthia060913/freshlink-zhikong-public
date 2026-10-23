@@ -23,7 +23,8 @@ ER箭头从被引用父表指向引用子表，只表示真实FK，不表示父�
 复用已从精确71e5 Git归档构建并逐文件核对的应用镜像。只在随机专属内部网络/
 tmpfs PostgreSQL18空库执行 Alembic A03→B01→A04→A05→C01 和 model check；
 随后只读事务反射33张表的字段、PK、FK、唯一约束及索引。不连接原库、不读取业务行、
-不保存数据库URL/密码/收件地址。`schema-inventory.json`保留反射结果，SHA256：
+不保存数据库URL/密码/收件地址。`schema-inventory.json`保留反射结果，原始未补终止换行的
+反射输出SHA256如下；仓库规范只补终止LF，检查仅忽略该终止LF，不忽略任何字段变化：
 `d43cc6519a7ca324e2a3dcff30999e7d258222e5de6cec72ca7a6d8f7c432bd5`。
 
 [完整数据字典](DATA-DICTIONARY.md)覆盖33张业务/模板表；三张ER图只展示19个核心实体、

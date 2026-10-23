@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 SOURCE = "71e5a8820ee966db1b250afaf0a72143a4bdc62b"
@@ -13,7 +14,11 @@ FIGURES = ("tikz_architecture", "tikz_er_a", "tikz_er_b", "tikz_er_c")
 
 def verify(root):
     schema_path = root / "schema-inventory.json"
-    if hashlib.sha256(schema_path.read_bytes()).hexdigest() != SCHEMA_HASH:
+    # The captured schema had no terminal LF; repository formatting adds only LF.
+    if (
+        hashlib.sha256(schema_path.read_bytes().rstrip(b"\n")).hexdigest()
+        != SCHEMA_HASH
+    ):
         raise ValueError("Schema evidence changed; regenerate and review, not relabel")
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     edges = json.loads((root / "er-edges.json").read_text(encoding="utf-8"))
@@ -95,4 +100,4 @@ if __name__ == "__main__":
         default=Path(__file__).resolve().parents[1] / "docs/submission/design",
     )
     args = parser.parse_args()
-    print(json.dumps(verify(args.directory), ensure_ascii=False))  # noqa: T201 - CLI report
+    sys.stdout.write(json.dumps(verify(args.directory), ensure_ascii=False) + "\n")
