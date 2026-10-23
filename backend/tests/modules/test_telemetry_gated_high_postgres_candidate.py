@@ -177,6 +177,9 @@ def test_actual_b_historical_rule_stages_c_high_under_real_a_gate(store):
             session.add(
                 Warehouse(id=store.warehouse_id, code="pg-c-f02", name="F02 PG")
             )
+            # SQLModel has no ORM relationship between these rows; flush the
+            # parent explicitly so PostgreSQL sees it before the child FK.
+            session.flush()
             session.add(
                 Batch(
                     id=batch_id,
