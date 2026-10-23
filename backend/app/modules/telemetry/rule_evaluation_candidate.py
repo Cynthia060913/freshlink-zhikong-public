@@ -18,6 +18,7 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.modules.iot.stream_frontier import begin_evidence_write, mark_uncertain
 from app.modules.telemetry.candidate_preview import (
     F03_SEVERITIES,
     _required_text,
@@ -228,6 +229,68 @@ def stage_evaluated_high_on_connection_candidate(
     return EvaluationResultCandidate(
         "candidate_staged" if changed else "not_due", observation_id, expected_source
     )
+
+
+def stage_gated_high_candidate(
+    engine: Engine,
+    *,
+    device_id: UUID,
+    warehouse_id: UUID,
+    stream_epoch: UUID,
+    observation_id: UUID,
+    batch_id: UUID,
+    body: dict[str, Any],
+    now: datetime,
+) -> EvaluationResultCandidate:
+    """Commit a preselected high candidate under A's device evidence gate.
+
+    The caller obtains B's historical rule and builds ``body`` before calling
+    this port. A's gate, observation ownership check, outbox, risk and job state
+    share one PostgreSQL transaction. A replay that has nothing to write rolls
+    back the gate revision. A conflicting source ID keeps the stream held.
+    This port performs no B I/O and does not install a worker or sender.
+    """
+    if not all(
+        isinstance(value, UUID)
+        for value in (device_id, warehouse_id, stream_epoch, observation_id, batch_id)
+    ):
+        raise ValueError(
+            "trusted device, warehouse, epoch, observation and batch UUIDs required"
+        )
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            begin_evidence_write(
+                connection,
+                device_id=device_id,
+                warehouse_id=warehouse_id,
+                epoch=stream_epoch,
+            )
+            owner = connection.execute(
+                select(observations.c.device_id, observations.c.warehouse_id).where(
+                    observations.c.id == observation_id
+                )
+            ).one_or_none()
+            if owner is None or tuple(owner) != (device_id, warehouse_id):
+                raise ValueError("observation does not belong to gated device")
+            result = stage_evaluated_high_on_connection_candidate(
+                connection,
+                observation_id=observation_id,
+                batch_id=batch_id,
+                body=body,
+                now=now,
+            )
+            if result.status == "held_unknown":
+                mark_uncertain(connection, device_id=device_id, epoch=stream_epoch)
+            if result.status in {"candidate_staged", "held_unknown"}:
+                transaction.commit()
+            else:
+                transaction.rollback()
+            return result
+        except BaseException:
+            if transaction.is_active:
+                transaction.rollback()
+            raise
 
 
 def _mark(
