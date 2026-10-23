@@ -1,0 +1,36 @@
+\documentclass[border=6pt]{standalone}
+\usepackage{fontspec}
+\setmainfont{Microsoft YaHei}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,shadows}
+\begin{document}
+\begin{tikzpicture}[
+  node distance=1cm,
+  box/.style={draw=teal!70!black,fill=teal!5,text=black,rounded corners=3pt,line width=.7pt,align=center,text width=3.2cm,minimum height=1.1cm,font=\small,drop shadow={opacity=.15,shadow xshift=.5pt,shadow yshift=-.5pt}},
+  pending/.style={box,dashed,fill=white},
+  arr/.style={-{Stealth},draw=teal!70!black,line width=.8pt},
+  lab/.style={font=\scriptsize,text=black,fill=white,inner sep=2pt}
+]
+\node[box,text width=11.8cm] (ui) at (6,0) {React / TypeScript / Vite\\设备与控制、告警追溯、遥测历史、同快照 CSV};
+\node[box,text width=11.8cm] (api) at (6,-2.1) {FastAPI：JWT 登录、权限检查与唯一 /api/v1 根前缀\\A 设备与控制 / B 冷库批次规则 / C 历史与导出};
+\node[box] (a) at (1.5,-4.5) {A 可信接纳与控制\\绑定 / epoch / 同设备事务门禁};
+\node[box] (c) at (6,-4.5) {C 原文、质量与评价\\固定快照 / 持久 outbox};
+\node[box] (b) at (10.5,-4.5) {B 版本规则与异常\\确认 / 恢复关联 / 审计};
+\node[box,text width=11.8cm] (db) at (6,-6.7) {PostgreSQL 服务器持久化\\唯一迁移链：A03 → B01 → A04 → A05 → C01};
+\node[box] (plant) at (1.5,-9.1) {七测区软件仿真设备\\每区传感器＋执行器 / SQLite};
+\node[box] (mqtt) at (6,-9.1) {Mosquitto 消息路由\\逐设备身份、ACL / 心跳与 ACK};
+\node[pending] (notify) at (10.5,-9.1) {SMTP＋飞书手机端\\持久派发及授权实收\\尚未验收};
+\draw[arr] (ui) -- (api);
+\draw[arr] (api.south) -- ++(0,-.45) -| (a.north);
+\draw[arr] (api.south) -- (c.north);
+\draw[arr] (api.south) -- ++(0,-.45) -| (b.north);
+\draw[arr] (a.east) -- node[lab,above]{同事务接线} (c.west);
+\draw[arr,<->] (c.east) -- node[lab,above]{历史规则 / 候选} (b.west);
+\draw[arr] (a.south) -- (a.south|-db.north);
+\draw[arr] (c.south) -- (db.north);
+\draw[arr] (b.south) -- (b.south|-db.north);
+\draw[arr,<->] (plant.east) -- node[lab,above]{实际 MQTT} (mqtt.west);
+\draw[arr] (mqtt.north) -- ++(0,.65) -| (-.9,-7.7) |- (a.west);
+\draw[arr,dashed] (b.east) -- ++(.8,0) |- (notify.east);
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,2548 @@
+{
+  "source": "71e5a8820ee966db1b250afaf0a72143a4bdc62b",
+  "migration_head": "c01_telemetry_storage",
+  "method": "actual_empty_postgresql_alembic_then_read_only_schema_reflection",
+  "business_rows_read": false,
+  "tables": [
+    {
+      "name": "alerts_batch",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "code",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "product",
+          "type": "VARCHAR(120)",
+          "nullable": false
+        },
+        {
+          "name": "started_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "ended_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "alerts_batch_warehouse_id_fkey",
+          "constrained_columns": [
+            "warehouse_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "alerts_warehouse",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "warehouse_id",
+            "code"
+          ],
+          "name": "uq_alerts_batch_warehouse_code",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_alerts_batch_code",
+          "unique": false,
+          "column_names": [
+            "code"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_alerts_batch_warehouse_id",
+          "unique": false,
+          "column_names": [
+            "warehouse_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_alerts_batch_warehouse_code",
+          "unique": true,
+          "column_names": [
+            "warehouse_id",
+            "code"
+          ],
+          "duplicates_constraint": "uq_alerts_batch_warehouse_code",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "alerts_batch_rule_snapshot",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "batch_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "version_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "rule_version",
+          "type": "VARCHAR(64)",
+          "nullable": true
+        },
+        {
+          "name": "payload_json",
+          "type": "VARCHAR",
+          "nullable": false
+        },
+        {
+          "name": "signature",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "effective_start_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "effective_end_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "supersedes_json",
+          "type": "VARCHAR",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "alerts_batch_rule_snapshot_batch_id_fkey",
+          "constrained_columns": [
+            "batch_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "alerts_batch",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "batch_id",
+            "signature"
+          ],
+          "name": "uq_alerts_batch_rule_snapshot_batch_signature",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_alerts_batch_rule_snapshot_batch_id",
+          "unique": false,
+          "column_names": [
+            "batch_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_alerts_batch_rule_snapshot_created_at",
+          "unique": false,
+          "column_names": [
+            "created_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_alerts_batch_rule_snapshot_rule_version",
+          "unique": false,
+          "column_names": [
+            "rule_version"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_alerts_batch_rule_snapshot_version_id",
+          "unique": false,
+          "column_names": [
+            "version_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_alerts_batch_rule_snapshot_batch_signature",
+          "unique": true,
+          "column_names": [
+            "batch_id",
+            "signature"
+          ],
+          "duplicates_constraint": "uq_alerts_batch_rule_snapshot_batch_signature",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "alerts_event",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "source_event_id",
+          "type": "VARCHAR(128)",
+          "nullable": false
+        },
+        {
+          "name": "kind",
+          "type": "VARCHAR(32)",
+          "nullable": false
+        },
+        {
+          "name": "batch_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "device_id",
+          "type": "VARCHAR(64)",
+          "nullable": true
+        },
+        {
+          "name": "metric_code",
+          "type": "VARCHAR(64)",
+          "nullable": true
+        },
+        {
+          "name": "sampled_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "value",
+          "type": "DOUBLE PRECISION",
+          "nullable": true
+        },
+        {
+          "name": "unit",
+          "type": "VARCHAR(8)",
+          "nullable": true
+        },
+        {
+          "name": "severity",
+          "type": "VARCHAR(32)",
+          "nullable": true
+        },
+        {
+          "name": "observation_ids_json",
+          "type": "VARCHAR(8192)",
+          "nullable": true
+        },
+        {
+          "name": "rule_snapshot_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "rule_version",
+          "type": "VARCHAR(64)",
+          "nullable": true
+        },
+        {
+          "name": "algorithm_version",
+          "type": "VARCHAR(64)",
+          "nullable": true
+        },
+        {
+          "name": "evidence_json",
+          "type": "VARCHAR",
+          "nullable": true
+        },
+        {
+          "name": "content_digest",
+          "type": "VARCHAR(71)",
+          "nullable": false
+        },
+        {
+          "name": "payload_json",
+          "type": "VARCHAR",
+          "nullable": false
+        },
+        {
+          "name": "related_source_event_id",
+          "type": "VARCHAR(128)",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "alerts_event_batch_id_fkey",
+          "constrained_columns": [
+            "batch_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "alerts_batch",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "alerts_event_warehouse_id_fkey",
+          "constrained_columns": [
+            "warehouse_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "alerts_warehouse",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_alerts_event_batch_id",
+          "unique": false,
+          "column_names": [
+            "batch_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_alerts_event_rule_snapshot_id",
+          "unique": false,
+          "column_names": [
+            "rule_snapshot_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_alerts_event_source_event_id",
+          "unique": true,
+          "column_names": [
+            "source_event_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_alerts_event_warehouse_id",
+          "unique": false,
+          "column_names": [
+            "warehouse_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "alerts_notification_attempt",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "alert_event_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "channel",
+          "type": "VARCHAR(32)",
+          "nullable": false
+        },
+        {
+          "name": "outcome",
+          "type": "VARCHAR(32)",
+          "nullable": false
+        },
+        {
+          "name": "delivered",
+          "type": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "detail",
+          "type": "VARCHAR(1000)",
+          "nullable": true
+        },
+        {
+          "name": "server_response",
+          "type": "VARCHAR(1000)",
+          "nullable": true
+        },
+        {
+          "name": "retry_after_s",
+          "type": "DOUBLE PRECISION",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "alerts_notification_attempt_alert_event_id_fkey",
+          "constrained_columns": [
+            "alert_event_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "alerts_event",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_alerts_notification_attempt_alert_event_id",
+          "unique": false,
+          "column_names": [
+            "alert_event_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "alerts_status_transition",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "alert_event_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "from_status",
+          "type": "VARCHAR(12)",
+          "nullable": false
+        },
+        {
+          "name": "to_status",
+          "type": "VARCHAR(12)",
+          "nullable": false
+        },
+        {
+          "name": "trigger_source_event_id",
+          "type": "VARCHAR(128)",
+          "nullable": true
+        },
+        {
+          "name": "reason",
+          "type": "VARCHAR(128)",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "alerts_status_transition_alert_event_id_fkey",
+          "constrained_columns": [
+            "alert_event_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "alerts_event",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_alerts_status_transition_alert_event_id",
+          "unique": false,
+          "column_names": [
+            "alert_event_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "alerts_warehouse",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "code",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(120)",
+          "nullable": false
+        },
+        {
+          "name": "location",
+          "type": "VARCHAR(200)",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_alerts_warehouse_code",
+          "unique": true,
+          "column_names": [
+            "code"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_command",
+      "columns": [
+        {
+          "name": "command_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "actor_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "action",
+          "type": "VARCHAR(32)",
+          "nullable": false
+        },
+        {
+          "name": "enabled",
+          "type": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "lifetime_seconds",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "request_fingerprint",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "payload_text",
+          "type": "VARCHAR(4096)",
+          "nullable": false
+        },
+        {
+          "name": "issued_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "expires_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(16)",
+          "nullable": false
+        },
+        {
+          "name": "attempt_count",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "lease_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "lease_until",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "next_retry_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "transport_accepted_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "ack_fingerprint",
+          "type": "VARCHAR(64)",
+          "nullable": true
+        },
+        {
+          "name": "ack_received_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "terminal_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "failure_reason",
+          "type": "VARCHAR(64)",
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "command_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "iot_command_device_id_fkey",
+          "constrained_columns": [
+            "device_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "iot_device",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "RESTRICT"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_iot_command_device_id",
+          "unique": false,
+          "column_names": [
+            "device_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_iot_command_active_device",
+          "unique": true,
+          "column_names": [
+            "device_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_where": "((status)::text = ANY ((ARRAY['queued'::character varying, 'sent'::character varying])::text[]))",
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_command_attempt",
+      "columns": [
+        {
+          "name": "attempt_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "command_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "started_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "completed_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "outcome",
+          "type": "VARCHAR(16)",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "attempt_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "iot_command_attempt_command_id_fkey",
+          "constrained_columns": [
+            "command_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "iot_command",
+          "referred_columns": [
+            "command_id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_iot_command_attempt_command_id",
+          "unique": false,
+          "column_names": [
+            "command_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_command_receipt",
+      "columns": [
+        {
+          "name": "command_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "fingerprint",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "received_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "executed_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "result",
+          "type": "VARCHAR(16)",
+          "nullable": false
+        },
+        {
+          "name": "cooling_enabled",
+          "type": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "reason",
+          "type": "VARCHAR(128)",
+          "nullable": true
+        },
+        {
+          "name": "outcome",
+          "type": "VARCHAR(16)",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "command_id",
+        "fingerprint"
+      ],
+      "foreign_keys": [
+        {
+          "name": "iot_command_receipt_command_id_fkey",
+          "constrained_columns": [
+            "command_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "iot_command",
+          "referred_columns": [
+            "command_id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "iot_connectivity_event",
+      "columns": [
+        {
+          "name": "source_event_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "occurred_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "kind",
+          "type": "VARCHAR(16)",
+          "nullable": false
+        },
+        {
+          "name": "reason",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "related_source_event_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "delivery_state",
+          "type": "VARCHAR(16)",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "source_event_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "iot_connectivity_event_device_id_fkey",
+          "constrained_columns": [
+            "device_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "iot_device",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_iot_connectivity_event_device_id",
+          "unique": false,
+          "column_names": [
+            "device_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_device",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "code",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(120)",
+          "nullable": false
+        },
+        {
+          "name": "kind",
+          "type": "VARCHAR(32)",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "is_simulated",
+          "type": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "last_seen_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "connectivity",
+          "type": "VARCHAR(16)",
+          "nullable": false
+        },
+        {
+          "name": "last_sent_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "last_heartbeat_message_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "offline_source_event_id",
+          "type": "UUID",
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_iot_device_code",
+          "unique": true,
+          "column_names": [
+            "code"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_event_delivery_checkpoint",
+      "columns": [
+        {
+          "name": "source_event_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "fingerprint",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "state",
+          "type": "VARCHAR(16)",
+          "nullable": false
+        },
+        {
+          "name": "attempt_count",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "next_attempt_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "lease_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "lease_until",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "last_reason",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "target_event_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "completed_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "manual_retry_count",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "source_event_id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_iot_event_dispatch_due",
+          "unique": false,
+          "column_names": [
+            "state",
+            "next_attempt_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_event_delivery_retry_audit",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "source_event_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "actor_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "recorded_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "cycle",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "iot_heartbeat_conflict",
+      "columns": [
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "message_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "fingerprint",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "received_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "device_id",
+        "message_id",
+        "fingerprint"
+      ],
+      "foreign_keys": [
+        {
+          "name": "iot_heartbeat_conflict_device_id_fkey",
+          "constrained_columns": [
+            "device_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "iot_device",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "iot_heartbeat_message",
+      "columns": [
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "message_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "fingerprint",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "outcome",
+          "type": "VARCHAR(32)",
+          "nullable": false
+        },
+        {
+          "name": "received_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "device_id",
+        "message_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "iot_heartbeat_message_device_id_fkey",
+          "constrained_columns": [
+            "device_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "iot_device",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "iot_stream_admission",
+      "columns": [
+        {
+          "name": "reception_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "stream_epoch",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "admission_seq",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "fingerprint",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "outcome",
+          "type": "VARCHAR(32)",
+          "nullable": false
+        },
+        {
+          "name": "observation_id",
+          "type": "UUID",
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "reception_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "iot_stream_admission_device_id_stream_epoch_fkey",
+          "constrained_columns": [
+            "device_id",
+            "stream_epoch"
+          ],
+          "referred_schema": null,
+          "referred_table": "iot_stream_frontier",
+          "referred_columns": [
+            "device_id",
+            "stream_epoch"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "device_id",
+            "stream_epoch",
+            "admission_seq"
+          ],
+          "name": "iot_stream_admission_device_id_stream_epoch_admission_seq_key",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "iot_stream_admission_device_id_stream_epoch_admission_seq_key",
+          "unique": true,
+          "column_names": [
+            "device_id",
+            "stream_epoch",
+            "admission_seq"
+          ],
+          "duplicates_constraint": "iot_stream_admission_device_id_stream_epoch_admission_seq_key",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_stream_frontier",
+      "columns": [
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "stream_epoch",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "origin_verified",
+          "type": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "admitted_seq",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "settled_through",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "evidence_revision",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "gap_reason",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "device_id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "device_id",
+            "stream_epoch"
+          ],
+          "name": "iot_stream_frontier_device_id_stream_epoch_key",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "iot_stream_frontier_device_id_stream_epoch_key",
+          "unique": true,
+          "column_names": [
+            "device_id",
+            "stream_epoch"
+          ],
+          "duplicates_constraint": "iot_stream_frontier_device_id_stream_epoch_key",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_telemetry_inbox",
+      "columns": [
+        {
+          "name": "reception_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "received_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "raw_text",
+          "type": "VARCHAR",
+          "nullable": false
+        },
+        {
+          "name": "payload_bytes",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "payload_sha256",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "fingerprint",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "state",
+          "type": "VARCHAR(16)",
+          "nullable": false
+        },
+        {
+          "name": "attempt_count",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "next_attempt_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "lease_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "lease_until",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "last_reason",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "manual_retry_count",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "last_retry_actor",
+          "type": "UUID",
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "reception_id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_iot_telemetry_due",
+          "unique": false,
+          "column_names": [
+            "state",
+            "next_attempt_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_telemetry_ingest_receipt",
+      "columns": [
+        {
+          "name": "reception_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "fingerprint",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "outcome",
+          "type": "VARCHAR(32)",
+          "nullable": false
+        },
+        {
+          "name": "observation_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "reason",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "completed_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "reception_id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "iot_telemetry_ingress_audit",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "recorded_at",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "reception_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "reason",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "payload_bytes",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "payload_sha256",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "actor_id",
+          "type": "UUID",
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "iot_telemetry_queue_guard",
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "item",
+      "columns": [
+        {
+          "name": "description",
+          "type": "VARCHAR(255)",
+          "nullable": true
+        },
+        {
+          "name": "title",
+          "type": "VARCHAR(255)",
+          "nullable": false
+        },
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "owner_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "item_owner_id_fkey",
+          "constrained_columns": [
+            "owner_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "user",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "telemetry_candidate_outbox_candidate",
+      "columns": [
+        {
+          "name": "source_event_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "related_source_event_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "frozen_device_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "frozen_warehouse_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "frozen_stream_epoch",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "frozen_admitted_seq",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "frozen_settled_through",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "frozen_evidence_revision",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "observation_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "body_sha256",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "type": "JSON",
+          "nullable": false
+        },
+        {
+          "name": "state",
+          "type": "VARCHAR(24)",
+          "nullable": false
+        },
+        {
+          "name": "attempt_count",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "next_attempt_at_utc",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "lease_token",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "lease_until_utc",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "last_error_code",
+          "type": "VARCHAR(80)",
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "source_event_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "telemetry_candidate_outbox_candidate_observation_id_fkey",
+          "constrained_columns": [
+            "observation_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "telemetry_observation_candidate",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "telemetry_candidate_outbox_conflict_candidate",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "source_event_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "observation_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "body_sha256",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "type": "JSON",
+          "nullable": false
+        },
+        {
+          "name": "first_detected_at_utc",
+          "type": "TIMESTAMP",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "telemetry_candidate_outbox_conflict_candid_source_event_id_fkey",
+          "constrained_columns": [
+            "source_event_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "telemetry_candidate_outbox_candidate",
+          "referred_columns": [
+            "source_event_id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "source_event_id",
+            "observation_id",
+            "body_sha256"
+          ],
+          "name": "uq_c_candidate_outbox_conflict",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "uq_c_candidate_outbox_conflict",
+          "unique": true,
+          "column_names": [
+            "source_event_id",
+            "observation_id",
+            "body_sha256"
+          ],
+          "duplicates_constraint": "uq_c_candidate_outbox_conflict",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "telemetry_evaluation_candidate",
+      "columns": [
+        {
+          "name": "observation_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "state",
+          "type": "VARCHAR(24)",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "observation_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "telemetry_evaluation_candidate_observation_id_fkey",
+          "constrained_columns": [
+            "observation_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "telemetry_observation_candidate",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "telemetry_observation_candidate",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "message_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "content_sha256",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "raw_text",
+          "type": "VARCHAR",
+          "nullable": false
+        },
+        {
+          "name": "raw_payload",
+          "type": "JSON",
+          "nullable": false
+        },
+        {
+          "name": "sampled_at_utc",
+          "type": "TIMESTAMP",
+          "nullable": true
+        },
+        {
+          "name": "first_received_at_utc",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "normalized",
+          "type": "JSON",
+          "nullable": false
+        },
+        {
+          "name": "quality",
+          "type": "JSON",
+          "nullable": false
+        },
+        {
+          "name": "risk",
+          "type": "JSON",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "device_id",
+            "message_id"
+          ],
+          "name": "uq_c_candidate_device_message",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_c_candidate_history",
+          "unique": false,
+          "column_names": [
+            "warehouse_id",
+            "sampled_at_utc",
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_c_candidate_device_message",
+          "unique": true,
+          "column_names": [
+            "device_id",
+            "message_id"
+          ],
+          "duplicates_constraint": "uq_c_candidate_device_message",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "telemetry_quality_tag_candidate",
+      "columns": [
+        {
+          "name": "observation_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "tag",
+          "type": "VARCHAR(128)",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "observation_id",
+        "tag"
+      ],
+      "foreign_keys": [
+        {
+          "name": "telemetry_quality_tag_candidate_observation_id_fkey",
+          "constrained_columns": [
+            "observation_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "telemetry_observation_candidate",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_c_candidate_quality_tag",
+          "unique": false,
+          "column_names": [
+            "tag",
+            "observation_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "telemetry_reception_candidate",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "observation_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "received_at_utc",
+          "type": "VARCHAR(35)",
+          "nullable": false
+        },
+        {
+          "name": "raw_text",
+          "type": "VARCHAR",
+          "nullable": false
+        },
+        {
+          "name": "receipt_sha256",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "outcome",
+          "type": "VARCHAR(32)",
+          "nullable": false
+        },
+        {
+          "name": "reason",
+          "type": "VARCHAR(80)",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "telemetry_reception_candidate_observation_id_fkey",
+          "constrained_columns": [
+            "observation_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "telemetry_observation_candidate",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "telemetry_reception_reuse_candidate",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "claimed_reception_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "received_at_utc",
+          "type": "VARCHAR(35)",
+          "nullable": false
+        },
+        {
+          "name": "raw_text",
+          "type": "VARCHAR",
+          "nullable": false
+        },
+        {
+          "name": "receipt_sha256",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "telemetry_reception_reuse_candidate_claimed_reception_id_fkey",
+          "constrained_columns": [
+            "claimed_reception_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "telemetry_reception_candidate",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "claimed_reception_id",
+            "receipt_sha256"
+          ],
+          "name": "uq_c_candidate_claimed_receipt_digest",
+          "comment": null,
+          "dialect_options": {
+            "postgresql_include": [],
+            "postgresql_nulls_not_distinct": false
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "uq_c_candidate_claimed_receipt_digest",
+          "unique": true,
+          "column_names": [
+            "claimed_reception_id",
+            "receipt_sha256"
+          ],
+          "duplicates_constraint": "uq_c_candidate_claimed_receipt_digest",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "telemetry_recovery_progress_candidate",
+      "columns": [
+        {
+          "name": "original_source_event_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "device_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "warehouse_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "batch_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "anomaly_sampled_at_utc",
+          "type": "VARCHAR(35)",
+          "nullable": false
+        },
+        {
+          "name": "comparison",
+          "type": "VARCHAR(2)",
+          "nullable": false
+        },
+        {
+          "name": "threshold_c",
+          "type": "DOUBLE PRECISION",
+          "nullable": false
+        },
+        {
+          "name": "min_samples",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "max_gap_seconds",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "last_sampled_at_utc",
+          "type": "VARCHAR(35)",
+          "nullable": true
+        },
+        {
+          "name": "last_received_at_utc",
+          "type": "VARCHAR(35)",
+          "nullable": true
+        },
+        {
+          "name": "last_received_observation_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "last_matching_at_utc",
+          "type": "VARCHAR(35)",
+          "nullable": true
+        },
+        {
+          "name": "observation_ids",
+          "type": "JSON",
+          "nullable": false
+        },
+        {
+          "name": "eligible",
+          "type": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "version",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "original_source_event_id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "telemetry_snapshot_candidate",
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "actor_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "filters_sha256",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "policy_version",
+          "type": "VARCHAR(64)",
+          "nullable": false
+        },
+        {
+          "name": "created_at_utc",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "expires_at_utc",
+          "type": "TIMESTAMP",
+          "nullable": false
+        },
+        {
+          "name": "member_count",
+          "type": "INTEGER",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "telemetry_snapshot_member_candidate",
+      "columns": [
+        {
+          "name": "snapshot_id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "ordinal",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "observation_id",
+          "type": "UUID",
+          "nullable": true
+        },
+        {
+          "name": "projection",
+          "type": "JSON",
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "snapshot_id",
+        "ordinal"
+      ],
+      "foreign_keys": [
+        {
+          "name": "telemetry_snapshot_member_candidate_observation_id_fkey",
+          "constrained_columns": [
+            "observation_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "telemetry_observation_candidate",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "telemetry_snapshot_member_candidate_snapshot_id_fkey",
+          "constrained_columns": [
+            "snapshot_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "telemetry_snapshot_candidate",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "unique_constraints": [],
+      "indexes": []
+    },
+    {
+      "name": "user",
+      "columns": [
+        {
+          "name": "email",
+          "type": "VARCHAR(255)",
+          "nullable": false
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "is_superuser",
+          "type": "BOOLEAN",
+          "nullable": false
+        },
+        {
+          "name": "full_name",
+          "type": "VARCHAR(255)",
+          "nullable": true
+        },
+        {
+          "name": "hashed_password",
+          "type": "VARCHAR",
+          "nullable": false
+        },
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "indexes": [
+        {
+          "name": "ix_user_email",
+          "unique": true,
+          "column_names": [
+            "email"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ]
+    }
+  ]
+}

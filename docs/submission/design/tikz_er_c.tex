@@ -1,0 +1,26 @@
+\documentclass[border=6pt]{standalone}
+\usepackage{fontspec}
+\setmainfont{Microsoft YaHei}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,shadows}
+\begin{document}
+\begin{tikzpicture}[
+box/.style={draw=teal!70!black,fill=teal!5,text=black,rounded corners=3pt,line width=.7pt,align=center,text width=3.3cm,minimum height=1.25cm,font=\small,drop shadow={opacity=.15,shadow xshift=.5pt,shadow yshift=-.5pt}},
+arr/.style={-{Stealth},draw=teal!70!black,line width=.8pt},
+lab/.style={font=\scriptsize,text=black,fill=white,inner sep=2pt}
+]
+\node[box,text width=3.3cm,minimum height=1.25cm] (observation) at (0,0) {原文与质量观测\\\scriptsize C: observation\\PK: id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (reception) at (-5,2.8) {接纳审计\\\scriptsize C: reception\\PK: id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (quality) at (0,2.8) {质量标签\\\scriptsize C: quality\_\allowbreak{}tag\\PK: observation\_id\\tag};
+\node[box,text width=3.3cm,minimum height=1.25cm] (evaluation) at (5,2.8) {评价任务\\\scriptsize C: evaluation\\PK: observation\_id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (outbox) at (-5,-2.8) {持久候选\\\scriptsize C: candidate\_\allowbreak{}outbox\\PK: source\_event\_id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (member) at (5,-2.8) {快照成员\\\scriptsize C: snapshot\_\allowbreak{}member\\PK: snapshot\_id\\ordinal};
+\node[box,text width=3.3cm,minimum height=1.25cm] (snapshot) at (5,-5.6) {固定查询快照\\\scriptsize C: snapshot\\PK: id};
+\draw[arr] (observation) -- node[lab,midway,above,sloped]{FK} (reception);
+\draw[arr] (observation) -- node[lab,midway,above,sloped]{FK} (quality);
+\draw[arr] (observation) -- node[lab,midway,above,sloped]{FK} (evaluation);
+\draw[arr] (observation) -- node[lab,midway,above,sloped]{FK} (outbox);
+\draw[arr] (observation) -- node[lab,midway,above,sloped]{FK} (member);
+\draw[arr] (snapshot) -- node[lab,midway,above,sloped]{FK} (member);
+\end{tikzpicture}
+\end{document}
