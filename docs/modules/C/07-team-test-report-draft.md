@@ -1,5 +1,27 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-23 C 真实 B 规则到高温门禁组合（M03 仍未签收）
+
+C [PR #11 精确 `5ddca2a46bbea8ece72a777ef044fe31915d6a8f`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+新增单批次历史 F02 选择→F03 高温正文→A 同设备证据门禁→C outbox/risk/job
+的显式组合端口。本人 Windows 隔离 Python3.13.9：规则测试 14 项中
+**13 通过/1 跳过**（B 服务使用 Python3.14 语法）；恢复 outbox **22/22**，
+Ruff 和差异检查通过。远端该精确头 [Backend run 39900905629](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39900905629)
+在项目 Python3.14/隔离 PostgreSQL 中 **1125 passed/12 skipped**，新增严格
+PG 文件 `...` 三项实跑含真实 B 历史规则服务、A gate 与 C 高温写。
+[严格 A/C run 39900905633](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39900905633)
+另在受控环境 **1137 passed/0 skipped**，日志同一 PG 文件 `...`；七项适用
+Actions 均 completed/success。首提交
+`8d6026367119c79cae00bf5e1a4ab7dfe37563a3` 曾因新 PG 测试夹具先插
+批次触发仓库外键失败（1124通过/12跳/1失败）；后续提交显式 flush 父行后
+恢复 Backend 与严格联合检查通过，不隐去失败历史。两套检查计数独立，
+不能相加当成新的测试数。
+
+该实测是**受控远端测试库**，不是本人 Windows 本机 PG 或生产库；测试 A
+门禁与 B 服务同版调用，但没有正式 worker 调度、B F03 实际接收、通知终端
+实收、完整浏览器操作或第二机。A [PR #54 同精确头重批](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/54#pullrequestreview-5623882328)
+仅批准唯一 C01 候选及 opt-in 接线进入团队发布审批，不代表已经合并或完成 E1。
+
 ## 2026-10-22 C 单批温度高同事务暂存（M03 仍未签收）
 
 C 新增预选 F03 温度高正文在调用方事务中与风险/评估任务一并暂存的端口；

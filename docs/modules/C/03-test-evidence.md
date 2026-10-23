@@ -1,5 +1,27 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-23 历史 B 规则与 C 高温门禁同版组合
+
+业务头 `8d6026367119c79cae00bf5e1a4ab7dfe37563a3`，测试夹具修复头
+`5ddca2a46bbea8ece72a777ef044fe31915d6a8f`。C 新端口先用 B F02
+历史服务的 `threshold_high` 规则核采样 UTC、批次/仓库、质量与原文，再将
+`temperature_high` 正文交 A gate 下同事务 C 写。本人 Windows Python3.13.9
+规则用例 **13通过/1因 B 3.14语法跳过**，恢复 outbox **22/22**；
+Ruff check/format、语法、diff 与公开源码规则扫描通过。
+
+[精确修复头 Backend run 39900905629](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39900905629)
+**1125 passed/12 skipped**，日志 `test_telemetry_gated_high_postgres_candidate.py ...`
+证明新增的真实 B 服务+A gate+C 写 PG 专项已在远端受控环境执行；不是本机 PG。
+首业务头的相同文件测试夹具父子插入顺序错，远端 **1失败/1124通过/12跳过**，
+已在修复头显式 flush 仓库父行后复测成功。严格 A/C 联合门禁结果独立登记，
+其 [run 39900905633](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39900905633)
+**1137 passed/0 skipped**，同一 PG 文件 `...`；本精确头七项适用 Actions
+均 completed/success。两套统计独立，不得拿 Backend 的 12 skipped 补算成
+通过或与严格检查相加。
+
+仍未验：正式 worker 调用新端口、C01 共同主线发布和原库升级、B 候选接受
+与告警持久化、通知双终端实收、恢复自动外发、页面同版浏览器/第二机及完整 E1。
+
 ## 2026-10-22 温度高原子暂存候选
 
 本人 Windows 隔离 Python3.13.9 执行
