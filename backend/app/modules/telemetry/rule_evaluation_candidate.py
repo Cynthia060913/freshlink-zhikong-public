@@ -481,7 +481,9 @@ def evaluate_one_batch_candidate(
         selected.get("batch_id") != str(batch_id)
         or selected.get("warehouse_id") != str(warehouse_id)
         or selected.get("metric_code") != "temperature"
-        or selected.get("kind") != "temperature_high"
+        # B F02 names the rule shape `threshold_high`; C F03 emits the
+        # temperature-specific event kind `temperature_high` below.
+        or selected.get("kind") != "threshold_high"
         or selected.get("comparison") != ">"
         or selected.get("unit") != "°C"
     ):

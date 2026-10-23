@@ -1,5 +1,15 @@
 # C 共享接线请求
 
+## 2026-10-23 F02 真实规则种类到 F03 事件种类映射
+
+核对本仓 B `services/rules.py::select_rules_for_observation` 的实际返回，
+F02 `RuleSelectionEntry.kind` 是规则候选类型 `threshold_high`，
+而 C→B F03 冻结异常正文的 `kind` 是 `temperature_high`。C 的高温评估
+和历史恢复规则绑定现严格消费前者，继续产生后者；两者不可直接等值比较，
+也不修改 B 的 F02 字段。C 自身合成选择器样例/测试同步为真实 F02 值。
+这一修正只使本地注入接口可消费真实 B DTO；可信批次关联、实际 B 查询与
+A worker 调用、正式发送和 E1 仍须同版验证。
+
 ## 2026-10-23 恢复候选同事务门禁入口（未接 worker/发送）
 
 `recovery_outbox_candidate.py::stage_gated_recovery_candidate(engine, *,
@@ -15,8 +25,13 @@ A revision、C 恢复 outbox 与六个冻结字段；前沿不完整时整体回
 
 此为显式调用候选，**未安装轮询 worker**。本机 Windows 隔离 Python3.13.9
 SQLite Mock-A 新增门禁/冻结与前沿不完整回滚两例，文件全套 22/22；
-它不证明真实 A PG 行锁。待 A/C 在同一已审 A05→C01 组合下运行真实 PG
-门禁/写入/回滚/重启/并发，再接 B 已送达原异常、发送前戳复核与已受理后更正。
+本小包精确 `a6bc1121c84b29766556d8dc194d7095fbc0d457` 另在受控远端
+[A–C strict run 39898732584](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39898732584)
+以真实 PG/A 门禁跑新增冻结/重放测试，文件两项通过、全 1134/0跳；
+B `delivered` 状态和历史规则仍是夹具。本机 SQLite Mock-A 不证明 PG 锁；
+远端专项也不证明所有 C 直写入口覆盖、实际 B 接受、发送前戳复核、
+重启/并发完整业务或 E1。A/C 仍须在唯一已审 A05→C01 组合下跑这些
+同版场景，并由 B 确认已受理后更正语义。
 恢复自动外发继续关闭，候选和测试不得记为完整 E1。
 
 ## 2026-10-22 恢复冻结戳持久字段候选（未启用投递）
@@ -791,7 +806,8 @@ C 另提供未挂载的 `b_http_candidate.py`：按 B 给定的
 B 的可信设备/批次关联传 `batch_id`，并把 B 的
 `select_rules_for_observation(session, *, warehouse_id, batch_ids,
 metric_code, sampled_at) -> RuleSelection` 转为 `model_dump(mode="json")`
-后注入。仅支持**一批次、温度 `°C`、`temperature_high`、严格 `>`**。
+后注入。仅支持**一批次、温度 `°C`、F02 `threshold_high` 映射到
+F03 `temperature_high`、严格 `>`**。
 同一个业务观测只用 `sampled_at` UTC 选择历史规则，保留原始 `raw_text`、
 `raw_payload` 和原质量标记；真实高温且缺湿度时仍可生成高温候选，同时
 证据保留 `missing_metric:humidity`。无规则、无可用温度或不完整的非高温
@@ -800,7 +816,7 @@ metric_code, sampled_at) -> RuleSelection` 转为 `model_dump(mode="json")`
 示意的 B→C 选择回复（仅端口输入样例，非真实服务回执）：
 
 ```json
-{"status":"configured","rules":[{"batch_id":"33333333-3333-4333-8333-333333333333","warehouse_id":"22222222-2222-4222-8222-222222222222","rule_version":"temp-v1","snapshot_id":"88888888-8888-4888-8888-888888888888","metric_code":"temperature","unit":"°C","kind":"temperature_high","severity":"warning","comparison":">","threshold":8.0,"recovery":{"comparison":"<=","threshold":7.0,"min_samples":3},"effective_start_at":"2026-10-14T00:00:00Z","effective_end_at":null,"source":"warehouse-manager-ui"}],"reason_code":null}
+{"status":"configured","rules":[{"batch_id":"33333333-3333-4333-8333-333333333333","warehouse_id":"22222222-2222-4222-8222-222222222222","rule_version":"temp-v1","snapshot_id":"88888888-8888-4888-8888-888888888888","metric_code":"temperature","unit":"°C","kind":"threshold_high","severity":"warning","comparison":">","threshold":8.0,"recovery":{"comparison":"<=","threshold":7.0,"min_samples":3},"effective_start_at":"2026-10-14T00:00:00Z","effective_end_at":null,"source":"warehouse-manager-ui"}],"reason_code":null}
 ```
 
 选择器返回 `no_rule` 且空规则时，任务记 `no_rule` 而观测风险仍为 `unknown`；

@@ -58,13 +58,15 @@ def bind_original_recovery_rule(
         ("rule_snapshot_id", "snapshot_id"),
         ("rule_version", "rule_version"),
         ("severity", "severity"),
-        ("kind", "kind"),
     ):
         value = original.get(event_key)
         if not isinstance(value, str) or not value or selected.get(rule_key) != value:
             raise ValueError(f"historical recovery rule {event_key} mismatch")
     if (
-        original.get("unit") != "°C"
+        selected.get("kind") != "threshold_high"
+        or original.get("kind") != "temperature_high"
+        or original.get("metric_code") != "temperature"
+        or original.get("unit") != "°C"
         or selected.get("unit") != "°C"
         or selected.get("comparison") != ">"
     ):

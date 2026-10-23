@@ -123,7 +123,7 @@ class RecoveryReceiptPort:
 
 def _selection() -> dict:
     return {
-        "kind": "temperature_high",
+        "kind": "threshold_high",
         "warehouse_id": str(_WAREHOUSE),
         "batch_id": str(_BATCH),
         "metric_code": "temperature",

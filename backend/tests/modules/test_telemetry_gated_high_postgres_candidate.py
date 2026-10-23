@@ -184,7 +184,7 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             "evidence": {"comparison": ">", "threshold": 8.0},
         }
         historical_rule = {
-            "kind": "temperature_high",
+            "kind": "threshold_high",
             "warehouse_id": str(store.warehouse_id),
             "batch_id": str(batch_id),
             "metric_code": "temperature",
