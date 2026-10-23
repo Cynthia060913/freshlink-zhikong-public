@@ -1,5 +1,24 @@
 # C 共享接线请求
 
+## 2026-10-23 恢复候选同事务门禁入口（未接 worker/发送）
+
+`recovery_outbox_candidate.py::stage_gated_recovery_candidate(engine, *,
+device_id, warehouse_id, stream_epoch, original_source_event_id,
+historical_rule, now)` 要求调用方在进入时已经取得 B 原异常**历史**规则；
+本函数内部先以 A `begin_evidence_write` 锁可信设备，复核 C 已存恢复窗口，
+再用 A `read_complete_frontier` 取写后完整戳，并在**同一 Connection/事务**
+调用既有 `freeze_recovery_frontier_on_connection_candidate`。成功一次提交
+A revision、C 恢复 outbox 与六个冻结字段；前沿不完整时整体回滚、保守 hold。
+重复/未到期/等原异常或规则时回滚无用 revision；来源正文冲突时保留 C
+冲突审计并用 A `mark_uncertain` 保守保持设备 hold。锁内没有 B 查询、HTTP 或
+通知发送。旧 Engine 单独恢复入口继续存在，但不能用于正式自动恢复。
+
+此为显式调用候选，**未安装轮询 worker**。本机 Windows 隔离 Python3.13.9
+SQLite Mock-A 新增门禁/冻结与前沿不完整回滚两例，文件全套 22/22；
+它不证明真实 A PG 行锁。待 A/C 在同一已审 A05→C01 组合下运行真实 PG
+门禁/写入/回滚/重启/并发，再接 B 已送达原异常、发送前戳复核与已受理后更正。
+恢复自动外发继续关闭，候选和测试不得记为完整 E1。
+
 ## 2026-10-22 恢复冻结戳持久字段候选（未启用投递）
 
 `outbox_candidate.outbox` 与非活动 `migration_candidates/c01_telemetry_storage.py`

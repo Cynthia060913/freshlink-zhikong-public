@@ -31,6 +31,7 @@ from app.modules.telemetry.recovery_outbox_candidate import (
     freeze_recovery_frontier_on_connection_candidate,
     stage_eligible_recovery_candidate,
     stage_eligible_recovery_on_connection_candidate,
+    stage_gated_recovery_candidate,
 )
 from app.modules.telemetry.recovery_progress_candidate import (
     advance_persisted_recovery_window,
@@ -588,6 +589,104 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             self.assertEqual(row["frozen_admitted_seq"], 4)
             self.assertEqual(row["frozen_settled_through"], 4)
             self.assertEqual(row["frozen_evidence_revision"], 9)
+
+    def test_gated_recovery_stages_and_freezes_in_one_transaction(self) -> None:
+        """SQLite mocks A only; this does not prove the real PG stream lock."""
+        self.progress(10, 50, 130)
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(state="delivered")
+            )
+        epoch = uuid4()
+        stamp = FrontierStamp(_DEVICE, _WAREHOUSE, epoch, 4, 4, 9)
+
+        def simulated_gate(connection, **_kwargs):
+            # Force a physical SQLite transaction before C's SAVEPOINT.
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(state="delivered")
+            )
+            return 9
+
+        with (
+            patch(
+                "app.modules.telemetry.recovery_outbox_candidate.begin_evidence_write",
+                side_effect=simulated_gate,
+            ) as gate,
+            patch(
+                "app.modules.telemetry.recovery_outbox_candidate.read_complete_frontier",
+                return_value=stamp,
+            ),
+            patch(
+                "app.modules.telemetry.recovery_outbox_candidate.stamp_is_current",
+                return_value=True,
+            ),
+        ):
+            kwargs = {
+                "device_id": _DEVICE,
+                "warehouse_id": _WAREHOUSE,
+                "stream_epoch": epoch,
+                "original_source_event_id": _ORIGINAL,
+                "historical_rule": _selection(),
+                "now": _BASE + timedelta(minutes=3),
+            }
+            result = stage_gated_recovery_candidate(self.engine, **kwargs)
+            self.assertEqual(result.status, "staged")
+            self.assertEqual(
+                gate.call_args.kwargs,
+                {"device_id": _DEVICE, "warehouse_id": _WAREHOUSE, "epoch": epoch},
+            )
+            replay = stage_gated_recovery_candidate(self.engine, **kwargs)
+            self.assertEqual(replay.status, "duplicate")
+        with self.engine.connect() as connection:
+            rows = connection.execute(select(outbox)).mappings().all()
+        self.assertEqual(len(rows), 2)
+        recovery = next(row for row in rows if row["source_event_id"] != _ORIGINAL)
+        self.assertEqual(recovery["frozen_stream_epoch"], epoch)
+        self.assertEqual(recovery["frozen_evidence_revision"], 9)
+
+    def test_gated_recovery_incomplete_frontier_rolls_back_candidate(self) -> None:
+        self.progress(10, 50, 130)
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(state="delivered")
+            )
+        with (
+            patch(
+                "app.modules.telemetry.recovery_outbox_candidate.begin_evidence_write",
+                side_effect=lambda connection, **_: connection.execute(
+                    update(outbox)
+                    .where(outbox.c.source_event_id == _ORIGINAL)
+                    .values(state="delivered")
+                ),
+            ),
+            patch(
+                "app.modules.telemetry.recovery_outbox_candidate.read_complete_frontier",
+                return_value=None,
+            ),
+        ):
+            result = stage_gated_recovery_candidate(
+                self.engine,
+                device_id=_DEVICE,
+                warehouse_id=_WAREHOUSE,
+                stream_epoch=uuid4(),
+                original_source_event_id=_ORIGINAL,
+                historical_rule=_selection(),
+                now=_BASE + timedelta(minutes=3),
+            )
+        self.assertEqual(
+            (result.status, result.reason),
+            ("held_invalid_evidence", "frontier_incomplete"),
+        )
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 1
+            )
 
     def test_frozen_frontier_rejects_changed_or_wrong_original(self) -> None:
         self.progress(10, 50, 130)
