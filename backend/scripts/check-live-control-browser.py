@@ -1,6 +1,7 @@
 """Opt-in disposable real HTTP/MQTT/browser harness, never an app entrypoint."""
 
 import json
+import logging
 import os
 import re
 import threading
@@ -122,6 +123,26 @@ def run() -> None:
                 target()
             except Exception as error:
                 failures.append(type(error).__name__)
+                states = {
+                    type(worker).__name__: getattr(worker, "fatal_reason", None)
+                    for worker in workers
+                }
+                logging.getLogger(__name__).error(
+                    "Owned worker failure type=%s states=%s",
+                    type(error).__name__,
+                    states,
+                )
+                with (results / "worker-failure.json").open(
+                    "w", encoding="utf-8"
+                ) as output:
+                    json.dump(
+                        {
+                            "error_types": failures,
+                            "worker_states": states,
+                            "source": source,
+                        },
+                        output,
+                    )
 
         thread = threading.Thread(target=execute, daemon=True)
         threads.append(thread)
@@ -131,7 +152,9 @@ def run() -> None:
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             if failures:
-                raise RuntimeError("Owned browser harness worker failed")
+                raise RuntimeError(
+                    "Owned browser harness worker failed; see private worker-failure.json"
+                )
             if predicate():
                 return
             time.sleep(0.1)
