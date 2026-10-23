@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
+import uuid
 from collections.abc import (
     Callable,
     Mapping,
@@ -181,7 +182,21 @@ class AlertNotificationDispatcher:
         (event, channel) pairs. Never raises: transport ``send`` and
         attempt persistence failures are contained by contract."""
 
-        accepted = self._accepted_channels(session, event.id)
+        try:
+            accepted = self._accepted_channels(session, event.id)
+        except Exception:
+            # A failed dedup read leaves delivery status unknown. Sending now
+            # could duplicate a notification that was already accepted.
+            return DispatchReport(
+                results=tuple(
+                    self._failure_result(
+                        transport.kind,
+                        DeliveryOutcome.TRANSIENT_FAILURE,
+                        "dedup_store_unavailable",
+                    )
+                    for transport in self._transports
+                )
+            )
         results: list[NotificationResult] = []
         skipped: list[NotificationKind] = []
         for transport in self._transports:
@@ -193,6 +208,19 @@ class AlertNotificationDispatcher:
         return DispatchReport(results=tuple(results), skipped_channels=tuple(skipped))
 
     # -- internals -------------------------------------------------------
+
+    @staticmethod
+    def _failure_result(
+        kind: NotificationKind, outcome: DeliveryOutcome, detail: str
+    ) -> NotificationResult:
+        # Exception messages can contain addresses, webhook URLs or secrets.
+        return NotificationResult(
+            attempt_id=uuid.uuid4(),
+            transport=kind,
+            outcome=outcome,
+            delivered=False,
+            detail=detail,
+        )
 
     @staticmethod
     def _accepted_channels(
@@ -218,15 +246,38 @@ class AlertNotificationDispatcher:
         transport: NotificationTransport,
         envelope: NotificationEnvelope,
     ) -> NotificationResult:
-        result = transport.send(envelope)
+        result = self._send_once(transport, envelope)
         result = self._record_attempt(session, event, result)
         attempt_no = 1
         while result.outcome in _RETRYABLE_OUTCOMES and attempt_no < self._max_attempts:
             self._sleep(self._next_delay(attempt_no, result.retry_after_s))
             attempt_no += 1
-            result = transport.send(envelope)
+            result = self._send_once(transport, envelope)
             result = self._record_attempt(session, event, result)
         return result
+
+    def _send_once(
+        self, transport: NotificationTransport, envelope: NotificationEnvelope
+    ) -> NotificationResult:
+        try:
+            result = transport.send(envelope)
+            if not isinstance(result, NotificationResult):
+                return self._failure_result(
+                    transport.kind,
+                    DeliveryOutcome.TRANSIENT_FAILURE,
+                    "invalid_transport_result",
+                )
+            return result
+        except TimeoutError:
+            return self._failure_result(
+                transport.kind, DeliveryOutcome.TIMEOUT, "transport_timeout"
+            )
+        except Exception:
+            return self._failure_result(
+                transport.kind,
+                DeliveryOutcome.TRANSIENT_FAILURE,
+                "transport_unavailable",
+            )
 
     def _next_delay(self, completed_attempt: int, retry_after_s: float | None) -> float:
         delay = self._base_delay_s * float(2 ** (completed_attempt - 1))

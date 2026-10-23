@@ -122,6 +122,24 @@ class _FailingAddSession:
         self.rollback_calls += 1
 
 
+class _FailingReadSession:
+    """Dedup state is unknown: no channel may be sent."""
+
+    def exec(self, statement: Any) -> list[Any]:
+        raise RuntimeError("secret webhook URL must not appear in result")
+
+
+class _ExplodingTransport(NotificationTransport):
+    def __init__(self, kind: NotificationKind, error: Exception) -> None:
+        self.kind = kind
+        self.error = error
+        self.calls = 0
+
+    def send(self, envelope: NotificationEnvelope) -> NotificationResult:
+        self.calls += 1
+        raise self.error
+
+
 @contextmanager
 def _independent_factory() -> Iterator[Session]:
     with Session(engine) as session:
@@ -417,6 +435,76 @@ class DedupCase(unittest.TestCase):
             session.rollback()
         assert len(smtp.envelopes) == 1
         assert report.skipped_channels == ()
+
+    def test_dedup_read_failure_blocks_all_channels_without_leaking_error(self) -> None:
+        smtp = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        app_push = _ScriptedTransport(
+            NotificationKind.APP_PUSH, [_result(kind=NotificationKind.APP_PUSH)]
+        )
+        dispatcher = AlertNotificationDispatcher([smtp, app_push])
+        report = dispatcher.dispatch(
+            cast(Session, _FailingReadSession()), _event(source="disp-read-fail")
+        )
+        assert smtp.envelopes == []
+        assert app_push.envelopes == []
+        assert report.skipped_channels == ()
+        assert [result.detail for result in report.results] == [
+            "dedup_store_unavailable",
+            "dedup_store_unavailable",
+        ]
+        assert all(
+            result.outcome is DeliveryOutcome.TRANSIENT_FAILURE and not result.delivered
+            for result in report.results
+        )
+
+    def test_timeout_in_first_channel_does_not_skip_second_channel(self) -> None:
+        smtp = _ExplodingTransport(
+            NotificationKind.SMTP_EMAIL,
+            TimeoutError("secret smtp reply must not appear in result"),
+        )
+        app_push = _ScriptedTransport(
+            NotificationKind.APP_PUSH, [_result(kind=NotificationKind.APP_PUSH)]
+        )
+        dispatcher = AlertNotificationDispatcher([smtp, app_push], max_attempts=1)
+        with Session(engine) as session:
+            event = _event(source="disp-timeout-channel")
+            session.add(event)
+            session.flush()
+            report = dispatcher.dispatch(session, event)
+            attempts = _attempts(session, event.id)
+            session.rollback()
+
+        assert smtp.calls == 1
+        assert len(app_push.envelopes) == 1
+        assert [result.outcome for result in report.results] == [
+            DeliveryOutcome.TIMEOUT,
+            DeliveryOutcome.ACCEPTED_BY_SERVICE,
+        ]
+        assert report.results[0].detail == "transport_timeout"
+        assert [row.detail for row in attempts] == [
+            "transport_timeout",
+            None,
+        ]
+
+    def test_transport_runtime_failure_is_redacted_and_other_channel_runs(self) -> None:
+        smtp = _ExplodingTransport(
+            NotificationKind.SMTP_EMAIL,
+            RuntimeError("private recipient and token must not appear in result"),
+        )
+        app_push = _ScriptedTransport(
+            NotificationKind.APP_PUSH, [_result(kind=NotificationKind.APP_PUSH)]
+        )
+        dispatcher = AlertNotificationDispatcher([smtp, app_push], max_attempts=1)
+        with Session(engine) as session:
+            event = _event(source="disp-runtime-channel")
+            session.add(event)
+            session.flush()
+            report = dispatcher.dispatch(session, event)
+            session.rollback()
+        assert smtp.calls == 1
+        assert len(app_push.envelopes) == 1
+        assert report.results[0].detail == "transport_unavailable"
+        assert report.results[0].outcome is DeliveryOutcome.TRANSIENT_FAILURE
 
 
 class ConstructionCase(unittest.TestCase):
