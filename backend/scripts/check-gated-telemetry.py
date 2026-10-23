@@ -55,7 +55,9 @@ TOPIC = f"freshlink/v1/devices/{SENSOR}/telemetry"
 ACTUATOR = UUID("66666666-6666-4666-8666-666666666666")
 
 
-def prove_control_to_stored_data(api, headers, warehouse_id, delivery, rows, wait_for):
+def prove_control_to_stored_data(
+    api, headers, warehouse_id, batch_id, original_snapshot_id, delivery, rows, wait_for
+):
     """Actual simulated execution and later C data in the SAME guarded database.
 
     Uses real B warehouse lookup, root control HTTP and existing authenticated
@@ -186,12 +188,34 @@ def prove_control_to_stored_data(api, headers, warehouse_id, delivery, rows, wai
             and detail["receipts"][0]["result"] == "executed"
         )
         ack_seen = datetime.now(UTC)
+        normal_rule_start = datetime.now(UTC)
+        normal_rule = api.post(
+            f"/api/v1/batches/{batch_id}/rule-snapshots",
+            headers=headers,
+            json={
+                "version_id": str(uuid4()),
+                "rule_version": "explicit-proof-v2-normal-range",
+                "effective_start_at": normal_rule_start.isoformat(),
+                "supersedes_snapshot_ids": [original_snapshot_id],
+                "rules": [
+                    {
+                        "metric_code": "temperature",
+                        "candidate_kind": "threshold_high",
+                        "severity": "warning",
+                        "threshold_high": 20,
+                        "unit": "°C",
+                    }
+                ],
+            },
+        )
+        assert normal_rule.status_code == 201
 
         def cooled():
             return [
                 row
                 for row in stored()
-                if datetime.fromisoformat(row["normalized"]["sampled_at"]) > ack_seen
+                if datetime.fromisoformat(row["normalized"]["sampled_at"])
+                > max(ack_seen, normal_rule_start)
                 and row["normalized"]["metrics"]["temperature"] < before - 0.02
             ]
 
@@ -215,6 +239,8 @@ def prove_control_to_stored_data(api, headers, warehouse_id, delivery, rows, wai
             "actual_device_execution_ack": True,
             "post_ack_sample_persisted_by_c": True,
             "execution_count": 1,
+            "normal_rule_snapshot_id": normal_rule.json()["id"],
+            "normal_rule_threshold_c": 20,
             "model": "software simulation, not physical cooling measurement",
         }
     finally:
@@ -652,8 +678,29 @@ def run():
                 detail.status_code == 200 and detail.json()["raw_text"] == raw.decode()
             )
             control_proof = prove_control_to_stored_data(
-                api, headers, warehouse_id, delivery, rows, wait_for
+                api,
+                headers,
+                warehouse_id,
+                batch_id,
+                rule.json()["id"],
+                delivery,
+                rows,
+                wait_for,
             )
+            # Explicit rule v2 is a demonstration of historical normal-rule
+            # evaluation, NOT proof of recovery under the original 8C rule.
+            normal_result = high_worker.evaluate(
+                UUID(control_proof["after_observation_id"]), now=datetime.now(UTC)
+            )
+            assert normal_result.status == "within_rule"
+            assert (
+                high_worker.evaluate(
+                    UUID(control_proof["after_observation_id"]), now=datetime.now(UTC)
+                ).status
+                == "not_due"
+            )
+            assert port.lookup(high.source_event_id).alert_status == "open"
+            assert count(AlertEvent.__table__) == 1
             # The old fixed snapshot must not change after actual new samples.
             old_export = api.get(
                 route + "/export.csv",
@@ -699,7 +746,7 @@ def run():
                         "checked_at": datetime.now(UTC).isoformat(),
                         "source_revision": os.environ["GATED_SOURCE_REVISION"],
                         "source_dirty": os.environ["GATED_SOURCE_DIRTY"] == "1",
-                        "c_revision": "9f049ead31f5fa7789ca84a8aaa679f5725b18aa",
+                        "c_revision": "8eb66729fd03d765ff9cfa265b408dc399214743",
                         "actual_a05_migration": True,
                         "nonempty_database_refused_before_fixtures": True,
                         "actual_c01_candidate_alembic_migration": True,
@@ -720,6 +767,8 @@ def run():
                         "actual_control_and_subsequent_c_data": control_proof,
                         "old_snapshot_unchanged_after_control": True,
                         "post_control_raw_http_and_same_snapshot_csv": True,
+                        "actual_historical_v2_normal_gate_and_replay": True,
+                        "original_high_alert_not_auto_resolved": True,
                         "mqtt_receptions": count(receipts),
                         "observations": count(observations),
                         "notifications_sent": 0,

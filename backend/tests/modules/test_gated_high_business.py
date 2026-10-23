@@ -45,7 +45,7 @@ class GatedHighBusinessTests(unittest.TestCase):
         self.assertEqual(result.status, "accepted_new")
         return result.observation_id
 
-    def configure(self, *, rule=True, threshold=8):
+    def configure(self, *, rule=True, threshold=8, kind="temperature_high"):
         with Session(self.store.engine) as session:
             batch = create_batch(
                 session,
@@ -68,7 +68,7 @@ class GatedHighBusinessTests(unittest.TestCase):
                         rules=[
                             {
                                 "metric_code": "temperature",
-                                "candidate_kind": "temperature_high",
+                                "candidate_kind": kind,
                                 "severity": "warning",
                                 "threshold_high": threshold,
                                 "unit": "°C",
@@ -118,7 +118,7 @@ class GatedHighBusinessTests(unittest.TestCase):
             self.assertEqual(self.pending(observation), "pending")
             self.assertEqual(self.rows(), [])
 
-    def test_no_rule_and_non_high_are_not_falsely_marked_normal(self):
+    def test_no_rule_remains_pending_then_valid_non_high_finishes_under_gate(self):
         batch = self.configure(rule=False)
         observation = self.saved()
         self.assertEqual(
@@ -143,11 +143,43 @@ class GatedHighBusinessTests(unittest.TestCase):
                     ],
                 ),
             )
+        before = checks.state(self.store)["evidence_revision"]
         self.assertEqual(
-            self.worker.evaluate(observation, now=checks.T0).reason,
-            "not_high_candidate",
+            self.worker.evaluate(observation, now=checks.T0).status, "within_rule"
         )
+        self.assertEqual(self.pending(observation), "within_rule")
+        self.assertEqual(checks.state(self.store)["evidence_revision"], before + 1)
+        self.assertEqual(
+            self.worker.evaluate(observation, now=checks.T0).status, "not_due"
+        )
+        self.assertEqual(checks.state(self.store)["evidence_revision"], before + 1)
+        self.assertEqual(self.rows(), [])
+
+    def test_canonical_f02_kind_stages_high_instead_of_silently_holding(self):
+        self.configure(kind="threshold_high")
+        observation = self.saved()
+        self.assertEqual(
+            self.worker.evaluate(observation, now=checks.T0).status, "candidate_staged"
+        )
+        self.assertEqual(self.rows()[0]["body"]["kind"], "temperature_high")
+
+    def test_normal_path_failure_rolls_back_job_and_evidence_revision(self):
+        from app.modules.telemetry import rule_evaluation_candidate as c
+
+        self.configure(threshold=20)
+        observation = self.saved()
+        before = checks.state(self.store)["evidence_revision"]
+        with patch.object(
+            c,
+            "mark_evaluation_on_connection_candidate",
+            side_effect=OperationalError("synthetic", {}, RuntimeError("private")),
+        ):
+            self.assertEqual(
+                self.worker.evaluate(observation, now=checks.T0).status,
+                "retryable_failure",
+            )
         self.assertEqual(self.pending(observation), "pending")
+        self.assertEqual(checks.state(self.store)["evidence_revision"], before)
         self.assertEqual(self.rows(), [])
 
     def test_rule_read_failure_preserves_pending_and_revision(self):
