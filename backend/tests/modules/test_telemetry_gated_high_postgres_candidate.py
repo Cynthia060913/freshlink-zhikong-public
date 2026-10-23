@@ -21,6 +21,8 @@ from app.modules.telemetry.recovery_progress_candidate import (
 from app.modules.telemetry.recovery_progress_candidate import recovery_progress
 from app.modules.telemetry.rule_evaluation_candidate import (
     _SOURCE_NAMESPACE,
+    LocalBRuleSelectionCandidate,
+    select_and_stage_gated_high_candidate,
     stage_gated_high_candidate,
 )
 from app.modules.telemetry.storage_candidate import (
@@ -150,6 +152,95 @@ def test_high_candidate_and_a_revision_commit_together_and_replay_is_noop(store)
     assert state(store)["evidence_revision"] == before + 1
     with store.engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(outbox)) == 1
+
+
+def test_actual_b_historical_rule_stages_c_high_under_real_a_gate(store):
+    """PG A gate + actual B F02 service + C high write; no B delivery."""
+    from sqlmodel import Session, SQLModel
+
+    from app.modules.alerts.models import (
+        Batch,
+        BatchRuleSnapshot,
+        BatchRuleSnapshotCreate,
+        RecoverySpec,
+        RuleDict,
+        RuleSeverity,
+        Warehouse,
+    )
+    from app.modules.alerts.services.rules import create_snapshot
+
+    b_tables = [Warehouse.__table__, Batch.__table__, BatchRuleSnapshot.__table__]
+    SQLModel.metadata.create_all(store.engine, tables=b_tables)
+    try:
+        observation_id, batch_id, _unused_fixture_body = _observation_and_body(store)
+        with Session(store.engine) as session:
+            session.add(
+                Warehouse(id=store.warehouse_id, code="pg-c-f02", name="F02 PG")
+            )
+            session.add(
+                Batch(
+                    id=batch_id,
+                    warehouse_id=store.warehouse_id,
+                    code="pg-c-batch",
+                    product="apple",
+                    started_at=NOW - timedelta(days=2),
+                )
+            )
+            session.commit()
+            create_snapshot(
+                session,
+                batch_id,
+                BatchRuleSnapshotCreate(
+                    version_id=uuid4(),
+                    rule_version="pg-f02-v1",
+                    effective_start_at=NOW - timedelta(days=1),
+                    rules=[
+                        RuleDict(
+                            metric_code="temperature",
+                            candidate_kind="threshold_high",
+                            severity=RuleSeverity.WARNING,
+                            threshold_high=8.0,
+                            unit="°C",
+                            recovery=RecoverySpec(
+                                comparison="<=", threshold=7.0, min_samples=3
+                            ),
+                        )
+                    ],
+                ),
+            )
+        before = state(store)["evidence_revision"]
+        selector = LocalBRuleSelectionCandidate(store.engine)
+        result = select_and_stage_gated_high_candidate(
+            store.engine,
+            device_id=store.device_id,
+            warehouse_id=store.warehouse_id,
+            stream_epoch=store.epoch,
+            observation_id=observation_id,
+            batch_id=batch_id,
+            selector=selector,
+            now=NOW,
+        )
+        assert result.status == "candidate_staged"
+        assert state(store)["evidence_revision"] == before + 1
+        with store.engine.connect() as connection:
+            row = connection.execute(select(outbox)).mappings().one()
+            assert row["body"]["kind"] == "temperature_high"
+            assert row["body"]["rule_version"] == "pg-f02-v1"
+            assert row["body"]["batch_id"] == str(batch_id)
+        replay = select_and_stage_gated_high_candidate(
+            store.engine,
+            device_id=store.device_id,
+            warehouse_id=store.warehouse_id,
+            stream_epoch=store.epoch,
+            observation_id=observation_id,
+            batch_id=batch_id,
+            selector=selector,
+            now=NOW,
+        )
+        assert replay.status == "not_due"
+        assert state(store)["evidence_revision"] == before + 1
+    finally:
+        SQLModel.metadata.drop_all(store.engine, tables=b_tables)
 
 
 def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):

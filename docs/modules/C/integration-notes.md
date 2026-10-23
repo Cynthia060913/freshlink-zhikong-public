@@ -888,3 +888,22 @@ invalid/冲突接纳、候选投递和发送前复核等其他写入口仍待同
 开关；本人 Windows Python3.13 无法加载完整项目测试配置，待精确提交的
 远端门禁真实执行后再记录结果。测试中直接插入合成观测/规则正文，不证明
 真实 B 历史规则选择或正式 C01 升级。
+
+## 2026-10-23：B 历史 F02 到 C 高温门禁的显式组合
+
+`LocalBRuleSelectionCandidate(engine)` 用独立短 `Session` 调用 B 的真实
+`select_rules_for_observation`，转换为 JSON DTO 后关闭会话。新增
+`select_and_stage_gated_high_candidate(engine, *, device_id, warehouse_id,
+stream_epoch, observation_id, batch_id, selector, now)` 先读已存 C 观测、按
+`sampled_at` 调 F02、核单条 `threshold_high` 规则的批次/仓库/单位/版本/生效
+区间，从原文重算质量并构造 `temperature_high` F03 正文；随后才调用现有
+`stage_gated_high_candidate`，在 A 同设备门禁下原子写候选、风险及任务。
+读取 B 的阶段**不持 A 锁**。调用方仍须提供经认证的设备、冷库、epoch
+及可信批次关联；当前没有共享 worker 自动调用此组合。
+
+此入口只处理确认为高温的单批次样本。无规则、完整性不足、常温或不匹配
+的历史规则均不写正常/低风险，保留待评估状态并返回 `held_unknown`；规则库
+临时失败返回 `retryable_failure`。原始观测和质量标记不变。SQLite 回归
+覆盖选择发生在门禁之前、写入/重放、无规则不改风险；Python3.14 远端还
+需执行真实 B DTO 到本端口的回归。Mock A 的 SQLite 用例不证明 PG 锁；
+严格 PG 高温写测试仍使用合成 B 规则，不证明完整 E1 或实际 B 接收。

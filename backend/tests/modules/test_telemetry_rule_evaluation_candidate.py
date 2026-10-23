@@ -27,6 +27,7 @@ from app.modules.telemetry.recovery_rule_candidate import bind_original_recovery
 from app.modules.telemetry.rule_evaluation_candidate import (
     evaluate_one_batch_candidate,
     mark_evaluation_on_connection_candidate,
+    select_and_stage_gated_high_candidate,
     stage_evaluated_high_on_connection_candidate,
     stage_gated_high_candidate,
 )
@@ -252,6 +253,46 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
         assert recovered is not None
         self.assertEqual((recovered.comparison, recovered.min_samples), ("<=", 3))
 
+        # The opt-in gated path must consume the same real B DTO. The A gate
+        # is mocked here; strict PostgreSQL tests separately exercise its lock.
+        with self.engine.begin() as connection:
+            connection.execute(delete(outbox))
+            connection.execute(
+                update(evaluation_jobs)
+                .where(evaluation_jobs.c.observation_id == created.observation_id)
+                .values(state="pending")
+            )
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == created.observation_id)
+                .values(risk={"state": "unknown"})
+            )
+
+        def simulated_gate(connection, **_kwargs):
+            connection.execute(
+                update(evaluation_jobs)
+                .where(evaluation_jobs.c.observation_id == created.observation_id)
+                .values(state=evaluation_jobs.c.state)
+            )
+            return 1
+
+        with patch(
+            "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+            side_effect=simulated_gate,
+        ):
+            gated = select_and_stage_gated_high_candidate(
+                self.engine,
+                device_id=DEVICE,
+                warehouse_id=warehouse_id,
+                stream_epoch=uuid4(),
+                observation_id=created.observation_id,
+                batch_id=batch_id,
+                selector=selector,
+                now=NOW,
+            )
+        self.assertEqual(gated.status, "candidate_staged")
+        self.assertEqual(self._read(outbox)[0]["body"]["kind"], "temperature_high")
+
     def test_gated_high_commits_once_and_rolls_back_noop_replay(self) -> None:
         """Mock A gate on SQLite; this does not prove the real PG row lock."""
         observation_id, body = self._preselected_high()
@@ -302,6 +343,74 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
             )
             self.assertEqual(replay.status, "not_due")
             self.assertEqual(len(self._read(outbox)), 1)
+
+    def test_f02_selection_precedes_gated_high_write_and_no_rule_stays_unknown(
+        self,
+    ) -> None:
+        """SQLite mocks A gate; real PG lock remains a separate strict test."""
+        observation_id, _ = self._ingest(13)
+        selector = Selector(_rule())
+        epoch = uuid4()
+
+        def simulated_gate(connection, **_kwargs):
+            self.assertEqual(len(selector.calls), 1)
+            connection.execute(
+                update(evaluation_jobs)
+                .where(evaluation_jobs.c.observation_id == observation_id)
+                .values(state=evaluation_jobs.c.state)
+            )
+            return 1
+
+        with patch(
+            "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+            side_effect=simulated_gate,
+        ):
+            result = select_and_stage_gated_high_candidate(
+                self.engine,
+                device_id=DEVICE,
+                warehouse_id=WAREHOUSE,
+                stream_epoch=epoch,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                selector=selector,
+                now=NOW,
+            )
+        self.assertEqual(result.status, "candidate_staged")
+        self.assertEqual(self._read(outbox)[0]["body"]["kind"], "temperature_high")
+        self.assertEqual(len(selector.calls), 1)
+        replay = select_and_stage_gated_high_candidate(
+            self.engine,
+            device_id=DEVICE,
+            warehouse_id=WAREHOUSE,
+            stream_epoch=epoch,
+            observation_id=observation_id,
+            batch_id=BATCH,
+            selector=selector,
+            now=NOW,
+        )
+        self.assertEqual(replay.status, "not_due")
+        self.assertEqual(len(selector.calls), 1)
+
+        other_id, _ = self._ingest(13)
+        no_rule = select_and_stage_gated_high_candidate(
+            self.engine,
+            device_id=DEVICE,
+            warehouse_id=WAREHOUSE,
+            stream_epoch=epoch,
+            observation_id=other_id,
+            batch_id=BATCH,
+            selector=Selector({"status": "no_rule", "rules": []}),
+            now=NOW,
+        )
+        self.assertEqual(
+            (no_rule.status, no_rule.reason), ("held_unknown", "no_usable_rule")
+        )
+        self.assertEqual(
+            next(row for row in self._read(observations) if row["id"] == other_id)[
+                "risk"
+            ]["state"],
+            "unknown",
+        )
 
     def test_gated_high_rejects_wrong_owner_and_rolls_back(self) -> None:
         observation_id, body = self._preselected_high()
