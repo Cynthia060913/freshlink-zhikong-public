@@ -18,7 +18,7 @@ try {
         & $docker image inspect $image --format '{{.Id}}'
         if($LASTEXITCODE){throw 'Required cached image missing; no automatic pulls'}
     }
-    & git diff --quiet bad804c8dcd2d9656f33f23797b1590b703c2be5 -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    & git diff --quiet 9f049ead31f5fa7789ca84a8aaa679f5725b18aa -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
     if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
     $revision=(& git rev-parse HEAD).Trim()
     if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}
@@ -45,7 +45,7 @@ try {
     if($report.phase -ne 'actual_mqtt_gated_c_http_csv_passed' -or $report.source_revision -ne $revision -or $report.complete_e1 -or $report.notifications_sent -ne 0){throw 'Wrong proof identity/scope'}
     $exitCode=0
     Write-Output ('PASS gated MQTT/C/JWT-HTTP/CSV segment; evidence: '+$results)
-    Write-Output 'NOT FULL E1: C01 is candidate-only; no recovery/real notifications/second-machine acceptance.'
+    Write-Output 'NOT FULL E1: runtime does not certify release approval; no recovery/real notification receipts/second-machine acceptance.'
 } catch {Write-Output ('STOP: '+$_.Exception.Message)}
 finally {
     if($docker -and $compose){

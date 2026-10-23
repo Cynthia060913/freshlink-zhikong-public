@@ -9,17 +9,23 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from sqlalchemy import create_engine, delete, select, update
 from sqlalchemy.exc import OperationalError
 
 from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
-from app.modules.telemetry.outbox_candidate import outbox, outbox_conflicts
+from app.modules.telemetry.outbox_candidate import (
+    outbox,
+    outbox_conflicts,
+    stage_f03_candidate,
+)
 from app.modules.telemetry.rule_evaluation_candidate import (
     evaluate_one_batch_candidate,
     mark_evaluation_on_connection_candidate,
     stage_evaluated_high_on_connection_candidate,
+    stage_gated_high_candidate,
 )
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
@@ -120,6 +126,168 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
     def _read(self, table) -> list[dict]:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(select(table)).mappings()]
+
+    def _preselected_high(self) -> tuple[UUID, dict]:
+        observation_id, _ = self._ingest(13)
+        result = evaluate_one_batch_candidate(
+            self.engine,
+            observation_id=observation_id,
+            batch_id=BATCH,
+            selector=Selector(_rule()),
+            now=NOW,
+        )
+        self.assertEqual(result.status, "candidate_staged")
+        body = self._read(outbox)[0]["body"]
+        with self.engine.begin() as connection:
+            connection.execute(delete(outbox))
+            connection.execute(update(evaluation_jobs).values(state="pending"))
+            connection.execute(update(observations).values(risk={"state": "unknown"}))
+        return observation_id, body
+
+    def test_gated_high_commits_once_and_rolls_back_noop_replay(self) -> None:
+        """Mock A gate on SQLite; this does not prove the real PG row lock."""
+        observation_id, body = self._preselected_high()
+        epoch = uuid4()
+
+        def simulated_gate(connection, **_kwargs):
+            # SQLite's deferred BEGIN needs a write before the outbox SAVEPOINT.
+            connection.execute(
+                update(evaluation_jobs)
+                .where(evaluation_jobs.c.observation_id == observation_id)
+                .values(state=evaluation_jobs.c.state)
+            )
+            return 1
+
+        with patch(
+            "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+            side_effect=simulated_gate,
+        ) as gate:
+            result = stage_gated_high_candidate(
+                self.engine,
+                device_id=DEVICE,
+                warehouse_id=WAREHOUSE,
+                stream_epoch=epoch,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                body=body,
+                now=NOW,
+            )
+            self.assertEqual(result.status, "candidate_staged")
+            self.assertEqual(
+                gate.call_args.kwargs,
+                {"device_id": DEVICE, "warehouse_id": WAREHOUSE, "epoch": epoch},
+            )
+            self.assertEqual(
+                self._read(evaluation_jobs)[0]["state"], "candidate_staged"
+            )
+            self.assertEqual(self._read(observations)[0]["risk"]["state"], "candidate")
+            self.assertEqual(len(self._read(outbox)), 1)
+            replay = stage_gated_high_candidate(
+                self.engine,
+                device_id=DEVICE,
+                warehouse_id=WAREHOUSE,
+                stream_epoch=epoch,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                body=body,
+                now=NOW,
+            )
+            self.assertEqual(replay.status, "not_due")
+            self.assertEqual(len(self._read(outbox)), 1)
+
+    def test_gated_high_rejects_wrong_owner_and_rolls_back(self) -> None:
+        observation_id, body = self._preselected_high()
+        with patch(
+            "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+            return_value=1,
+        ):
+            with self.assertRaisesRegex(ValueError, "does not belong"):
+                stage_gated_high_candidate(
+                    self.engine,
+                    device_id=uuid4(),
+                    warehouse_id=WAREHOUSE,
+                    stream_epoch=uuid4(),
+                    observation_id=observation_id,
+                    batch_id=BATCH,
+                    body=body,
+                    now=NOW,
+                )
+        self.assertEqual(self._read(outbox), [])
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "pending")
+        self.assertEqual(self._read(observations)[0]["risk"]["state"], "unknown")
+
+    def test_gated_high_conflict_commits_hold_without_changing_risk(self) -> None:
+        observation_id, body = self._preselected_high()
+        source_id = UUID(body["source_event_id"])
+        self.assertEqual(
+            stage_f03_candidate(
+                self.engine,
+                source_event_id=source_id,
+                observation_id=observation_id,
+                body=body,
+                now=NOW,
+            ),
+            "staged",
+        )
+        changed = {**body, "severity": "critical"}
+        epoch = uuid4()
+
+        def simulated_gate(connection, **_kwargs):
+            connection.execute(
+                update(evaluation_jobs)
+                .where(evaluation_jobs.c.observation_id == observation_id)
+                .values(state=evaluation_jobs.c.state)
+            )
+            return 1
+
+        with (
+            patch(
+                "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+                side_effect=simulated_gate,
+            ),
+            patch(
+                "app.modules.telemetry.rule_evaluation_candidate.mark_uncertain"
+            ) as hold,
+        ):
+            result = stage_gated_high_candidate(
+                self.engine,
+                device_id=DEVICE,
+                warehouse_id=WAREHOUSE,
+                stream_epoch=epoch,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                body=changed,
+                now=NOW,
+            )
+            self.assertEqual(result.status, "held_unknown")
+            hold.assert_called_once()
+            self.assertEqual(
+                hold.call_args.kwargs, {"device_id": DEVICE, "epoch": epoch}
+            )
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "pending")
+        self.assertEqual(self._read(observations)[0]["risk"]["state"], "unknown")
+        self.assertEqual(len(self._read(outbox_conflicts)), 1)
+
+    def test_gated_high_gate_failure_never_writes_c_rows(self) -> None:
+        observation_id, body = self._preselected_high()
+        with patch(
+            "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+            side_effect=RuntimeError("frontier unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "frontier unavailable"):
+                stage_gated_high_candidate(
+                    self.engine,
+                    device_id=DEVICE,
+                    warehouse_id=WAREHOUSE,
+                    stream_epoch=uuid4(),
+                    observation_id=observation_id,
+                    batch_id=BATCH,
+                    body=body,
+                    now=NOW,
+                )
+        self.assertEqual(self._read(outbox), [])
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "pending")
+        self.assertEqual(self._read(observations)[0]["risk"]["state"], "unknown")
 
     def test_evaluation_write_shares_caller_transaction(self) -> None:
         observation_id, _ = self._ingest(11)
