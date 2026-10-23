@@ -7,8 +7,11 @@ F02 `RuleSelectionEntry.kind` 是规则候选类型 `threshold_high`，
 而 C→B F03 冻结异常正文的 `kind` 是 `temperature_high`。C 的高温评估
 和历史恢复规则绑定现严格消费前者，继续产生后者；两者不可直接等值比较，
 也不修改 B 的 F02 字段。C 自身合成选择器样例/测试同步为真实 F02 值。
-这一修正只使本地注入接口可消费真实 B DTO；可信批次关联、实际 B 查询与
-A worker 调用、正式发送和 E1 仍须同版验证。
+`rule_evaluation_candidate.py::LocalBRuleSelectionCandidate(engine)` 用独立
+短 Session 调实际 B 服务并输出 `model_dump(mode="json")`，在 A/C 写锁外完成
+规则读取；读库失败向外抛以保留待评估重试。该适配器不选择可信批次、不
+安装调度。新跨模块测试使用 B 真正的仓库/批次/快照服务和 C 观测/异常/
+恢复规则绑定；A worker 调用、正式发送和 E1 仍须同版验证。
 
 ## 2026-10-23 恢复候选同事务门禁入口（未接 worker/发送）
 

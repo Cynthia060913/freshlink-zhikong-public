@@ -17,6 +17,7 @@ from uuid import UUID, uuid5
 from sqlalchemy import select, update
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
+from sqlmodel import Session
 
 from app.modules.iot.stream_frontier import begin_evidence_write, mark_uncertain
 from app.modules.telemetry.candidate_preview import (
@@ -55,6 +56,37 @@ class F02SelectionPort(Protocol):
         metric_code: str,
         sampled_at: datetime,
     ) -> dict[str, Any]: ...
+
+
+class LocalBRuleSelectionCandidate:
+    """Read B's actual F02 service outside the A/C evidence-write lock.
+
+    The caller supplies a batch ID from a trusted warehouse association.
+    This adapter does not choose that association, start a worker, or send an
+    alert. A storage error propagates so pending C evaluation can retry.
+    """
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def select_rules_for_observation(
+        self,
+        *,
+        warehouse_id: UUID,
+        batch_ids: tuple[UUID, ...],
+        metric_code: str,
+        sampled_at: datetime,
+    ) -> dict[str, Any]:
+        from app.modules.alerts.services.rules import select_rules_for_observation
+
+        with Session(self._engine) as session:
+            return select_rules_for_observation(
+                session,
+                warehouse_id=warehouse_id,
+                batch_ids=batch_ids,
+                metric_code=metric_code,
+                sampled_at=sampled_at,
+            ).model_dump(mode="json")
 
 
 @dataclass(frozen=True)

@@ -163,10 +163,7 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
             WarehouseCreate,
         )
         from app.modules.alerts.services.batches import create_batch
-        from app.modules.alerts.services.rules import (
-            create_snapshot,
-            select_rules_for_observation,
-        )
+        from app.modules.alerts.services.rules import create_snapshot
         from app.modules.alerts.services.warehouses import create_warehouse
 
         SQLModel.metadata.create_all(
@@ -228,19 +225,11 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
         self.assertEqual(created.status, "accepted_new")
         assert created.observation_id is not None
 
-        class RealBSelector:
-            def __init__(self) -> None:
-                self.reply: dict | None = None
+        from app.modules.telemetry.rule_evaluation_candidate import (
+            LocalBRuleSelectionCandidate,
+        )
 
-            def select_rules_for_observation(self, **kwargs) -> dict:
-                with Session(self_engine) as session:
-                    self.reply = select_rules_for_observation(
-                        session, **kwargs
-                    ).model_dump(mode="json")
-                return self.reply
-
-        self_engine = self.engine
-        selector = RealBSelector()
+        selector = LocalBRuleSelectionCandidate(self.engine)
         evaluated = evaluate_one_batch_candidate(
             self.engine,
             observation_id=created.observation_id,
@@ -249,11 +238,16 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
             now=NOW,
         )
         self.assertEqual(evaluated.status, "candidate_staged")
-        assert selector.reply is not None
-        self.assertEqual(selector.reply["rules"][0]["kind"], "threshold_high")
+        reply = selector.select_rules_for_observation(
+            warehouse_id=warehouse_id,
+            batch_ids=(batch_id,),
+            metric_code="temperature",
+            sampled_at=NOW,
+        )
+        self.assertEqual(reply["rules"][0]["kind"], "threshold_high")
         body = self._read(outbox)[0]["body"]
         self.assertEqual(body["kind"], "temperature_high")
-        recovered = bind_original_recovery_rule(body, selector.reply["rules"][0])
+        recovered = bind_original_recovery_rule(body, reply["rules"][0])
         self.assertIsNotNone(recovered)
         assert recovered is not None
         self.assertEqual((recovered.comparison, recovered.min_samples), ("<=", 3))

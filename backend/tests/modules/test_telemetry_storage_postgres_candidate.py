@@ -446,7 +446,7 @@ class PostgresStorageCandidateTests(unittest.TestCase):
             "staged",
         )
         historical_rule = {
-            "kind": "temperature_high",
+            "kind": "threshold_high",
             "warehouse_id": str(_WAREHOUSE_ID),
             "batch_id": str(batch_id),
             "metric_code": "temperature",
