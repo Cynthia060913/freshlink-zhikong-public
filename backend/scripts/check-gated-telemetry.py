@@ -9,7 +9,7 @@ import json
 import os
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -25,11 +25,13 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.core.db import engine
 from app.main import app
+from app.modules.alerts.models import AlertEvent
 from app.modules.iot.frontier_bootstrap import (
     C_EVIDENCE_TABLES,
     initialize_fresh_streams,
 )
 from app.modules.iot.heartbeat_worker import HeartbeatWorkerSettings
+from app.modules.iot.high_evaluation_worker import GatedHighWorker
 from app.modules.iot.models import Device
 from app.modules.iot.proof_schema_guard import require_a04_candidate_schema
 from app.modules.iot.stream_frontier import read_complete_frontier
@@ -38,6 +40,12 @@ from app.modules.iot.telemetry_inbox_models import inbox, receipts
 from app.modules.iot.telemetry_storage_bridge import GatedTelemetrySink
 from app.modules.iot.telemetry_worker import TelemetryDeliveryWorker, TelemetryReceiver
 from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
+from app.modules.telemetry.b_http_candidate import (
+    BHttpCandidatePort,
+    HttpCandidateReply,
+)
+from app.modules.telemetry.delivery_candidate import deliver_once_candidate
+from app.modules.telemetry.outbox_candidate import outbox
 from app.modules.telemetry.storage_candidate import observations, receptions
 
 SENSOR = UUID("11111111-1111-4111-8111-111111111111")
@@ -238,6 +246,38 @@ def run():
             )
             assert warehouse.status_code == 201
             warehouse_id = UUID(warehouse.json()["id"])
+            starts = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+            batch = api.post(
+                f"/api/v1/warehouses/{warehouse_id}/batches",
+                headers=headers,
+                json={"code": "gated-apple", "product": "apple", "started_at": starts},
+            )
+            assert batch.status_code == 201
+            batch_id = UUID(batch.json()["id"])
+            rule = api.post(
+                f"/api/v1/batches/{batch_id}/rule-snapshots",
+                headers=headers,
+                json={
+                    "version_id": str(uuid4()),
+                    "rule_version": "gated-actual-b-v1",
+                    "effective_start_at": starts,
+                    "rules": [
+                        {
+                            "metric_code": "temperature",
+                            "candidate_kind": "temperature_high",
+                            "severity": "warning",
+                            "threshold_high": 8,
+                            "unit": "°C",
+                            "recovery": {
+                                "comparison": "<=",
+                                "threshold": 7,
+                                "min_samples": 3,
+                            },
+                        }
+                    ],
+                },
+            )
+            assert rule.status_code == 201
             with Session(engine) as session:
                 # Explicit registered fixture identity matches the test broker ACL.
                 session.add(
@@ -310,6 +350,54 @@ def run():
             wait_for(retry)
             first_id = delivered[0].observation_id
             assert count(inbox) == 0 and count(observations) == 1
+            high_worker = GatedHighWorker(engine, frontier_epochs=epochs)
+            high = high_worker.evaluate(first_id, now=datetime.now(UTC))
+            assert (
+                high.status == "candidate_staged" and high.source_event_id is not None
+            )
+            frozen = rows(outbox)
+            assert len(frozen) == 1
+            assert frozen[0]["body"]["rule_snapshot_id"] == rule.json()["id"]
+            assert frozen[0]["body"]["batch_id"] == str(batch_id)
+
+            class ActualRootTransport:
+                def request(self, method, path, body=None):
+                    # The coordinator must finish its local C claim before B I/O.
+                    with engine.begin() as connection:
+                        connection.execute(
+                            select(streams).with_for_update(nowait=True)
+                        ).all()
+                    reply = api.request(method, path, content=body, headers=headers)
+                    return HttpCandidateReply(reply.status_code, reply.content)
+
+            port = BHttpCandidatePort(ActualRootTransport())
+            assert (
+                deliver_once_candidate(
+                    engine,
+                    source_event_id=high.source_event_id,
+                    now=datetime.now(UTC),
+                    port=port,
+                )
+                == "delivered"
+            )
+            actual = port.lookup(high.source_event_id)
+            assert actual is not None and actual.alert_status == "open"
+            assert rows(outbox)[0]["state"] == "delivered"
+            assert count(AlertEvent.__table__) == 1
+            assert (
+                high_worker.evaluate(first_id, now=datetime.now(UTC)).status
+                == "not_due"
+            )
+            assert (
+                deliver_once_candidate(
+                    engine,
+                    source_event_id=high.source_event_id,
+                    now=datetime.now(UTC),
+                    port=port,
+                )
+                == "not_due"
+            )
+            assert count(AlertEvent.__table__) == 1
             with engine.begin() as connection:
                 assert (
                     read_complete_frontier(
@@ -370,7 +458,7 @@ def run():
                         "checked_at": datetime.now(UTC).isoformat(),
                         "source_revision": os.environ["GATED_SOURCE_REVISION"],
                         "source_dirty": os.environ["GATED_SOURCE_DIRTY"] == "1",
-                        "c_revision": "bad804c8dcd2d9656f33f23797b1590b703c2be5",
+                        "c_revision": "9f049ead31f5fa7789ca84a8aaa679f5725b18aa",
                         "actual_a05_migration": True,
                         "nonempty_database_refused_before_fixtures": True,
                         "actual_c01_candidate_alembic_migration": True,
@@ -384,6 +472,10 @@ def run():
                         "same_message_duplicate_one_observation": True,
                         "incomplete_quality_retained_recovery_held": True,
                         "jwt_http_raw_same_snapshot_csv": True,
+                        "actual_b_batch_and_historical_rule": True,
+                        "actual_gated_high_worker_call": True,
+                        "actual_c_outbox_b_http_digest_and_source_readback": True,
+                        "high_replay_one_b_event": True,
                         "mqtt_receptions": 3,
                         "observations": 2,
                         "notifications_sent": 0,
@@ -391,7 +483,8 @@ def run():
                         "not_tested": [
                             "released C01 migration",
                             "all C writer gate coverage",
-                            "recovery dispatch",
+                            "multi_batch_evaluation",
+                            "normal_and_recovery_dispatch",
                             "two notification receipts",
                             "14-device full business",
                             "browser",
