@@ -21,7 +21,7 @@ from app.modules.telemetry.b_http_candidate import (
 )
 from app.modules.telemetry.delivery_candidate import deliver_once_candidate
 from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
-from app.modules.telemetry.outbox_candidate import outbox, stage_candidate
+from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.storage_candidate import ingest_observation, metadata
 
 NOW = datetime(2026, 10, 18, 0, 0, tzinfo=UTC)
@@ -122,7 +122,7 @@ class CandidateToRealBServiceTests(unittest.TestCase):
                     }
                 )
                 self.assertEqual(
-                    stage_candidate(
+                    stage_f03_candidate(
                         c_engine,
                         source_event_id=source_id,
                         observation_id=saved.observation_id,
