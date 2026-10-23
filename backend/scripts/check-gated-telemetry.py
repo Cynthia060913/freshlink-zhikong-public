@@ -26,14 +26,16 @@ from app.core.config import settings
 from app.core.db import engine
 from app.main import app
 from app.modules.alerts.models import AlertEvent
+from app.modules.iot.control_worker import ControlWorker, ControlWorkerSettings
 from app.modules.iot.frontier_bootstrap import (
     C_EVIDENCE_TABLES,
     initialize_fresh_streams,
 )
-from app.modules.iot.heartbeat_worker import HeartbeatWorkerSettings
+from app.modules.iot.heartbeat_worker import HeartbeatWorker, HeartbeatWorkerSettings
 from app.modules.iot.high_evaluation_worker import GatedHighWorker
 from app.modules.iot.models import Device
 from app.modules.iot.proof_schema_guard import require_a04_candidate_schema
+from app.modules.iot.simulator_runtime import DeviceRuntime, RuntimeSettings
 from app.modules.iot.stream_frontier import read_complete_frontier
 from app.modules.iot.stream_frontier_models import streams
 from app.modules.iot.telemetry_inbox_models import inbox, receipts
@@ -50,6 +52,180 @@ from app.modules.telemetry.storage_candidate import observations, receptions
 
 SENSOR = UUID("11111111-1111-4111-8111-111111111111")
 TOPIC = f"freshlink/v1/devices/{SENSOR}/telemetry"
+ACTUATOR = UUID("66666666-6666-4666-8666-666666666666")
+
+
+def prove_control_to_stored_data(api, headers, warehouse_id, delivery, rows, wait_for):
+    """Actual simulated execution and later C data in the SAME guarded database.
+
+    Uses real B warehouse lookup, root control HTTP and existing authenticated
+    broker ACL. No dependency override, manual ACK, test DDL or recovery claim.
+    """
+    state_file = Path("/results/gated-control-device.db")
+    if state_file.exists():
+        raise RuntimeError("Refusing simulator evidence overwrite")
+    with Session(engine) as session:
+        assert session.get(Device, ACTUATOR) is None
+        session.add(
+            Device(
+                id=ACTUATOR,
+                code="gated-control",
+                name="Proof actuator",
+                kind="cooling_actuator",
+            )
+        )
+        session.commit()
+    bound = api.post(
+        f"/api/v1/devices/{ACTUATOR}/binding",
+        headers=headers,
+        json={"warehouse_id": str(warehouse_id)},
+    )
+    assert bound.status_code == 200
+    common = {
+        "host": "broker",
+        "port": 1883,
+        "tls": False,
+        "isolated_test_plaintext": True,
+        "username": "test-controller",
+        "acl_confirmed": True,
+        "scan_period_seconds": 0.1,
+    }
+    heartbeat = HeartbeatWorker(
+        HeartbeatWorkerSettings(
+            **common, client_id="gated-control-heartbeat", device_ids=[SENSOR, ACTUATOR]
+        ),
+        password="fixture-controller-only",
+    )
+    control = ControlWorker(
+        ControlWorkerSettings(
+            **common, client_id="gated-control-worker", device_ids=[ACTUATOR]
+        ),
+        password="fixture-controller-only",
+        warehouse_lookup_factory=warehouse_lookup_for_session,
+    )
+    device = DeviceRuntime(
+        RuntimeSettings(
+            host="broker",
+            port=1883,
+            tls=False,
+            isolated_test_plaintext=True,
+            sensor_username="test-sensor",
+            actuator_username="test-actuator",
+            sensor_id=SENSOR,
+            actuator_id=ACTUATOR,
+            warehouse_id=warehouse_id,
+            state_file=state_file,
+            sample_period_seconds=0.5,
+            heartbeat_period_seconds=0.5,
+            resend_period_seconds=1,
+        ),
+        sensor_password="fixture-sensor-only",
+        actuator_password="fixture-actuator-only",
+    )
+    workers, threads, errors = [heartbeat, control, device], [], []
+    started = datetime.now(UTC)
+
+    def execute(worker):
+        try:
+            worker.run(max_seconds=45)
+        except Exception as error:
+            errors.append(type(error).__name__)
+
+    def stored():
+        if errors:
+            raise AssertionError("Control proof worker failed: " + errors[0])
+        for _ in range(10):
+            outcome = delivery.run_once()
+            if outcome is None:
+                break
+            assert outcome.status == "delivered"
+        return sorted(
+            [
+                row
+                for row in rows(observations)
+                if row["first_received_at_utc"] >= started
+            ],
+            key=lambda row: row["first_received_at_utc"],
+        )
+
+    prefix = f"/api/v1/devices/{ACTUATOR}/commands"
+    try:
+        for worker in workers:
+            thread = threading.Thread(target=execute, args=(worker,))
+            threads.append(thread)
+            thread.start()
+        wait_for(
+            lambda: (
+                heartbeat.ready.is_set()
+                and control.ready.is_set()
+                and api.get(f"/api/v1/devices/{ACTUATOR}", headers=headers).json()[
+                    "connectivity"
+                ]
+                == "online"
+                and bool(stored())
+            )
+        )
+        baseline = stored()[-1]
+        before = baseline["normalized"]["metrics"]["temperature"]
+        command_id = uuid4()
+        body = {"command_id": str(command_id), "enabled": True, "lifetime_seconds": 30}
+        created = api.post(prefix, headers=headers, json=body)
+        assert created.status_code == 201
+
+        def acknowledged():
+            detail = api.get(f"{prefix}/{command_id}", headers=headers)
+            assert detail.status_code == 200
+            value = detail.json()
+            return value if value["status"] == "acknowledged" else None
+
+        wait_for(acknowledged)
+        detail = acknowledged()
+        assert detail["transport_accepted_at"] is not None
+        assert (
+            len(detail["receipts"]) == 1
+            and detail["receipts"][0]["result"] == "executed"
+        )
+        ack_seen = datetime.now(UTC)
+
+        def cooled():
+            return [
+                row
+                for row in stored()
+                if datetime.fromisoformat(row["normalized"]["sampled_at"]) > ack_seen
+                and row["normalized"]["metrics"]["temperature"] < before - 0.02
+            ]
+
+        wait_for(cooled)
+        after = cooled()[-1]
+        assert (
+            after["quality"] == ["ok"] and device.plant.state()["execution_count"] == 1
+        )
+        replay = api.post(prefix, headers=headers, json=body)
+        assert replay.status_code == 201 and replay.json()["command_id"] == str(
+            command_id
+        )
+        assert device.plant.state()["execution_count"] == 1
+        return {
+            "command_id": str(command_id),
+            "actuator_id": str(ACTUATOR),
+            "before_observation_id": str(baseline["id"]),
+            "after_observation_id": str(after["id"]),
+            "temperature_before_c": before,
+            "temperature_after_c": after["normalized"]["metrics"]["temperature"],
+            "actual_device_execution_ack": True,
+            "post_ack_sample_persisted_by_c": True,
+            "execution_count": 1,
+            "model": "software simulation, not physical cooling measurement",
+        }
+    finally:
+        for worker in workers:
+            worker.stop_requested.set()
+        for thread in threads:
+            thread.join(10)
+        assert all(not thread.is_alive() for thread in threads), (
+            "Control proof thread leak"
+        )
+        assert not errors, "Control proof worker error"
 
 
 def require_empty_test_business(connection):
@@ -475,6 +651,46 @@ def run():
             assert (
                 detail.status_code == 200 and detail.json()["raw_text"] == raw.decode()
             )
+            control_proof = prove_control_to_stored_data(
+                api, headers, warehouse_id, delivery, rows, wait_for
+            )
+            # The old fixed snapshot must not change after actual new samples.
+            old_export = api.get(
+                route + "/export.csv",
+                headers=headers,
+                params={"device_id": str(SENSOR), "snapshot_id": view["snapshot_id"]},
+            )
+            assert (
+                old_export.status_code == 200 and old_export.content == exported.content
+            )
+            fresh = api.get(
+                route + "/", headers=headers, params={"device_id": str(SENSOR)}
+            )
+            assert fresh.status_code == 200 and fresh.json()["total"] > 2
+            after_detail = api.get(
+                route + f"/{control_proof['after_observation_id']}", headers=headers
+            )
+            assert after_detail.status_code == 200
+            assert json.loads(after_detail.json()["raw_text"])["device_id"] == str(
+                SENSOR
+            )
+            fresh_export = api.get(
+                route + "/export.csv",
+                headers=headers,
+                params={
+                    "device_id": str(SENSOR),
+                    "snapshot_id": fresh.json()["snapshot_id"],
+                },
+            )
+            assert fresh_export.status_code == 200
+            fresh_csv_ids = [
+                row["observation_id"]
+                for row in csv.DictReader(
+                    StringIO(fresh_export.content.decode("utf-8-sig"))
+                )
+            ]
+            assert control_proof["after_observation_id"] in fresh_csv_ids
+            assert set(fresh_csv_ids) == {str(row["id"]) for row in rows(observations)}
             assert not failures
             target.write_text(
                 json.dumps(
@@ -487,7 +703,7 @@ def run():
                         "actual_a05_migration": True,
                         "nonempty_database_refused_before_fixtures": True,
                         "actual_c01_candidate_alembic_migration": True,
-                        "c01_released_on_main": False,
+                        "c01_release_status": "separate GitHub release record; not established by runtime proof",
                         "explicit_fresh_origin": True,
                         "registered_sensor_is_fixture": True,
                         "actual_b_http_warehouse_binding": True,
@@ -501,12 +717,15 @@ def run():
                         "actual_gated_high_worker_call": True,
                         "actual_c_outbox_b_http_digest_and_source_readback": True,
                         "high_replay_one_b_event": True,
-                        "mqtt_receptions": 3,
-                        "observations": 2,
+                        "actual_control_and_subsequent_c_data": control_proof,
+                        "old_snapshot_unchanged_after_control": True,
+                        "post_control_raw_http_and_same_snapshot_csv": True,
+                        "mqtt_receptions": count(receipts),
+                        "observations": count(observations),
                         "notifications_sent": 0,
                         "complete_e1": False,
                         "not_tested": [
-                            "released C01 migration",
+                            "release approval not established by runtime proof",
                             "all C writer gate coverage",
                             "multi_batch_evaluation",
                             "normal_and_recovery_dispatch",
