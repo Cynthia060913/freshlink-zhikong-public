@@ -922,3 +922,18 @@ stream_epoch, observation_id, batch_id, selector, now)` 先读已存 C 观测、
 这是实际 B 应用服务/数据库逻辑的隔离调用，不是部署后的 HTTP/TCP、真实
 MQTT 上报、后台调度、两渠道通知或完整 E1；用于在正式接线前发现 F03 回执
 字段/摘要/幂等不兼容。发布时仍需可信服务鉴权和同版 PG/重启/失败联调。
+
+## 2026-10-23：未冻结的恢复候选不得进入通用投递队列
+
+`outbox_candidate.py::_dependency_ready` 现在对带原异常引用的恢复候选额外要求
+完整的 A 前沿冻结字段（可信设备/仓库/epoch、正序 admission、水位相等、
+revision 非空）以及原异常已投递。`claim_candidate` 与 `due_source_ids_candidate`
+共用此条件；旧候选、非门禁 `stage_recovery_page_candidate` 产生的候选和
+只有部分冻结字段的行保持 pending、attempt_count 不增加、不会调用 B。
+异常候选的领取行为不变。已有单测用**合成完整 stamp**仅检查队列条件与 B
+回读语义；不把手工写入的 stamp 当作 A 当前前沿验证。
+
+这仍只是必要条件。恢复发送前必须在 A 同设备锁内核当前 stamp、迟到无效
+证据与绑定，并与 B 对已经接受后的更正/重开语义验收；网络发送跨事务，
+不能把一次事前读称为线性化。此检查和正式调用尚未完成，自动恢复外发保持
+关闭。不会修改活动 C01 迁移或共享根路由。

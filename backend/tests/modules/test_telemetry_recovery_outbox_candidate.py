@@ -1219,6 +1219,31 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
         ).results[0][1]
         self.assertEqual(staged.status, "staged")
         assert staged.source_event_id is not None
+        # The ungated page stages evidence but cannot authorize delivery.
+        self.assertEqual(
+            deliver_once_candidate(
+                self.engine,
+                source_event_id=staged.source_event_id,
+                now=_BASE + timedelta(minutes=3),
+                port=RecoveryReceiptPort(staged.source_event_id, "unused"),
+            ),
+            "not_due",
+        )
+        # Synthetic complete stamp tests the local queue predicate only; no A
+        # current-frontier or send-time linearization is claimed by this test.
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == staged.source_event_id)
+                .values(
+                    frozen_device_id=_DEVICE,
+                    frozen_warehouse_id=_WAREHOUSE,
+                    frozen_stream_epoch=uuid4(),
+                    frozen_admitted_seq=1,
+                    frozen_settled_through=1,
+                    frozen_evidence_revision=1,
+                )
+            )
         with self.engine.connect() as connection:
             digest = connection.execute(
                 select(outbox.c.body_sha256).where(
