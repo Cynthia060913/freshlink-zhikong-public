@@ -1,6 +1,6 @@
-"""Unactivated A24 metadata; no import/startup DDL or migration registration.
+"""A24 metadata in unmerged A05 schema candidate, never import/startup DDL.
 
-The reviewed successor migration must seed a verified origin explicitly.
+The A05 schema migration deliberately seeds NO verified origin.
 Neither missing state nor a process restart creates a new stream epoch.
 """
 

@@ -25,6 +25,7 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.models import User
 from app.modules.iot.models import Device
+from app.modules.iot.stream_frontier_models import entries, streams
 from app.modules.iot.telemetry_inbox_models import queue_guard
 
 
@@ -93,8 +94,8 @@ def test_existing_a03_rows_survive_actual_candidate_upgrade_and_schema_check():
             session.add(device)
             session.commit()
             actor_id, device_id = actor.id, device.id
-        alembic("upgrade", "head")
-        alembic("check")
+        # Check the frozen A04 boundary before its separately reviewed A05.
+        alembic("upgrade", "a04_transport_storage")
         with Session(private) as session:
             assert session.get(User, actor_id).email == "a04-proof@example.test"
             assert session.get(Device, device_id).name == "preserved A03 row"
@@ -107,6 +108,28 @@ def test_existing_a03_rows_survive_actual_candidate_upgrade_and_schema_check():
         assert "alerts_event" in names and "iot_event_delivery_checkpoint" in names
         assert "iot_stream_frontier" not in names
         assert not any(name.startswith("telemetry_") for name in names)
+        alembic("upgrade", "head")
+        alembic("check")
+        with private.connect() as connection:
+            assert (
+                connection.scalar(text("SELECT version_num FROM alembic_version"))
+                == "a05_stream_frontier"
+            )
+            assert connection.scalar(select(func.count()).select_from(streams)) == 0
+            assert connection.scalar(select(func.count()).select_from(entries)) == 0
+            assert connection.scalar(select(queue_guard.c.id)) == 1
+        with Session(private) as session:
+            assert session.get(User, actor_id).email == "a04-proof@example.test"
+            assert session.get(Device, device_id).name == "preserved A03 row"
+        # Empty successor rollback must leave A04 and old user data intact.
+        alembic("downgrade", "a04_transport_storage")
+        assert "iot_stream_frontier" not in inspect(private).get_table_names(
+            schema=schema
+        )
+        with Session(private) as session:
+            assert session.get(Device, device_id) is not None
+        alembic("upgrade", "head")
+        alembic("check")
     finally:
         private.dispose()
         if created:
