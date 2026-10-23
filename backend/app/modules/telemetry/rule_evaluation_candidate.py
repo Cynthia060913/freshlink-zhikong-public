@@ -325,6 +325,143 @@ def stage_gated_high_candidate(
             raise
 
 
+def stage_gated_within_rule_candidate(
+    engine: Engine,
+    *,
+    device_id: UUID,
+    warehouse_id: UUID,
+    stream_epoch: UUID,
+    observation_id: UUID,
+    batch_id: UUID,
+    selected_rule: dict[str, Any],
+) -> EvaluationResultCandidate:
+    """Mark one clean, within-rule observation under A's evidence gate.
+
+    The caller selects B's historical F02 rule before entry. This port
+    rechecks its identity, interval and threshold against stored raw evidence.
+    It never marks missing, unruled or high evidence normal. One observation
+    still has one evaluation job, so this is not a multi-batch finalizer.
+    """
+    if not all(
+        isinstance(value, UUID)
+        for value in (device_id, warehouse_id, stream_epoch, observation_id, batch_id)
+    ):
+        raise ValueError(
+            "trusted device, warehouse, epoch, observation and batch required"
+        )
+    if not isinstance(selected_rule, dict):
+        raise ValueError("selected_rule must be a B F02 rule object")
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            begin_evidence_write(
+                connection,
+                device_id=device_id,
+                warehouse_id=warehouse_id,
+                epoch=stream_epoch,
+            )
+            row = (
+                connection.execute(
+                    select(observations, evaluation_jobs.c.state)
+                    .join(
+                        evaluation_jobs,
+                        evaluation_jobs.c.observation_id == observations.c.id,
+                    )
+                    .where(observations.c.id == observation_id)
+                    .with_for_update(of=evaluation_jobs)
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None or row["state"] != "pending":
+                transaction.rollback()
+                return EvaluationResultCandidate("not_due", observation_id)
+            if row["device_id"] != device_id or row["warehouse_id"] != warehouse_id:
+                transaction.rollback()
+                return EvaluationResultCandidate(
+                    "held_unknown", observation_id, reason="observation_scope_mismatch"
+                )
+            try:
+                normalized, quality = row["normalized"], row["quality"]
+                if not isinstance(normalized, dict) or quality != ["ok"]:
+                    raise ValueError("observation quality is not clean")
+                sampled_at = _required_utc(normalized.get("sampled_at"), "sampled_at")
+                metrics = normalized.get("metrics")
+                value = _number(
+                    metrics.get("temperature") if isinstance(metrics, dict) else None
+                )
+                threshold = _number(selected_rule.get("threshold"))
+                if value is None or threshold is None or value > threshold:
+                    raise ValueError("temperature is missing or above threshold")
+                if (
+                    any(
+                        selected_rule.get(key) != expected
+                        for key, expected in {
+                            "warehouse_id": str(warehouse_id),
+                            "batch_id": str(batch_id),
+                            "metric_code": "temperature",
+                            "kind": "threshold_high",
+                            "comparison": ">",
+                            "unit": "°C",
+                        }.items()
+                    )
+                    or selected_rule.get("severity") not in F03_SEVERITIES
+                ):
+                    raise ValueError("unsupported historical rule")
+                snapshot_id = _required_uuid(
+                    selected_rule.get("snapshot_id"), "snapshot_id"
+                )
+                version = _required_text(
+                    selected_rule.get("rule_version"), "rule_version"
+                )
+                starts = _required_utc(
+                    selected_rule.get("effective_start_at"), "effective_start_at"
+                )
+                ends = (
+                    _required_utc(selected_rule["effective_end_at"], "effective_end_at")
+                    if selected_rule.get("effective_end_at") is not None
+                    else None
+                )
+                if sampled_at < starts or (ends is not None and sampled_at >= ends):
+                    raise ValueError("rule is outside sample interval")
+                view = deepcopy(row["raw_payload"])
+                view["warehouse_id"] = str(warehouse_id)
+                view["received_at"] = _utc_text(row["first_received_at_utc"])
+                processed = process_batch([view], threshold)[0]
+                if (
+                    processed["normalized"] != normalized
+                    or processed["quality"] != quality
+                ):
+                    raise ValueError("stored quality differs from raw evidence")
+            except (KeyError, TypeError, ValueError):  # fmt: skip
+                transaction.rollback()
+                return EvaluationResultCandidate(
+                    "held_unknown", observation_id, reason="invalid_rule_or_evidence"
+                )
+            risk = {
+                "state": "normal",
+                "temperature_c": value,
+                "threshold_c": threshold,
+                "rule_snapshot_id": str(snapshot_id),
+                "rule_version": version,
+            }
+            changed = mark_evaluation_on_connection_candidate(
+                connection,
+                observation_id=observation_id,
+                state="within_rule",
+                risk=risk,
+            )
+            if changed:
+                transaction.commit()
+                return EvaluationResultCandidate("within_rule", observation_id)
+            transaction.rollback()
+            return EvaluationResultCandidate("not_due", observation_id)
+        except BaseException:
+            if transaction.is_active:
+                transaction.rollback()
+            raise
+
+
 def select_and_stage_gated_high_candidate(
     engine: Engine,
     *,

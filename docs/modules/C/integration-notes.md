@@ -937,3 +937,18 @@ revision 非空）以及原异常已投递。`claim_candidate` 与 `due_source_i
 证据与绑定，并与 B 对已经接受后的更正/重开语义验收；网络发送跨事务，
 不能把一次事前读称为线性化。此检查和正式调用尚未完成，自动恢复外发保持
 关闭。不会修改活动 C01 迁移或共享根路由。
+
+## 2026-10-23：一批次常温样本的 A 门禁写端口
+
+`rule_evaluation_candidate.py::stage_gated_within_rule_candidate(engine, *,
+device_id, warehouse_id, stream_epoch, observation_id, batch_id, selected_rule)`
+接收调用方**在锁外按采样时刻选出的 B F02 单条规则**。在 A 同设备写门禁内复核
+可信归属、待评估任务、规则批次/仓库/温度单位/版本/生效区间，再用已存原文重算
+质量与温度。只有质量恰为 `['ok']`、温度存在且未超过有效阈值时，同事务将
+任务记 `within_rule`、风险记 `normal`；缺测、坏原文、过期/缺失规则及真正高温
+均保持 pending/unknown，空操作回滚 A revision。不访问 B 网络，不形成 F03。
+
+这是**一个批次**的显式端口；A 的 PR57 caller 当前只处理高温，尚未调用此
+端口。多批次不能逐批调用此端口，因为第一批会终结 observation 的唯一任务；
+需 C 另提供全批次原子评估或逐批任务模型，A 不得先循环并取第一批结果当全局
+正常。恢复窗口与发送前前沿复核仍独立待验。

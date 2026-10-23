@@ -30,6 +30,7 @@ from app.modules.telemetry.rule_evaluation_candidate import (
     select_and_stage_gated_high_candidate,
     stage_evaluated_high_on_connection_candidate,
     stage_gated_high_candidate,
+    stage_gated_within_rule_candidate,
 )
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
@@ -130,6 +131,71 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
     def _read(self, table) -> list[dict]:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(select(table)).mappings()]
+
+    def test_gated_normal_requires_clean_raw_and_historical_rule(self) -> None:
+        clean_id, _ = self._ingest(7)
+        missing_id, _ = self._ingest(7, humidity=False)
+        hot_id, _ = self._ingest(13)
+        rule = _rule()["rules"][0]
+        kwargs = {
+            "device_id": DEVICE,
+            "warehouse_id": WAREHOUSE,
+            "stream_epoch": uuid4(),
+            "batch_id": BATCH,
+        }
+        with patch(
+            "app.modules.telemetry.rule_evaluation_candidate.begin_evidence_write",
+            return_value=1,
+        ) as gate:
+            for identity, selected in (
+                (missing_id, rule),
+                (hot_id, rule),
+                (clean_id, {**rule, "unit": "°F"}),
+                (clean_id, {**rule, "effective_end_at": "2026-10-15T00:00:00Z"}),
+                (clean_id, {}),
+            ):
+                result = stage_gated_within_rule_candidate(
+                    self.engine,
+                    observation_id=identity,
+                    selected_rule=selected,
+                    **kwargs,
+                )
+                self.assertEqual(result.status, "held_unknown")
+            self.assertEqual(gate.call_count, 5)
+            self.assertTrue(
+                all(row["state"] == "pending" for row in self._read(evaluation_jobs))
+            )
+            self.assertTrue(
+                all(
+                    row["risk"]["state"] == "unknown"
+                    for row in self._read(observations)
+                )
+            )
+            self.assertEqual(self._read(outbox), [])
+            result = stage_gated_within_rule_candidate(
+                self.engine,
+                observation_id=clean_id,
+                selected_rule=rule,
+                **kwargs,
+            )
+            self.assertEqual(result.status, "within_rule")
+            replay = stage_gated_within_rule_candidate(
+                self.engine,
+                observation_id=clean_id,
+                selected_rule=rule,
+                **kwargs,
+            )
+            self.assertEqual(replay.status, "not_due")
+        state = next(
+            row
+            for row in self._read(evaluation_jobs)
+            if row["observation_id"] == clean_id
+        )
+        self.assertEqual(state["state"], "within_rule")
+        normal = next(row for row in self._read(observations) if row["id"] == clean_id)
+        self.assertEqual(normal["risk"]["state"], "normal")
+        self.assertEqual(normal["risk"]["rule_snapshot_id"], str(SNAPSHOT))
+        self.assertEqual(self._read(outbox), [])
 
     def _preselected_high(self) -> tuple[UUID, dict]:
         observation_id, _ = self._ingest(13)
