@@ -15,7 +15,7 @@ from typing import Any, Literal, Protocol
 from uuid import UUID, uuid5
 
 from sqlalchemy import select, update
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.modules.telemetry.candidate_preview import (
@@ -25,7 +25,12 @@ from app.modules.telemetry.candidate_preview import (
     _required_uuid,
     build_candidate_preview,
 )
-from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
+from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
+from app.modules.telemetry.outbox_candidate import (
+    outbox,
+    stage_f03_candidate,
+    stage_f03_on_connection_candidate,
+)
 from app.modules.telemetry.quality import _number, process_batch
 from app.modules.telemetry.storage_candidate import evaluation_jobs, observations
 
@@ -66,6 +71,165 @@ def _utc_text(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def mark_evaluation_on_connection_candidate(
+    connection: Connection,
+    *,
+    observation_id: UUID,
+    state: str,
+    risk: dict[str, Any] | None = None,
+) -> bool:
+    """Stage an evaluated job and risk in the caller's gated transaction.
+
+    The caller must verify the historical rule and persisted observation
+    before taking A's device write gate. This function never contacts B,
+    commits, or retries a failed outer transaction.
+    """
+    if not connection.in_transaction():
+        raise ValueError("an open caller transaction is required")
+    expected_risk = {"candidate_staged": "candidate", "within_rule": "normal"}
+    if state == "no_rule":
+        if risk is not None:
+            raise ValueError("no rule cannot assign normal or candidate risk")
+    elif (
+        state not in expected_risk
+        or not isinstance(risk, dict)
+        or risk.get("state") != expected_risk[state]
+    ):
+        raise ValueError("evaluation state and risk must agree")
+    updated = connection.execute(
+        update(evaluation_jobs)
+        .where(
+            evaluation_jobs.c.observation_id == observation_id,
+            evaluation_jobs.c.state == "pending",
+        )
+        .values(state=state)
+    )
+    if updated.rowcount != 1:
+        return False
+    if risk is not None:
+        connection.execute(
+            update(observations)
+            .where(observations.c.id == observation_id)
+            .values(risk=risk)
+        )
+    return True
+
+
+def stage_evaluated_high_on_connection_candidate(
+    connection: Connection,
+    *,
+    observation_id: UUID,
+    batch_id: UUID,
+    body: dict[str, Any],
+    now: datetime,
+) -> EvaluationResultCandidate:
+    """Atomically freeze one preselected high candidate and its C risk.
+
+    The caller selects B's historical rule before taking A's evidence gate,
+    then keeps that gate and this connection until the outer transaction ends.
+    This verifies the saved observation against the proposed body but cannot
+    independently certify B's selection or an ungated caller. No B I/O or
+    external send occurs inside the transaction.
+    """
+    if not connection.in_transaction():
+        raise ValueError("an open caller transaction is required")
+    if not isinstance(observation_id, UUID) or not isinstance(batch_id, UUID):
+        raise ValueError("observation_id and batch_id must be UUIDs")
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be an aware datetime")
+    row = (
+        connection.execute(
+            select(observations, evaluation_jobs.c.state)
+            .join(
+                evaluation_jobs, evaluation_jobs.c.observation_id == observations.c.id
+            )
+            .where(observations.c.id == observation_id)
+            .with_for_update(of=evaluation_jobs)
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None or row["state"] != "pending":
+        return EvaluationResultCandidate("not_due", observation_id)
+    frozen = normalize_f03_body_candidate(body)
+    normalized, quality = row["normalized"], row["quality"]
+    metrics = normalized.get("metrics") if isinstance(normalized, dict) else None
+    temperature = metrics.get("temperature") if isinstance(metrics, dict) else None
+    normalized_temperature = _number(temperature)
+    threshold = _number(frozen["evidence"].get("threshold"))
+    expected_source = uuid5(
+        _SOURCE_NAMESPACE, f"{observation_id}:{batch_id}:temperature_high"
+    )
+    if (
+        frozen["kind"] != "temperature_high"
+        or frozen["related_source_event_id"] is not None
+        or frozen["source_event_id"] != str(expected_source)
+        or frozen["observation_ids"] != [str(observation_id)]
+        or frozen["batch_id"] != str(batch_id)
+        or frozen["warehouse_id"] != str(row["warehouse_id"])
+        or not isinstance(normalized, dict)
+        or frozen["sampled_at"] != normalized.get("sampled_at")
+        or normalized_temperature is None
+        or frozen["value"] != temperature
+        or not isinstance(quality, list)
+        or frozen["evidence"].get("quality") != quality
+        or threshold is None
+        or normalized_temperature <= threshold
+    ):
+        raise ValueError("frozen high candidate differs from stored observation")
+    view = deepcopy(row["raw_payload"])
+    view["warehouse_id"] = str(row["warehouse_id"])
+    view["received_at"] = _utc_text(row["first_received_at_utc"])
+    processed = process_batch([view], threshold)[0]
+    if processed["normalized"] != normalized or processed["quality"] != quality:
+        raise ValueError("stored quality differs from raw evidence")
+    rebuilt = build_candidate_preview(
+        processed,
+        observation_id=str(observation_id),
+        source_event_id=str(expected_source),
+        rule={
+            "warehouse_id": frozen["warehouse_id"],
+            "batch_id": frozen["batch_id"],
+            "rule_snapshot_id": frozen["rule_snapshot_id"],
+            "rule_version": frozen["rule_version"],
+            "metric_code": "temperature",
+            "unit": "°C",
+            "comparison": ">",
+            "severity": frozen["severity"],
+            "threshold": threshold,
+            "effective_from": frozen["sampled_at"],
+            "effective_to": None,
+        },
+    )
+    if rebuilt != frozen:
+        raise ValueError("frozen high candidate differs from raw evidence")
+    staged = stage_f03_on_connection_candidate(
+        connection,
+        source_event_id=expected_source,
+        observation_id=observation_id,
+        body=frozen,
+        now=now,
+    )
+    if staged == "conflict":
+        return EvaluationResultCandidate(
+            "held_unknown", observation_id, expected_source, "candidate_body_conflict"
+        )
+    risk = {
+        "state": "candidate",
+        "reason": "threshold_exceeded",
+        "temperature_c": normalized_temperature,
+        "threshold_c": threshold,
+        "rule_snapshot_id": frozen["rule_snapshot_id"],
+        "rule_version": frozen["rule_version"],
+    }
+    changed = mark_evaluation_on_connection_candidate(
+        connection, observation_id=observation_id, state="candidate_staged", risk=risk
+    )
+    return EvaluationResultCandidate(
+        "candidate_staged" if changed else "not_due", observation_id, expected_source
+    )
+
+
 def _mark(
     engine: Engine,
     *,
@@ -74,23 +238,9 @@ def _mark(
     risk: dict[str, Any] | None = None,
 ) -> bool:
     with engine.begin() as connection:
-        updated = connection.execute(
-            update(evaluation_jobs)
-            .where(
-                evaluation_jobs.c.observation_id == observation_id,
-                evaluation_jobs.c.state == "pending",
-            )
-            .values(state=state)
+        return mark_evaluation_on_connection_candidate(
+            connection, observation_id=observation_id, state=state, risk=risk
         )
-        if updated.rowcount != 1:
-            return False
-        if risk is not None:
-            connection.execute(
-                update(observations)
-                .where(observations.c.id == observation_id)
-                .values(risk=risk)
-            )
-    return True
 
 
 def evaluate_one_batch_candidate(

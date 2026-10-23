@@ -1,0 +1,59 @@
+[CmdletBinding()]
+param([string]$AppImage='freshlink-app:p0')
+$ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
+$root=Get-FreshLinkRoot
+$original=Get-Location
+$keys=@('GATED_APP_IMAGE','GATED_RESULT_DIR','GATED_SOURCE_REVISION','GATED_SOURCE_DIRTY')
+$prior=@{}
+foreach($key in $keys){$prior[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+$compose=$null
+$docker=$null
+$exitCode=1
+$cleanup=1
+try {
+    Set-Location -LiteralPath $root
+    $docker=Assert-FreshLinkDocker
+    foreach($image in @($AppImage,'postgres:18','eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408')){
+        & $docker image inspect $image --format '{{.Id}}'
+        if($LASTEXITCODE){throw 'Required cached image missing; no automatic pulls'}
+    }
+    & git diff --quiet bad804c8dcd2d9656f33f23797b1590b703c2be5 -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
+    $revision=(& git rev-parse HEAD).Trim()
+    if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}
+    $dirty=@(& git status --porcelain)
+    if($LASTEXITCODE){throw 'Worktree identity unavailable'}
+    $project='gated-'+[guid]::NewGuid().ToString('N')
+    $results=Join-Path $root ('work/'+$project)
+    [IO.Directory]::CreateDirectory($results)|Out-Null
+    $env:GATED_APP_IMAGE=$AppImage
+    $env:GATED_RESULT_DIR=$results
+    $env:GATED_SOURCE_REVISION=$revision
+    $env:GATED_SOURCE_DIRTY=if($dirty.Count){'1'}else{'0'}
+    $compose=@('compose','--project-name',$project,'-f','compose.gated-telemetry-tests.yml')
+    & $docker @compose config --quiet
+    if($LASTEXITCODE){throw 'Owned compose configuration invalid'}
+    & $docker @compose up -d --wait --pull never test-db broker
+    if($LASTEXITCODE){throw 'Owned services failed'}
+    $runner=$project+'-runner'
+    & $docker @compose run --name $runner --no-deps --pull never test-runner
+    $runExit=$LASTEXITCODE
+    & $docker logs $runner 2>&1 | Tee-Object -FilePath (Join-Path $results 'runner.log')
+    if($runExit){throw 'Actual gated MQTT/PG/HTTP proof failed'}
+    $report=Get-Content -LiteralPath (Join-Path $results 'gated-telemetry.json') -Raw|ConvertFrom-Json
+    if($report.phase -ne 'actual_mqtt_gated_c_http_csv_passed' -or $report.source_revision -ne $revision -or $report.complete_e1 -or $report.notifications_sent -ne 0){throw 'Wrong proof identity/scope'}
+    $exitCode=0
+    Write-Output ('PASS gated MQTT/C/JWT-HTTP/CSV segment; evidence: '+$results)
+    Write-Output 'NOT FULL E1: C01 is candidate-only; no recovery/real notifications/second-machine acceptance.'
+} catch {Write-Output ('STOP: '+$_.Exception.Message)}
+finally {
+    if($docker -and $compose){
+        & $docker @compose down --remove-orphans
+        if($LASTEXITCODE){$exitCode=1;$cleanup=0}
+    }
+    if($compose){@{test_exit=$exitCode;owned_cleanup_ok=[bool]$cleanup;project=$project}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $results 'cleanup.json')}
+    foreach($key in $keys){[Environment]::SetEnvironmentVariable($key,$prior[$key],'Process')}
+    Set-Location -LiteralPath $original.Path
+}
+exit $exitCode

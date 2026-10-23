@@ -1,5 +1,106 @@
 # C 共享接线请求
 
+## 2026-10-22 恢复冻结戳持久字段候选（未启用投递）
+
+`outbox_candidate.outbox` 与非活动 `migration_candidates/c01_telemetry_storage.py`
+现包含六个可空的 A 前沿字段：`frozen_device_id`、`frozen_warehouse_id`、
+`frozen_stream_epoch`、`frozen_admitted_seq`、`frozen_settled_through`、
+`frozen_evidence_revision`。原异常 ID 沿用 `related_source_event_id`，不另造
+第二个可能不一致的关联字段。异常候选和旧独立恢复候选这些列为 `NULL`；
+**NULL 绝不是自动发送许可**。表仍为非活动提案，不能直接升级原库。
+
+新增 `freeze_recovery_frontier_on_connection_candidate(connection, *,
+recovery_source_event_id, original_source_event_id, stamp) -> "frozen"|"duplicate"`。
+调用方必须在同一外层 PostgreSQL READ COMMITTED 事务里先按 A
+`begin_evidence_write` 取得同设备写门禁、核 C 恢复窗口并暂存恢复候选，最后读取
+写后的完整 `FrontierStamp` 才调用此端口。端口本身再以 A 的
+`stamp_is_current` 持 stream 锁重核完整前沿，核恢复与已送达原异常、两端已存观测
+的设备/冷库归属，写六字段；同戳重放为 duplicate，变戳/部分字段/错关联失败并由
+调用方回滚。不自行提交、不发 B、不把坏证据解除 hold。
+
+本人隔离 SQLite 单测用**Mock A 前沿判定**验证字段回滚、提交后重开、同戳重放、
+变戳与错原异常拒绝；另在严格 opt-in PG 文件增第10项验证 C 字段对第二连接
+提交前不可见、回滚撤销和新连接读回，**本人无 PG，该项目前只运行并跳过**。
+两组都 Mock A 前沿判定，不证明真实 PG 设备锁。A/B 集成前还需真实 PG 同设备
+写/冻结并发、所有 C 写入口门禁、晚到坏证据失效、发送前复核与已受理后更正
+语义；恢复自动外发继续关闭。此字段小包不替代正式 C01 唯一链提升。
+
+## 2026-10-22 温度高候选与评估状态同事务端口
+
+`rule_evaluation_candidate.py::stage_evaluated_high_on_connection_candidate(
+connection, observation_id, batch_id, body, now)` 接收调用方在锁外依据 B 的**历史**
+规则预选的完整 F03 正文。调用方须先在同一 PostgreSQL 事务取得 A 的
+`begin_evidence_write` 设备门禁；本端口重读待评估的已存 C 观测，核对确定性
+`source_event_id`、批次/冷库/时间/数值/质量及高温阈值，然后在**同一 Connection**
+从已保存原文重算质量与候选证据，核对设备/消息 ID 和原始单位/数值，
+再冻结 outbox 正文并标记任务/风险。外层回滚同时撤销三者；重试相同正文去重，
+同来源异文只留冲突审计且不把风险标正常/候选。无 B 网络请求、自行提交或发送。
+这只解决单批温度高的局部原子写入；B 历史规则的可信选择、批次授权/重新核对、
+A worker 的真实调用、其他 C 写入口门禁及恢复冻结戳仍待共同接线与真实 PG 验证。
+旧 `evaluate_one_batch_candidate(engine, …)` 保持兼容，仍非同事务流程。
+
+## 2026-10-22 非活动 C01 十表迁移提案（不得直接升级原库）
+
+C 已在 `backend/migration_candidates/c01_telemetry_storage.py` 准备**非活动**
+Alembic 源码，提案父节点为 A [PR46 候选 `a05_stream_frontier`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/46)。
+它不放进 `backend/app/alembic/versions`，不改 `env.py`、共享 head、主程序或真实
+数据库。十张表与 C 当前九张 `storage_candidate.metadata` 加一张
+`recovery_progress_candidate.metadata` 的列、空值、类型、外键、唯一约束、
+两索引逐项一致，升级不插入数据/epoch/hold；本机静态及隔离模型测试 3/3。
+表名仍带 `_candidate`，因为当前 C 运行源码直接使用这些表名；团队若要在发布时
+命名去后缀，需同一包修改模块表映射与迁移并跑空库/旧数据/回滚测试，不能只改迁移。
+
+A 作为唯一集成方应在 A04/A05 真正审定并合入唯一链后，先核对当时真实 head、
+C metadata/表名及恢复冻结 stamp 必需字段，再决定是否提升这份提案为活动后继，
+同时登记两个 C metadata。当前提案虽补冻结 stamp，原异常关联沿用
+`related_source_event_id`，但全部写入口和发送线性化仍未接通，不能直接当作
+自动恢复可发布 schema。
+需真实 PostgreSQL 空库→唯一链升级、保留 A/B 旧行、`alembic check`、
+重启留存及降级边界验证；本机 3 项只证明源码静态一致性。
+
+## 2026-10-22 评估结果同连接写端口（局部准备）
+
+`rule_evaluation_candidate.py::mark_evaluation_on_connection_candidate`
+将 `evaluation_jobs` 状态及 observation 风险写在调用方已开启的同一事务内；
+不自行提交或向 B 查询规则。旧 `evaluate_one_batch_candidate(engine, …)`
+仍在锁外选择 B 历史规则，并使用独立 Engine 事务冻结 outbox 与标记结果，
+**尚未整体转换为 A 门禁内原子流程**。正式接线要先在短事务外查询 B 规则，
+再在持同设备门禁的事务内重读 observation/归属/规则版本、调用已有
+`stage_f03_on_connection_candidate` 和此标记端口；不能在锁内执行 B HTTP，
+也不能把本局部函数测试算作候选自动送达。C 本机隔离该组 7/7 通过。
+
+## 2026-10-22 恢复窗口同连接入口（已准备，未启用自动恢复）
+
+`recovery_progress_candidate.py::advance_persisted_recovery_window_on_connection_candidate(
+connection, initial, rule, sample)` 在调用方外层事务内读写原异常的连续恢复窗口，
+不自行提交、重试或开另一连接。调用方须先持 A 同设备写门禁，再用这个
+Connection 核对持久观测/历史规则并推进；数据库错误或 CAS 冲突直接向外抛，
+由调用方整体回滚。旧 `advance_persisted_recovery_window(engine, …)` 保留独立
+重试行为，但不持 A 锁，不能用它宣布自动恢复已经接线。C 本机 SQLite 恢复
+相关 23/23 通过，严格 PG 文件共 8 项本机均跳过，新第8项已编写等待受控环境
+实跑。这一步尚无冻结 stamp、原异常关联、晚到坏证据失效或 B 接收线性化，
+自动恢复外发继续关闭。
+
+## 2026-10-22 观测同连接入口（已准备，未挂正式 A 门禁）
+
+C 的 `storage_candidate.py::ingest_observation_on_connection_candidate(
+connection, envelope)` 已在 C 分支准备。调用方须先开启外层事务，并在**同一
+Connection** 按 A [PR45 `f52e495`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/45)
+候选的 `begin_evidence_write(connection, device_id=…, warehouse_id=…,
+epoch=…)` 获取设备写门禁，再调用 C 入口；本函数不自行提交、回滚、重试或
+调用 B。有效观测的原文/质量/评估任务及 invalid、消息冲突、reception ID
+异文复用审计都受外层事务控制。唯一约束/数据库错误直接抛给调用方，调用方须
+整体回滚；成功返回仍只是暂存，不能在 commit 前回复 A 已持久交付。
+原 `ingest_observation(engine, envelope)` 独立入口保留兼容性，**不持 A 锁**，
+不能作为 A24 正式 worker 的交付端口。A 集成时要在已确认设备绑定/epoch 的
+同一事务里替换调用点，不能先写 C 再补门禁。C 本机 SQLite 13/13，新增
+严格 PG 第7项仅已编写、未在本人本机运行；A 的 PR45 端口及活动 A05、C
+后继均需独立审核/发布。此增量未触及规则评估、恢复窗口、冻结或发送端口，
+自动恢复继续关闭。
+
+C 已对 [PR44 精确 `a35a1e3`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/44#pullrequestreview-5607772122)
+提交共同基础候选批准；仅 A03→B01→A04 范围，不覆盖 PR45—53 或正式 C 表。
+
 ## 2026-10-21 A24 后 C 必须补的最小写门禁（提案，尚未实现）
 
 A [PR43 `a5f27e6ffe7d56844aa388dbedef2ba2a06ee9ee`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/43)

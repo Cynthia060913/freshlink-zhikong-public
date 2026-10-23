@@ -14,13 +14,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from threading import Barrier
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, event, func, select, update
+from sqlalchemy import create_engine, delete, event, func, select, update
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.schema import CreateSchema, DropSchema
 
+from app.modules.iot.stream_frontier import FrontierStamp
 from app.modules.telemetry.history_candidate import (
     HistoryFiltersCandidate,
     list_history_candidate,
@@ -33,10 +35,13 @@ from app.modules.telemetry.outbox_candidate import (
     stage_f03_candidate,
 )
 from app.modules.telemetry.recovery_outbox_candidate import (
+    freeze_recovery_frontier_on_connection_candidate,
     stage_eligible_recovery_on_connection_candidate,
 )
 from app.modules.telemetry.recovery_progress_candidate import (
     advance_persisted_recovery_window,
+    advance_persisted_recovery_window_on_connection_candidate,
+    recovery_progress,
 )
 from app.modules.telemetry.recovery_progress_candidate import (
     metadata as progress_metadata,
@@ -46,7 +51,10 @@ from app.modules.telemetry.recovery_window_candidate import (
     RecoverySampleCandidate,
     RecoveryWindowCandidate,
 )
-from app.modules.telemetry.rule_evaluation_candidate import evaluate_one_batch_candidate
+from app.modules.telemetry.rule_evaluation_candidate import (
+    evaluate_one_batch_candidate,
+    stage_evaluated_high_on_connection_candidate,
+)
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
     read_snapshot_page_candidate,
@@ -55,6 +63,7 @@ from app.modules.telemetry.snapshot_candidate import (
 from app.modules.telemetry.storage_candidate import (
     evaluation_jobs,
     ingest_observation,
+    ingest_observation_on_connection_candidate,
     metadata,
     observations,
     quality_tags,
@@ -139,6 +148,261 @@ class PostgresStorageCandidateTests(unittest.TestCase):
     def _count(self, table) -> int:
         with self.engine.connect() as connection:
             return int(connection.scalar(select(func.count()).select_from(table)))
+
+    def test_frozen_recovery_fields_share_pg_commit_and_survive_new_connection(
+        self,
+    ) -> None:
+        """Real C PG rows/rollback; A frontier decision is explicitly mocked."""
+        original_id, recovery_id = uuid4(), uuid4()
+        first_observation, recovery_observation = uuid4(), uuid4()
+        epoch = uuid4()
+        with self.engine.begin() as connection:
+            for observation_id in (first_observation, recovery_observation):
+                connection.execute(
+                    observations.insert().values(
+                        id=observation_id,
+                        device_id=_DEVICE_ID,
+                        message_id=uuid4(),
+                        warehouse_id=_WAREHOUSE_ID,
+                        content_sha256="0" * 64,
+                        raw_text="{}",
+                        raw_payload={},
+                        sampled_at_utc=_RECEIVED_AT,
+                        first_received_at_utc=_RECEIVED_AT,
+                        normalized={},
+                        quality=["ok"],
+                        risk={"status": "unknown"},
+                    )
+                )
+            connection.execute(
+                outbox.insert(),
+                [
+                    {
+                        "source_event_id": original_id,
+                        "related_source_event_id": None,
+                        "observation_id": first_observation,
+                        "body_sha256": "0" * 64,
+                        "body": {
+                            "kind": "temperature_high",
+                            "source_event_id": str(original_id),
+                            "warehouse_id": str(_WAREHOUSE_ID),
+                            "observation_ids": [str(first_observation)],
+                        },
+                        "state": "delivered",
+                        "attempt_count": 1,
+                        "next_attempt_at_utc": _RECEIVED_AT,
+                    },
+                    {
+                        "source_event_id": recovery_id,
+                        "related_source_event_id": original_id,
+                        "observation_id": recovery_observation,
+                        "body_sha256": "1" * 64,
+                        "body": {
+                            "kind": "temperature_recovered",
+                            "source_event_id": str(recovery_id),
+                            "related_source_event_id": str(original_id),
+                            "warehouse_id": str(_WAREHOUSE_ID),
+                            "observation_ids": [str(recovery_observation)],
+                        },
+                        "state": "pending",
+                        "attempt_count": 0,
+                        "next_attempt_at_utc": _RECEIVED_AT,
+                    },
+                ],
+            )
+        stamp = FrontierStamp(_DEVICE_ID, _WAREHOUSE_ID, epoch, 2, 2, 7)
+        frozen = select(outbox.c.frozen_evidence_revision).where(
+            outbox.c.source_event_id == recovery_id
+        )
+        with patch(
+            "app.modules.telemetry.recovery_outbox_candidate.stamp_is_current",
+            return_value=True,
+        ):
+            with self.engine.connect() as writer:
+                transaction = writer.begin()
+                self.assertEqual(
+                    freeze_recovery_frontier_on_connection_candidate(
+                        writer,
+                        recovery_source_event_id=recovery_id,
+                        original_source_event_id=original_id,
+                        stamp=stamp,
+                    ),
+                    "frozen",
+                )
+                with self.engine.connect() as reader:
+                    self.assertIsNone(reader.scalar(frozen))
+                transaction.rollback()
+            with self.engine.connect() as reader:
+                self.assertIsNone(reader.scalar(frozen))
+            with self.engine.begin() as writer:
+                self.assertEqual(
+                    freeze_recovery_frontier_on_connection_candidate(
+                        writer,
+                        recovery_source_event_id=recovery_id,
+                        original_source_event_id=original_id,
+                        stamp=stamp,
+                    ),
+                    "frozen",
+                )
+        reopened = create_engine(self.url).execution_options(
+            schema_translate_map={None: self.schema}
+        )
+        try:
+            with reopened.connect() as reader:
+                row = (
+                    reader.execute(
+                        select(outbox).where(outbox.c.source_event_id == recovery_id)
+                    )
+                    .mappings()
+                    .one()
+                )
+                self.assertEqual(row["frozen_stream_epoch"], epoch)
+                self.assertEqual(row["frozen_evidence_revision"], 7)
+                self.assertEqual(row["related_source_event_id"], original_id)
+        finally:
+            reopened.dispose()
+
+    def test_ingest_on_caller_connection_is_invisible_until_pg_commit(self) -> None:
+        """A's later device gate can own the same real PG transaction."""
+        first = _reception(uuid4(), temperature=11)
+        with self.engine.connect() as writer:
+            transaction = writer.begin()
+            staged = ingest_observation_on_connection_candidate(writer, first)
+            self.assertEqual(staged.status, "accepted_new")
+            self.assertEqual(self._count(observations), 0)
+            self.assertEqual(self._count(receptions), 0)
+            transaction.rollback()
+        self.assertEqual(self._count(observations), 0)
+        self.assertEqual(self._count(evaluation_jobs), 0)
+        with self.engine.connect() as writer:
+            transaction = writer.begin()
+            committed = ingest_observation_on_connection_candidate(writer, first)
+            self.assertEqual(committed.status, "accepted_new")
+            self.assertEqual(self._count(observations), 0)
+            transaction.commit()
+        self.assertEqual(self._count(observations), 1)
+        self.assertEqual(self._count(receptions), 1)
+        self.assertEqual(self._count(evaluation_jobs), 1)
+        self.assertEqual(ingest_observation(self.engine, first), committed)
+
+    def test_high_candidate_and_risk_share_caller_pg_commit(self) -> None:
+        """Strict two-connection check; A gate itself is a separate integration."""
+        batch_id = uuid4()
+        ingested = ingest_observation(self.engine, _reception(uuid4(), temperature=13))
+        self.assertEqual(ingested.status, "accepted_new")
+        assert ingested.observation_id is not None
+
+        class Selector:
+            def select_rules_for_observation(self, **_kwargs) -> dict:
+                return {
+                    "status": "configured",
+                    "reason_code": None,
+                    "rules": [
+                        {
+                            "batch_id": str(batch_id),
+                            "warehouse_id": str(_WAREHOUSE_ID),
+                            "snapshot_id": str(uuid4()),
+                            "rule_version": "temp-v1",
+                            "metric_code": "temperature",
+                            "unit": "°C",
+                            "kind": "temperature_high",
+                            "severity": "warning",
+                            "comparison": ">",
+                            "threshold": 8.0,
+                            "effective_start_at": "2026-10-14T00:00:00Z",
+                            "effective_end_at": None,
+                        }
+                    ],
+                }
+
+        old = evaluate_one_batch_candidate(
+            self.engine,
+            observation_id=ingested.observation_id,
+            batch_id=batch_id,
+            selector=Selector(),
+            now=_RECEIVED_AT,
+        )
+        self.assertEqual(old.status, "candidate_staged")
+        with self.engine.begin() as connection:
+            body = connection.scalar(select(outbox.c.body))
+            connection.execute(delete(outbox))
+            connection.execute(update(evaluation_jobs).values(state="pending"))
+            connection.execute(update(observations).values(risk={"state": "unknown"}))
+        assert isinstance(body, dict)
+        with self.engine.connect() as writer:
+            transaction = writer.begin()
+            staged = stage_evaluated_high_on_connection_candidate(
+                writer,
+                observation_id=ingested.observation_id,
+                batch_id=batch_id,
+                body=body,
+                now=_RECEIVED_AT,
+            )
+            self.assertEqual(staged.status, "candidate_staged")
+            self.assertEqual(self._count(outbox), 0)
+            self.assertEqual(self._count(evaluation_jobs), 1)
+            transaction.rollback()
+        self.assertEqual(self._count(outbox), 0)
+        with self.engine.connect() as writer:
+            transaction = writer.begin()
+            committed = stage_evaluated_high_on_connection_candidate(
+                writer,
+                observation_id=ingested.observation_id,
+                batch_id=batch_id,
+                body=body,
+                now=_RECEIVED_AT,
+            )
+            self.assertEqual(committed.status, "candidate_staged")
+            self.assertEqual(self._count(outbox), 0)
+            transaction.commit()
+        self.assertEqual(self._count(outbox), 1)
+        with self.engine.connect() as connection:
+            state = connection.scalar(select(evaluation_jobs.c.state))
+            risk = connection.scalar(select(observations.c.risk))
+        self.assertEqual(state, "candidate_staged")
+        self.assertEqual(risk["state"], "candidate")
+
+    def test_recovery_progress_uses_caller_pg_transaction(self) -> None:
+        self.addCleanup(progress_metadata.drop_all, self.engine)
+        progress_metadata.create_all(self.engine)
+        initial = RecoveryWindowCandidate(
+            original_source_event_id=uuid4(),
+            device_id=_DEVICE_ID,
+            warehouse_id=_WAREHOUSE_ID,
+            batch_id=uuid4(),
+            anomaly_sampled_at=_RECEIVED_AT,
+        )
+        rule = RecoveryRuleCandidate("<=", 7.0, 3, 90)
+        sample = RecoverySampleCandidate(
+            observation_id=uuid4(),
+            device_id=_DEVICE_ID,
+            warehouse_id=_WAREHOUSE_ID,
+            batch_id=initial.batch_id,
+            sampled_at=_RECEIVED_AT + timedelta(seconds=10),
+            temperature_c=6.0,
+            quality=("ok",),
+            duplicate="new",
+        )
+        with self.engine.connect() as writer:
+            transaction = writer.begin()
+            staged, decision = (
+                advance_persisted_recovery_window_on_connection_candidate(
+                    writer, initial, rule, sample
+                )
+            )
+            self.assertEqual(decision, "progress")
+            self.assertEqual(self._count(recovery_progress), 0)
+            transaction.rollback()
+        self.assertEqual(self._count(recovery_progress), 0)
+        with self.engine.begin() as writer:
+            committed, decision = (
+                advance_persisted_recovery_window_on_connection_candidate(
+                    writer, initial, rule, sample
+                )
+            )
+            self.assertEqual(decision, "progress")
+        self.assertEqual(self._count(recovery_progress), 1)
+        self.assertEqual(committed, staged)
 
     def test_recovery_staging_shares_pg_caller_commit_and_rollback(self) -> None:
         """A future admission lock can own the same PG transaction as C staging.

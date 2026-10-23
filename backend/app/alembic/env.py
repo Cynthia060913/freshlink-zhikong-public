@@ -27,11 +27,15 @@ from app.modules.iot.control_models import DeviceCommand, CommandAttempt, Comman
 from app.modules.iot.event_dispatch_models import metadata as event_metadata
 from app.modules.iot.telemetry_inbox_models import metadata as inbox_metadata
 from app.modules.iot.stream_frontier_models import metadata as frontier_metadata
+from app.modules.telemetry import outbox_candidate, snapshot_candidate  # noqa: F401
+from app.modules.telemetry.storage_candidate import metadata as c_metadata
+from app.modules.telemetry.recovery_progress_candidate import metadata as c_progress_metadata
 from app.core.config import settings # noqa
 
-# A05 registers only A-owned frontier tables in this isolated candidate chain.
-# No epoch is seeded; C metadata waits for its reviewed unique successor.
-target_metadata = [SQLModel.metadata, event_metadata, inbox_metadata, frontier_metadata]
+# C01 is the unique candidate successor; registration does not run migrations,
+# seed epochs, enable workers or authorize changes to an existing database.
+target_metadata = [SQLModel.metadata, event_metadata, inbox_metadata, frontier_metadata,
+                   c_metadata, c_progress_metadata]
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

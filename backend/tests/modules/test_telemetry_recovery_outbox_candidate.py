@@ -9,11 +9,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from sqlalchemy import create_engine, func, inspect, select, update
 from sqlalchemy.exc import OperationalError
 
+from app.modules.iot.stream_frontier import FrontierStamp
 from app.modules.telemetry.delivery_candidate import (
     RemoteCandidateReceipt,
     deliver_once_candidate,
@@ -26,6 +28,7 @@ from app.modules.telemetry.recovery_observation_scan_candidate import (
     scan_saved_recovery_observations_candidate,
 )
 from app.modules.telemetry.recovery_outbox_candidate import (
+    freeze_recovery_frontier_on_connection_candidate,
     stage_eligible_recovery_candidate,
     stage_eligible_recovery_on_connection_candidate,
 )
@@ -485,6 +488,185 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             self.assertEqual(
                 connection.scalar(select(func.count()).select_from(outbox)), 2
             )
+
+    def test_frozen_frontier_is_atomic_idempotent_and_survives_reopen(self) -> None:
+        self.progress(10, 50, 130)
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(state="delivered")
+            )
+        epoch = uuid4()
+        stamp = FrontierStamp(_DEVICE, _WAREHOUSE, epoch, 4, 4, 9)
+        with patch(
+            "app.modules.telemetry.recovery_outbox_candidate.stamp_is_current",
+            return_value=True,
+        ):
+            with self.engine.connect() as connection:
+                outer = connection.begin()
+                # SQLite's legacy deferred BEGIN otherwise lets the first
+                # SAVEPOINT become the physical outer transaction.
+                connection.execute(
+                    update(outbox)
+                    .where(outbox.c.source_event_id == _ORIGINAL)
+                    .values(state="delivered")
+                )
+                staged = stage_eligible_recovery_on_connection_candidate(
+                    connection,
+                    original_source_event_id=_ORIGINAL,
+                    historical_rule=_selection(),
+                    now=_BASE,
+                )
+                self.assertEqual(staged.status, "staged")
+                assert staged.source_event_id is not None
+                self.assertEqual(
+                    freeze_recovery_frontier_on_connection_candidate(
+                        connection,
+                        recovery_source_event_id=staged.source_event_id,
+                        original_source_event_id=_ORIGINAL,
+                        stamp=stamp,
+                    ),
+                    "frozen",
+                )
+                outer.rollback()
+            with self.engine.connect() as connection:
+                self.assertIsNone(
+                    connection.scalar(
+                        select(outbox.c.source_event_id).where(
+                            outbox.c.related_source_event_id == _ORIGINAL
+                        )
+                    )
+                )
+            with self.engine.begin() as connection:
+                staged = stage_eligible_recovery_on_connection_candidate(
+                    connection,
+                    original_source_event_id=_ORIGINAL,
+                    historical_rule=_selection(),
+                    now=_BASE,
+                )
+                assert staged.source_event_id is not None
+                self.assertEqual(
+                    freeze_recovery_frontier_on_connection_candidate(
+                        connection,
+                        recovery_source_event_id=staged.source_event_id,
+                        original_source_event_id=_ORIGINAL,
+                        stamp=stamp,
+                    ),
+                    "frozen",
+                )
+                self.assertEqual(
+                    freeze_recovery_frontier_on_connection_candidate(
+                        connection,
+                        recovery_source_event_id=staged.source_event_id,
+                        original_source_event_id=_ORIGINAL,
+                        stamp=stamp,
+                    ),
+                    "duplicate",
+                )
+            with self.engine.begin() as connection:
+                with self.assertRaisesRegex(ValueError, "different or partial"):
+                    freeze_recovery_frontier_on_connection_candidate(
+                        connection,
+                        recovery_source_event_id=staged.source_event_id,
+                        original_source_event_id=_ORIGINAL,
+                        stamp=FrontierStamp(_DEVICE, _WAREHOUSE, epoch, 4, 4, 10),
+                    )
+        self.engine.dispose()
+        self.engine = create_engine(f"sqlite+pysqlite:///{self.db}")
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    select(outbox).where(
+                        outbox.c.source_event_id == staged.source_event_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            self.assertEqual(row["frozen_stream_epoch"], epoch)
+            self.assertEqual(row["frozen_admitted_seq"], 4)
+            self.assertEqual(row["frozen_settled_through"], 4)
+            self.assertEqual(row["frozen_evidence_revision"], 9)
+
+    def test_frozen_frontier_rejects_changed_or_wrong_original(self) -> None:
+        self.progress(10, 50, 130)
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == _ORIGINAL)
+                .values(state="delivered")
+            )
+        staged = self.stage()
+        assert staged.source_event_id is not None
+        stamp = FrontierStamp(_DEVICE, _WAREHOUSE, uuid4(), 4, 4, 9)
+        with self.engine.begin() as connection:
+            with (
+                patch(
+                    "app.modules.telemetry.recovery_outbox_candidate.stamp_is_current",
+                    return_value=False,
+                ),
+                self.assertRaisesRegex(ValueError, "incomplete or changed"),
+            ):
+                freeze_recovery_frontier_on_connection_candidate(
+                    connection,
+                    recovery_source_event_id=staged.source_event_id,
+                    original_source_event_id=_ORIGINAL,
+                    stamp=stamp,
+                )
+            with (
+                patch(
+                    "app.modules.telemetry.recovery_outbox_candidate.stamp_is_current",
+                    return_value=True,
+                ),
+                self.assertRaisesRegex(ValueError, "missing"),
+            ):
+                freeze_recovery_frontier_on_connection_candidate(
+                    connection,
+                    recovery_source_event_id=staged.source_event_id,
+                    original_source_event_id=uuid4(),
+                    stamp=stamp,
+                )
+            with (
+                patch(
+                    "app.modules.telemetry.recovery_outbox_candidate.stamp_is_current",
+                    return_value=True,
+                ),
+                self.assertRaisesRegex(ValueError, "does not belong"),
+            ):
+                freeze_recovery_frontier_on_connection_candidate(
+                    connection,
+                    recovery_source_event_id=staged.source_event_id,
+                    original_source_event_id=_ORIGINAL,
+                    stamp=FrontierStamp(
+                        uuid4(), _WAREHOUSE, stamp.stream_epoch, 4, 4, 9
+                    ),
+                )
+            self.assertIsNone(
+                connection.scalar(
+                    select(outbox.c.frozen_stream_epoch).where(
+                        outbox.c.source_event_id == staged.source_event_id
+                    )
+                )
+            )
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == staged.source_event_id)
+                .values(frozen_device_id=_DEVICE)
+            )
+            with (
+                patch(
+                    "app.modules.telemetry.recovery_outbox_candidate.stamp_is_current",
+                    return_value=True,
+                ),
+                self.assertRaisesRegex(ValueError, "different or partial"),
+            ):
+                freeze_recovery_frontier_on_connection_candidate(
+                    connection,
+                    recovery_source_event_id=staged.source_event_id,
+                    original_source_event_id=_ORIGINAL,
+                    stamp=stamp,
+                )
 
     def test_saved_observations_advance_and_replay_without_extra_evidence(self) -> None:
         ids = [self.ingest(second, 6.5) for second in (10, 50, 130)]

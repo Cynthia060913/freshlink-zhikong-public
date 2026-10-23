@@ -1,4 +1,4 @@
-"""Actual candidate A03 -> B01 -> A04, in an owned disposable PG schema only."""
+"""Actual candidate A03 -> B01 -> A04 -> A05 -> C01 in owned PG only."""
 
 import os
 import subprocess
@@ -108,8 +108,7 @@ def test_existing_a03_rows_survive_actual_candidate_upgrade_and_schema_check():
         assert "alerts_event" in names and "iot_event_delivery_checkpoint" in names
         assert "iot_stream_frontier" not in names
         assert not any(name.startswith("telemetry_") for name in names)
-        alembic("upgrade", "head")
-        alembic("check")
+        alembic("upgrade", "a05_stream_frontier")
         with private.connect() as connection:
             assert (
                 connection.scalar(text("SELECT version_num FROM alembic_version"))
@@ -118,6 +117,52 @@ def test_existing_a03_rows_survive_actual_candidate_upgrade_and_schema_check():
             assert connection.scalar(select(func.count()).select_from(streams)) == 0
             assert connection.scalar(select(func.count()).select_from(entries)) == 0
             assert connection.scalar(select(queue_guard.c.id)) == 1
+        epoch = uuid4()
+        warehouse_id = uuid4()
+        with private.begin() as connection:
+            connection.execute(
+                streams.insert().values(
+                    device_id=device_id,
+                    warehouse_id=warehouse_id,
+                    stream_epoch=epoch,
+                    origin_verified=False,
+                    admitted_seq=0,
+                    settled_through=0,
+                    evidence_revision=7,
+                    gap_reason="unverified_fixture",
+                )
+            )
+        alembic("upgrade", "head")
+        alembic("check")
+        with private.connect() as connection:
+            assert connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            ) == ("c01_telemetry_storage")
+            assert connection.scalar(select(streams.c.stream_epoch)) == epoch
+            assert connection.scalar(select(streams.c.evidence_revision)) == 7
+            assert (
+                connection.scalar(select(streams.c.gap_reason)) == "unverified_fixture"
+            )
+            names = inspect(connection).get_table_names(schema=schema)
+            assert len([name for name in names if name.startswith("telemetry_")]) == 10
+            columns = inspect(connection).get_columns(
+                "telemetry_candidate_outbox_candidate", schema=schema
+            )
+            frozen = [
+                column for column in columns if column["name"].startswith("frozen_")
+            ]
+            assert len(frozen) == 6 and all(column["nullable"] for column in frozen)
+        # C-only rollback leaves all A state/hold untouched, then upgrades cleanly.
+        alembic("downgrade", "a05_stream_frontier")
+        with private.connect() as connection:
+            assert connection.scalar(select(streams.c.stream_epoch)) == epoch
+            assert connection.scalar(select(streams.c.evidence_revision)) == 7
+            assert not any(
+                name.startswith("telemetry_")
+                for name in inspect(connection).get_table_names(schema=schema)
+            )
+        alembic("upgrade", "head")
+        alembic("check")
         with Session(private) as session:
             assert session.get(User, actor_id).email == "a04-proof@example.test"
             assert session.get(Device, device_id).name == "preserved A03 row"

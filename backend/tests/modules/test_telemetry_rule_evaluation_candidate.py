@@ -4,18 +4,23 @@ import csv
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, select, update
+from sqlalchemy import create_engine, delete, select, update
 from sqlalchemy.exc import OperationalError
 
 from app.modules.telemetry.history_candidate import HistoryFiltersCandidate
 from app.modules.telemetry.outbox_candidate import outbox, outbox_conflicts
-from app.modules.telemetry.rule_evaluation_candidate import evaluate_one_batch_candidate
+from app.modules.telemetry.rule_evaluation_candidate import (
+    evaluate_one_batch_candidate,
+    mark_evaluation_on_connection_candidate,
+    stage_evaluated_high_on_connection_candidate,
+)
 from app.modules.telemetry.snapshot_candidate import (
     create_snapshot_candidate,
     read_snapshot_page_candidate,
@@ -115,6 +120,155 @@ class RuleEvaluationCandidateTests(unittest.TestCase):
     def _read(self, table) -> list[dict]:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(select(table)).mappings()]
+
+    def test_evaluation_write_shares_caller_transaction(self) -> None:
+        observation_id, _ = self._ingest(11)
+        candidate_risk = {"state": "candidate", "reason": "threshold_exceeded"}
+        with self.engine.connect() as connection:
+            with self.assertRaisesRegex(ValueError, "open caller transaction"):
+                mark_evaluation_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    state="candidate_staged",
+                    risk=candidate_risk,
+                )
+            transaction = connection.begin()
+            self.assertTrue(
+                mark_evaluation_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    state="candidate_staged",
+                    risk=candidate_risk,
+                )
+            )
+            transaction.rollback()
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "pending")
+        self.assertEqual(self._read(observations)[0]["risk"]["state"], "unknown")
+        with self.engine.begin() as connection:
+            with self.assertRaisesRegex(ValueError, "no rule"):
+                mark_evaluation_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    state="no_rule",
+                    risk={"state": "normal"},
+                )
+            self.assertTrue(
+                mark_evaluation_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    state="candidate_staged",
+                    risk=candidate_risk,
+                )
+            )
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "candidate_staged")
+        self.assertEqual(self._read(observations)[0]["risk"], candidate_risk)
+
+    def test_preselected_high_freeze_and_risk_share_outer_transaction(self) -> None:
+        observation_id, raw = self._ingest(13)
+        old = evaluate_one_batch_candidate(
+            self.engine,
+            observation_id=observation_id,
+            batch_id=BATCH,
+            selector=Selector(_rule()),
+            now=NOW,
+        )
+        self.assertEqual(old.status, "candidate_staged")
+        body = self._read(outbox)[0]["body"]
+        with self.engine.begin() as connection:
+            connection.execute(delete(outbox))
+            connection.execute(update(evaluation_jobs).values(state="pending"))
+            connection.execute(update(observations).values(risk={"state": "unknown"}))
+        with self.engine.connect() as connection:
+            with self.assertRaisesRegex(ValueError, "open caller transaction"):
+                stage_evaluated_high_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    batch_id=BATCH,
+                    body=body,
+                    now=NOW,
+                )
+            transaction = connection.begin()
+            # SQLite legacy transaction mode needs a write before SAVEPOINT;
+            # the real PG caller writes A's evidence revision first.
+            connection.execute(
+                update(evaluation_jobs)
+                .where(evaluation_jobs.c.observation_id == observation_id)
+                .values(state="pending")
+            )
+            staged = stage_evaluated_high_on_connection_candidate(
+                connection,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                body=body,
+                now=NOW,
+            )
+            self.assertEqual(staged.status, "candidate_staged")
+            transaction.rollback()
+        self.assertEqual(self._read(outbox), [])
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "pending")
+        self.assertEqual(self._read(observations)[0]["risk"]["state"], "unknown")
+        changed_body = dict(body)
+        changed_body["value"] = 7.0
+        with self.engine.begin() as connection:
+            with self.assertRaisesRegex(ValueError, "differs from stored"):
+                stage_evaluated_high_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    batch_id=BATCH,
+                    body=changed_body,
+                    now=NOW,
+                )
+            changed_evidence = deepcopy(body)
+            changed_evidence["evidence"]["raw_value"] = 12
+            with self.assertRaisesRegex(ValueError, "differs from raw evidence"):
+                stage_evaluated_high_on_connection_candidate(
+                    connection,
+                    observation_id=observation_id,
+                    batch_id=BATCH,
+                    body=changed_evidence,
+                    now=NOW,
+                )
+            staged = stage_evaluated_high_on_connection_candidate(
+                connection,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                body=body,
+                now=NOW,
+            )
+            self.assertEqual(staged.status, "candidate_staged")
+        self.assertEqual(self._read(observations)[0]["raw_text"], raw)
+        self.assertEqual(self._read(observations)[0]["risk"]["state"], "candidate")
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "candidate_staged")
+        self.assertEqual(self._read(outbox)[0]["source_event_id"], old.source_event_id)
+        with self.engine.begin() as connection:
+            connection.execute(update(evaluation_jobs).values(state="pending"))
+            connection.execute(update(observations).values(risk={"state": "unknown"}))
+            retried = stage_evaluated_high_on_connection_candidate(
+                connection,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                body=body,
+                now=NOW,
+            )
+            self.assertEqual(retried.status, "candidate_staged")
+        self.assertEqual(len(self._read(outbox)), 1)
+        with self.engine.begin() as connection:
+            connection.execute(update(evaluation_jobs).values(state="pending"))
+            connection.execute(update(observations).values(risk={"state": "unknown"}))
+            different_rule = dict(body)
+            different_rule["rule_version"] = "temp-v2"
+            conflicted = stage_evaluated_high_on_connection_candidate(
+                connection,
+                observation_id=observation_id,
+                batch_id=BATCH,
+                body=different_rule,
+                now=NOW,
+            )
+            self.assertEqual(conflicted.status, "held_unknown")
+        self.assertEqual(self._read(evaluation_jobs)[0]["state"], "pending")
+        self.assertEqual(self._read(observations)[0]["risk"]["state"], "unknown")
+        self.assertEqual(len(self._read(outbox)), 1)
+        self.assertEqual(len(self._read(outbox_conflicts)), 1)
 
     def test_hot_missing_humidity_stages_once_without_losing_raw_or_quality(
         self,

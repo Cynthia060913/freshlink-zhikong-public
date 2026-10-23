@@ -66,3 +66,33 @@ test("future timestamps and invalid local fetch times fail closed", () => {
     true,
   )
 })
+
+test("only explicit UTC timestamps can show a fresh risk", () => {
+  assert.equal(
+    isLatestObservationStale(
+      checkedAt,
+      "2026-10-21T11:59:59+00:00",
+      fetchedAt,
+      fetchedAt,
+    ),
+    false,
+  )
+  assert.equal(
+    isLatestObservationStale(
+      checkedAt,
+      "2026-10-21T11:59:59",
+      fetchedAt,
+      fetchedAt,
+    ),
+    true,
+  )
+  assert.equal(
+    isLatestObservationStale(
+      checkedAt,
+      "2026-10-21T19:59:59+08:00",
+      fetchedAt,
+      fetchedAt,
+    ),
+    true,
+  )
+})

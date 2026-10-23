@@ -20,7 +20,10 @@ SPEC.loader.exec_module(candidate)
 
 def test_a05_has_one_explicit_parent_and_unique_active_head():
     script = ScriptDirectory(str(BACKEND / "app/alembic"))
-    assert script.get_heads() == [candidate.revision]
+    assert script.get_heads() == ["c01_telemetry_storage"]
+    assert (
+        script.get_revision("c01_telemetry_storage").down_revision == candidate.revision
+    )
     assert candidate.down_revision == "a04_transport_storage"
     lineage = {revision.revision for revision in script.walk_revisions()}
     assert {

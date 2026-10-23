@@ -16,6 +16,7 @@ from sqlalchemy.exc import OperationalError
 from app.modules.telemetry.storage_candidate import (
     evaluation_jobs,
     ingest_observation,
+    ingest_observation_on_connection_candidate,
     metadata,
     observations,
     quality_tags,
@@ -79,6 +80,102 @@ class StorageCandidateTests(unittest.TestCase):
     def _rows(self, table) -> list[dict]:
         with self.engine.connect() as connection:
             return [dict(row) for row in connection.execute(select(table)).mappings()]
+
+    def test_caller_connection_keeps_raw_receipt_and_job_in_outer_transaction(
+        self,
+    ) -> None:
+        receipt = _reception(_raw())
+        with self.engine.connect() as connection:
+            with self.assertRaisesRegex(ValueError, "open caller transaction"):
+                ingest_observation_on_connection_candidate(connection, receipt)
+            transaction = connection.begin()
+            staged = ingest_observation_on_connection_candidate(connection, receipt)
+            self.assertEqual(staged.status, "accepted_new")
+            self.assertEqual(
+                tuple(
+                    connection.scalar(select(func.count()).select_from(table))
+                    for table in (
+                        observations,
+                        quality_tags,
+                        receptions,
+                        evaluation_jobs,
+                    )
+                ),
+                (1, 1, 1, 1),
+            )
+            transaction.rollback()
+        self.assertEqual(
+            tuple(
+                len(self._rows(table))
+                for table in (observations, quality_tags, receptions, evaluation_jobs)
+            ),
+            (0, 0, 0, 0),
+        )
+        with self.engine.begin() as connection:
+            committed = ingest_observation_on_connection_candidate(connection, receipt)
+            self.assertEqual(committed.status, "accepted_new")
+        self.assertEqual(self._rows(observations)[0]["raw_text"], receipt.raw_text)
+        self.assertEqual(self._rows(receptions)[0]["outcome"], "accepted_new")
+        self.assertEqual(len(self._rows(evaluation_jobs)), 1)
+
+    def test_caller_connection_invalid_and_reuse_audit_rollback_together(self) -> None:
+        invalid = _reception(_raw(schema_version="2.0"))
+        original = _reception(_raw())
+        reused = _reception(_raw(extra="tampered"), reception_id=original.reception_id)
+        with self.engine.connect() as connection:
+            transaction = connection.begin()
+            self.assertEqual(
+                ingest_observation_on_connection_candidate(connection, invalid).status,
+                "invalid",
+            )
+            self.assertEqual(
+                ingest_observation_on_connection_candidate(connection, original).status,
+                "accepted_new",
+            )
+            self.assertEqual(
+                ingest_observation_on_connection_candidate(connection, reused).reason,
+                "reception_id_reuse",
+            )
+            self.assertEqual(
+                connection.scalar(
+                    select(func.count()).select_from(reception_reuse_conflicts)
+                ),
+                1,
+            )
+            transaction.rollback()
+        for table in (
+            observations,
+            receptions,
+            reception_reuse_conflicts,
+            evaluation_jobs,
+        ):
+            self.assertEqual(self._rows(table), [])
+
+    def test_caller_connection_propagates_storage_error_for_outer_rollback(
+        self,
+    ) -> None:
+        receipt = _reception(_raw())
+        injected = False
+
+        def fail_job_insert(_conn, _cursor, statement, _params, _context, _many):
+            nonlocal injected
+            if (
+                not injected
+                and "INSERT INTO telemetry_evaluation_candidate" in statement
+            ):
+                injected = True
+                raise OperationalError(statement, {}, RuntimeError("synthetic failure"))
+
+        event.listen(self.engine, "before_cursor_execute", fail_job_insert)
+        try:
+            with self.assertRaises(OperationalError):
+                with self.engine.begin() as connection:
+                    ingest_observation_on_connection_candidate(connection, receipt)
+        finally:
+            event.remove(self.engine, "before_cursor_execute", fail_job_insert)
+        self.assertTrue(injected)
+        for table in (observations, quality_tags, receptions, evaluation_jobs):
+            self.assertEqual(self._rows(table), [])
 
     def test_new_observation_retains_exact_hot_raw_and_trusted_receipt(self) -> None:
         payload = _raw(received_at="1900-01-01T00:00:00Z")

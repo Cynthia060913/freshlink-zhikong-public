@@ -13,10 +13,11 @@ from math import isfinite
 from typing import Any, Literal
 from uuid import UUID, uuid5
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.modules.iot.stream_frontier import FrontierStamp, stamp_is_current
 from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
 from app.modules.telemetry.outbox_candidate import (
     outbox,
@@ -48,6 +49,115 @@ class RecoveryStageResultCandidate:
     status: RecoveryStageStatus
     source_event_id: UUID | None = None
     reason: str = ""
+
+
+def freeze_recovery_frontier_on_connection_candidate(
+    connection: Connection,
+    *,
+    recovery_source_event_id: UUID,
+    original_source_event_id: UUID,
+    stamp: FrontierStamp,
+) -> Literal["frozen", "duplicate"]:
+    """Persist a complete A frontier on a pending C recovery, without commit.
+
+    The caller must first obtain A's write gate on this same Connection, then
+    stage the recovery and call this before the outer commit. A's frontier
+    check retains the stream lock through that commit. Legacy candidates with
+    null fields cannot authorize automatic delivery; this port does not turn
+    on the sender or settle a previously delivered B recovery.
+    """
+    if not connection.in_transaction():
+        raise ValueError("caller must start the transaction before freezing")
+    if (
+        not isinstance(recovery_source_event_id, UUID)
+        or not isinstance(original_source_event_id, UUID)
+        or not isinstance(stamp, FrontierStamp)
+        or stamp.admitted_seq <= 0
+        or stamp.admitted_seq != stamp.settled_through
+    ):
+        raise ValueError("invalid frozen recovery identity or frontier")
+    if not stamp_is_current(connection, stamp):
+        raise ValueError("recovery frontier is incomplete or changed")
+    recovery = (
+        connection.execute(
+            select(outbox)
+            .where(outbox.c.source_event_id == recovery_source_event_id)
+            .with_for_update()
+        )
+        .mappings()
+        .one_or_none()
+    )
+    original = (
+        connection.execute(
+            select(outbox).where(outbox.c.source_event_id == original_source_event_id)
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if recovery is None or original is None:
+        raise ValueError("recovery or original anomaly missing")
+    recovery_body, original_body = recovery["body"], original["body"]
+    if (
+        recovery["state"] != "pending"
+        or original["state"] != "delivered"
+        or recovery["related_source_event_id"] != original_source_event_id
+        or not isinstance(recovery_body, dict)
+        or not isinstance(original_body, dict)
+        or recovery_body.get("kind") != "temperature_recovered"
+        or recovery_body.get("source_event_id") != str(recovery_source_event_id)
+        or recovery_body.get("related_source_event_id") != str(original_source_event_id)
+        or not isinstance(recovery_body.get("observation_ids"), list)
+        or str(recovery["observation_id"]) not in recovery_body["observation_ids"]
+        or original_body.get("kind") not in {"temperature_high", "temperature_low"}
+        or original_body.get("source_event_id") != str(original_source_event_id)
+        or original_body.get("observation_ids") != [str(original["observation_id"])]
+        or recovery_body.get("warehouse_id") != str(stamp.warehouse_id)
+        or original_body.get("warehouse_id") != str(stamp.warehouse_id)
+    ):
+        raise ValueError("recovery is not a pending child of this anomaly")
+    for observation_id in (original["observation_id"], recovery["observation_id"]):
+        owner = (
+            connection.execute(
+                select(observations.c.device_id, observations.c.warehouse_id).where(
+                    observations.c.id == observation_id
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if (
+            owner is None
+            or owner["device_id"] != stamp.device_id
+            or owner["warehouse_id"] != stamp.warehouse_id
+        ):
+            raise ValueError("recovery observation does not belong to frontier")
+    columns = (
+        "frozen_device_id",
+        "frozen_warehouse_id",
+        "frozen_stream_epoch",
+        "frozen_admitted_seq",
+        "frozen_settled_through",
+        "frozen_evidence_revision",
+    )
+    values = (
+        stamp.device_id,
+        stamp.warehouse_id,
+        stamp.stream_epoch,
+        stamp.admitted_seq,
+        stamp.settled_through,
+        stamp.evidence_revision,
+    )
+    previous = tuple(recovery[name] for name in columns)
+    if previous == values:
+        return "duplicate"
+    if any(value is not None for value in previous):
+        raise ValueError("recovery has a different or partial frozen frontier")
+    connection.execute(
+        update(outbox)
+        .where(outbox.c.source_event_id == recovery_source_event_id)
+        .values(**dict(zip(columns, values, strict=True)))
+    )
+    return "frozen"
 
 
 def _instant(value: object) -> datetime:
