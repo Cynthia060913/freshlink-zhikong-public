@@ -48,6 +48,7 @@ class CandidateToRealBServiceTests(unittest.TestCase):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
         from sqlmodel import Session, SQLModel
+        from sqlmodel import select as sqlmodel_select
 
         from app.api import deps as api_deps
         from app.modules.alerts.models import AlertEvent, Batch, Warehouse
@@ -177,7 +178,7 @@ class CandidateToRealBServiceTests(unittest.TestCase):
                         session.scalar(select(func.count()).select_from(AlertEvent)), 1
                     )
                     alert = session.exec(
-                        select(AlertEvent).where(
+                        sqlmodel_select(AlertEvent).where(
                             AlertEvent.source_event_id == str(source_id)
                         )
                     ).one()
