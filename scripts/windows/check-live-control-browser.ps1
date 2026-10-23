@@ -5,12 +5,13 @@ param(
     [Parameter(Mandatory=$true)][string]$BundleSource,
     [Parameter(Mandatory=$true)][string]$NodeExecutable,
     [Parameter(Mandatory=$true)][string]$PlaywrightModules,
-    [Parameter(Mandatory=$true)][string]$ChromiumExecutable
+    [Parameter(Mandatory=$true)][string]$ChromiumExecutable,
+    [string]$AppImage='freshlink-app:p0'
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $priorLocation=Get-Location
-$names=@('CONTROL_BROWSER_SOURCE','CONTROL_BROWSER_BUNDLE','CONTROL_BROWSER_RESULTS')
+$names=@('CONTROL_BROWSER_SOURCE','CONTROL_BROWSER_BUNDLE','CONTROL_BROWSER_RESULTS','CONTROL_BROWSER_APP_IMAGE')
 $saved=@{}
 foreach($name in $names){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $docker=$null
@@ -41,6 +42,7 @@ try {
     $env:CONTROL_BROWSER_SOURCE=$source
     $env:CONTROL_BROWSER_BUNDLE=$bundle
     $env:CONTROL_BROWSER_RESULTS=$results
+    $env:CONTROL_BROWSER_APP_IMAGE=$AppImage
     $compose=@('compose','--project-name',$runId,'-f','compose.control-browser-tests.yml')
     & $docker @compose config --quiet
     if($LASTEXITCODE -ne 0){throw 'Invalid isolated Compose'}
@@ -72,7 +74,7 @@ try {
     Write-Output 'PASS exact same-ID replay, reload receipt, ordinary-user read/write refusal, single device execution and sampled temperature decrease.'
     Write-Output 'PASS real alert UI ACK, idempotent HTTP retry, synthetic recovery, late ACK 409 and append-only transition history. Not C-triggered recovery.'
     Write-Output 'PASS continuous MQTT -> actual A inbox -> C PG -> actual history/raw page and same-filter fixed-snapshot CSV; anonymous HTTP 401.'
-    Write-Output 'NOT E1: A uses actual candidate migrations; C test DDL is explicit. Published C migration, C-triggered B anomaly/recovery and two real notification receipts remain untested.'
+    Write-Output 'NOT E1: actual A04/A05/C01 migrations and gated C storage only; C-triggered B anomaly/recovery, two real notification receipts and second-machine acceptance remain untested.'
 } catch {
     Write-Output ('STOP: '+$_.Exception.Message)
     if($docker -and $compose){& $docker @compose logs --no-color --tail 45 test-runner}

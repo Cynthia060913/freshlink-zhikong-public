@@ -8,7 +8,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
-from uuid import UUID
+from uuid import UUID, uuid4
 
 
 def require(condition: bool, reason: str) -> None:
@@ -51,6 +51,10 @@ def run() -> None:
     from app.modules.iot.control_models import DeviceCommand
     from app.modules.iot.control_routes import control_warehouse_lookup
     from app.modules.iot.control_worker import ControlWorker, ControlWorkerSettings
+    from app.modules.iot.frontier_bootstrap import (
+        C_EVIDENCE_TABLES,
+        initialize_fresh_streams,
+    )
     from app.modules.iot.heartbeat_worker import (
         HeartbeatWorker,
         HeartbeatWorkerSettings,
@@ -60,16 +64,15 @@ def run() -> None:
     from app.modules.iot.simulator_runtime import DeviceRuntime, RuntimeSettings
     from app.modules.iot.telemetry_inbox_models import metadata as inbox_metadata
     from app.modules.iot.telemetry_inbox_models import queue_guard
+    from app.modules.iot.telemetry_storage_bridge import GatedTelemetrySink
     from app.modules.iot.telemetry_worker import (
         TelemetryDeliveryWorker,
         TelemetryReceiver,
     )
     from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
     from app.modules.telemetry.storage_candidate import (
-        ingest_observation,
         observations,
     )
-    from app.modules.telemetry.storage_candidate import metadata as c_metadata
 
     sensor = UUID("11111111-1111-4111-8111-111111111111")
     actuator = UUID("66666666-6666-4666-8666-666666666666")
@@ -90,8 +93,19 @@ def run() -> None:
     )
     with engine.connect() as connection:
         require(connection.scalar(core_select(queue_guard.c.id)) == 1, "A04 queue seed")
-    # C schema remains explicit disposable proof fixtures ONLY.
-    c_metadata.create_all(engine, checkfirst=False)
+    # The shared chain now owns C01. No fallback/create_all, even for this proof.
+    with engine.connect() as connection:
+        require(
+            connection.exec_driver_sql(
+                "SELECT version_num FROM alembic_version"
+            ).scalar_one()
+            == "c01_telemetry_storage",
+            "actual C01 head",
+        )
+        require(
+            C_EVIDENCE_TABLES <= set(inspect(connection).get_table_names()),
+            "complete actual C01 schema",
+        )
     server = uvicorn.Server(
         uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="warning")
     )
@@ -162,6 +176,8 @@ def run() -> None:
             )
             login.raise_for_status()
             headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+            actor = api.get("/api/v1/users/me", headers=headers)
+            require(actor.status_code == 200, "authenticated initialization actor")
             warehouse = api.post(
                 "/api/v1/warehouses/",
                 headers=headers,
@@ -190,6 +206,15 @@ def run() -> None:
                     json={"warehouse_id": str(warehouse_id)},
                 )
                 require(bound.status_code == 200, "device binding")
+            epochs = {sensor: uuid4()}
+            with engine.begin() as connection:
+                origin = initialize_fresh_streams(
+                    connection,
+                    actor_id=UUID(actor.json()["id"]),
+                    bindings={sensor: warehouse_id},
+                    epochs=epochs,
+                )
+                require(origin.created, "fresh guarded stream origin")
             common = {
                 "host": "broker",
                 "port": 1883,
@@ -230,11 +255,13 @@ def run() -> None:
                 ),
                 password="fixture-controller-only",
                 warehouse_lookup_factory=warehouse_lookup_for_session,
+                frontier_epochs=epochs,
             )
             delivery = TelemetryDeliveryWorker(
                 engine,
-                lambda body: ingest_observation(engine, body),
+                GatedTelemetrySink(engine, frontier_epochs=epochs),
                 poll_seconds=0.1,
+                frontier_epochs=epochs,
             )
             device = DeviceRuntime(
                 RuntimeSettings.model_validate(
@@ -317,15 +344,15 @@ def run() -> None:
                 "temperature_before": before,
                 "temperature_after": after,
                 "warehouse_lookup": "actual B HTTP/service; no dependency override",
-                "ddl_scope": "actual candidate B01/A04 Alembic plus C test DDL; not published chain",
+                "ddl_scope": "actual B01/A04/A05/C01 Alembic; no fallback C DDL",
                 "actual_c_observation_count": stored_count,
                 "telemetry_delivery_completed": delivery.completed,
                 "telemetry_delivery_failures": delivery.failures,
-                "telemetry_mode": "actual continuous A receiver/inbox/delivery -> C PG; automatic recovery disabled",
+                "telemetry_mode": "actual continuous A gated receiver/inbox/delivery -> C same-connection gate/PG; automatic recovery disabled",
                 "not_tested": [
                     "C-triggered B anomaly/recovery",
                     "real notifications",
-                    "formal B/C migrations",
+                    "second-machine migration and upgrade acceptance",
                     "full E1",
                     "production deployment or TLS provisioning",
                 ],
