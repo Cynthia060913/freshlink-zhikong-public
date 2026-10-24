@@ -1,10 +1,10 @@
 [CmdletBinding()]
-param([string]$AppImage='freshlink-app:p0')
+param([string]$AppImage='freshlink-app:p0',[switch]$ControlEntry)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $root=Get-FreshLinkRoot
 $original=Get-Location
-$keys=@('GATED_APP_IMAGE','GATED_RESULT_DIR','GATED_SOURCE_REVISION','GATED_SOURCE_DIRTY')
+$keys=@('GATED_APP_IMAGE','GATED_RESULT_DIR','GATED_SOURCE_REVISION','GATED_SOURCE_DIRTY','GATED_CONTROL_ENTRY')
 $prior=@{}
 foreach($key in $keys){$prior[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
 $compose=$null
@@ -31,6 +31,7 @@ try {
     $env:GATED_RESULT_DIR=$results
     $env:GATED_SOURCE_REVISION=$revision
     $env:GATED_SOURCE_DIRTY=if($dirty.Count){'1'}else{'0'}
+    $env:GATED_CONTROL_ENTRY=if($ControlEntry){'1'}else{'0'}
     $compose=@('compose','--project-name',$project,'-f','compose.gated-telemetry-tests.yml')
     & $docker @compose config --quiet
     if($LASTEXITCODE){throw 'Owned compose configuration invalid'}
@@ -43,6 +44,7 @@ try {
     if($runExit){throw 'Actual gated MQTT/PG/HTTP proof failed'}
     $report=Get-Content -LiteralPath (Join-Path $results 'gated-telemetry.json') -Raw|ConvertFrom-Json
     if($report.phase -ne 'actual_mqtt_gated_c_http_csv_passed' -or $report.source_revision -ne $revision -or $report.complete_e1 -or $report.notifications_sent -ne 0){throw 'Wrong proof identity/scope'}
+    if($ControlEntry -and -not $report.actual_control_and_subsequent_c_data.actual_control_process_entry){throw 'Control process entry was not exercised'}
     $exitCode=0
     Write-Output ('PASS gated MQTT/C/JWT-HTTP/CSV segment; evidence: '+$results)
     Write-Output 'NOT FULL E1: runtime does not certify release approval; no recovery/real notification receipts/second-machine acceptance.'

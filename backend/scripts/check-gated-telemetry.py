@@ -7,6 +7,8 @@ No notifications, recovery dispatch, original data or personal configuration.
 import csv
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -98,12 +100,18 @@ def prove_control_to_stored_data(
         ),
         password="fixture-controller-only",
     )
-    control = ControlWorker(
-        ControlWorkerSettings(
-            **common, client_id="gated-control-worker", device_ids=[ACTUATOR]
-        ),
-        password="fixture-controller-only",
-        warehouse_lookup_factory=warehouse_lookup_for_session,
+    control_config = ControlWorkerSettings(
+        **common, client_id="gated-control-worker", device_ids=[ACTUATOR]
+    )
+    use_entry = os.environ.get("GATED_CONTROL_ENTRY") == "1"
+    control = (
+        None
+        if use_entry
+        else ControlWorker(
+            control_config,
+            password="fixture-controller-only",
+            warehouse_lookup_factory=warehouse_lookup_for_session,
+        )
     )
     device = DeviceRuntime(
         RuntimeSettings(
@@ -124,7 +132,11 @@ def prove_control_to_stored_data(
         sensor_password="fixture-sensor-only",
         actuator_password="fixture-actuator-only",
     )
-    workers, threads, errors = [heartbeat, control, device], [], []
+    workers = [heartbeat, device] if control is None else [heartbeat, control, device]
+    threads, errors = [], []
+    process = None
+    process_log = None
+    result = {}
     started = datetime.now(UTC)
 
     def execute(worker):
@@ -152,6 +164,30 @@ def prove_control_to_stored_data(
 
     prefix = f"/api/v1/devices/{ACTUATOR}/commands"
     try:
+        if use_entry:
+            config_file = Path("/results/control-entry.json")
+            if config_file.exists():
+                raise RuntimeError("Refusing control entry config overwrite")
+            config_file.write_text(control_config.model_dump_json(), encoding="utf-8")
+            process_log = Path("/results/control-entry.log").open("x", encoding="utf-8")
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-B",
+                    "-m",
+                    "app.modules.iot.control_service",
+                    "--config",
+                    str(config_file),
+                    "--max-seconds",
+                    "45",
+                ],
+                env={
+                    **os.environ,
+                    "FRESHLINK_CONTROL_MQTT_PASSWORD": "fixture-controller-only",
+                },
+                stdout=process_log,
+                stderr=subprocess.STDOUT,
+            )
         for worker in workers:
             thread = threading.Thread(target=execute, args=(worker,))
             threads.append(thread)
@@ -159,7 +195,13 @@ def prove_control_to_stored_data(
         wait_for(
             lambda: (
                 heartbeat.ready.is_set()
-                and control.ready.is_set()
+                # Process liveness is not a subscription/ACK claim; actual
+                # executed ACK and later samples below remain mandatory.
+                and (
+                    control.ready.is_set()
+                    if control is not None
+                    else process.poll() is None
+                )
                 and api.get(f"/api/v1/devices/{ACTUATOR}", headers=headers).json()[
                     "connectivity"
                 ]
@@ -229,7 +271,7 @@ def prove_control_to_stored_data(
             command_id
         )
         assert device.plant.state()["execution_count"] == 1
-        return {
+        result = {
             "command_id": str(command_id),
             "actuator_id": str(ACTUATOR),
             "before_observation_id": str(baseline["id"]),
@@ -237,17 +279,37 @@ def prove_control_to_stored_data(
             "temperature_before_c": before,
             "temperature_after_c": after["normalized"]["metrics"]["temperature"],
             "actual_device_execution_ack": True,
+            "actual_control_process_entry": use_entry,
             "post_ack_sample_persisted_by_c": True,
             "execution_count": 1,
             "normal_rule_snapshot_id": normal_rule.json()["id"],
             "normal_rule_threshold_c": 20,
             "model": "software simulation, not physical cooling measurement",
         }
+        return result
     finally:
+        # Stop/join all owned threads even if child-process cleanup later fails.
         for worker in workers:
             worker.stop_requested.set()
         for thread in threads:
             thread.join(10)
+        if process is not None:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=12)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+                raise AssertionError(
+                    "Owned control process required forced cleanup"
+                ) from None
+            result["control_process_exit_code"] = process.returncode
+            if process_log is not None:
+                process_log.close()
+            assert process.returncode == 0, (
+                "Control entry process failed; inspect private log"
+            )
         assert all(not thread.is_alive() for thread in threads), (
             "Control proof thread leak"
         )
