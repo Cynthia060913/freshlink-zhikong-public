@@ -1,0 +1,40 @@
+# Disposable C PG candidate test only. No app service, host port or durable volume.
+services:
+  test-db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: freshlink_test
+      POSTGRES_PASSWORD: a01_disposable_only
+      POSTGRES_DB: freshlink_test
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freshlink_test -d freshlink_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  test-runner:
+    image: ${C_CANDIDATE_APP_IMAGE:-freshlink-app:p0}
+    working_dir: /app/backend
+    environment:
+      PROJECT_NAME: FreshLink-test
+      FASTAPI_ENV: development
+      SECRET_KEY: a01-disposable-test-key-only-32-characters
+      FIRST_SUPERUSER: admin@example.com
+      FIRST_SUPERUSER_PASSWORD: a01-disposable-admin-only
+      DATABASE_URL: postgresql://freshlink_test:a01_disposable_only@test-db:5432/freshlink_test
+      SMTP_HOST: ""
+      EMAILS_FROM_EMAIL: ""
+      SENTRY_DSN: ""
+      FRESHLINK_C_TEST_POSTGRES: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /app/backend
+    volumes:
+      - ./backend:/app/backend:ro
+      - ./docs/modules/C:/app/docs/modules/C:ro
+      - ./contracts:/app/contracts:ro
+    entrypoint: ["python", "-m", "unittest", "discover"]
+    command: ["-s", "tests/modules", "-p", "test_telemetry_storage_postgres_candidate.py", "-v"]
+networks:
+  default:
+    internal: true
