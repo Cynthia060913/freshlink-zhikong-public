@@ -746,7 +746,7 @@ def run():
                         "checked_at": datetime.now(UTC).isoformat(),
                         "source_revision": os.environ["GATED_SOURCE_REVISION"],
                         "source_dirty": os.environ["GATED_SOURCE_DIRTY"] == "1",
-                        "c_revision": "8eb66729fd03d765ff9cfa265b408dc399214743",
+                        "c_revision": "45c22e3ad7ede0d4fd02206b7b244285c284d3e8",
                         "actual_a05_migration": True,
                         "nonempty_database_refused_before_fixtures": True,
                         "actual_c01_candidate_alembic_migration": True,
