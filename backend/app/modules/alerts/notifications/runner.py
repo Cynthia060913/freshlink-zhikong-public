@@ -5,7 +5,7 @@ dispatches ONE already-committed event per call; it has no memory
 across process restarts. This module adds the running layer A asked
 for (#8 6383401217/6382361717): an explicitly-started worker that
 scans for committed alert events still owed a notification and
-    dispatches them through independent attempt transactions, so progress
+dispatches them through independent attempt transactions, so progress
 survives crashes and restarts.
 
 Durability properties (no new framework, no new tables, no migration):
