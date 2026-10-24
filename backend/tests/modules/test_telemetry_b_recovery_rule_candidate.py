@@ -82,7 +82,7 @@ class ActualBRecoveryRuleTests(unittest.TestCase):
                             rules=[
                                 {
                                     "metric_code": "temperature",
-                                    "candidate_kind": "temperature_high",
+                                    "candidate_kind": "threshold_high",
                                     "severity": "warning",
                                     "threshold_high": 8,
                                     "unit": "°C",
