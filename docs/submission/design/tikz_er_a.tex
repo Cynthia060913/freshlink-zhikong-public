@@ -1,0 +1,24 @@
+\documentclass[border=6pt]{standalone}
+\usepackage{fontspec}
+\setmainfont{Microsoft YaHei}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,shadows}
+\begin{document}
+\begin{tikzpicture}[
+box/.style={draw=teal!70!black,fill=teal!5,text=black,rounded corners=3pt,line width=.7pt,align=center,text width=3.3cm,minimum height=1.25cm,font=\small,drop shadow={opacity=.15,shadow xshift=.5pt,shadow yshift=-.5pt}},
+arr/.style={-{Stealth},draw=teal!70!black,line width=.8pt},
+lab/.style={font=\scriptsize,text=black,fill=white,inner sep=2pt}
+]
+\node[box,text width=3.3cm,minimum height=1.25cm] (device) at (0,0) {设备\\\scriptsize iot\_\allowbreak{}device\\PK: id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (heartbeat) at (-5,0) {心跳消息\\\scriptsize iot\_\allowbreak{}heartbeat\_\allowbreak{}message\\PK: device\_id\\message\_id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (event) at (5,0) {离线与恢复事件\\\scriptsize iot\_\allowbreak{}connectivity\_\allowbreak{}event\\PK: source\_event\_id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (command) at (0,-2.8) {控制命令\\\scriptsize iot\_\allowbreak{}command\\PK: command\_id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (attempt) at (-3,-5.6) {发送尝试\\\scriptsize iot\_\allowbreak{}command\_\allowbreak{}attempt\\PK: attempt\_id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (receipt) at (3,-5.6) {设备执行回执\\\scriptsize iot\_\allowbreak{}command\_\allowbreak{}receipt\\PK: command\_id\\fingerprint};
+\draw[arr] (device) -- node[lab,midway,above,sloped]{FK} (heartbeat);
+\draw[arr] (device) -- node[lab,midway,above,sloped]{FK} (event);
+\draw[arr] (device) -- node[lab,midway,above,sloped]{FK} (command);
+\draw[arr] (command) -- node[lab,midway,above,sloped]{FK} (attempt);
+\draw[arr] (command) -- node[lab,midway,above,sloped]{FK} (receipt);
+\end{tikzpicture}
+\end{document}

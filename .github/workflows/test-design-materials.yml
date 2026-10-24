@@ -1,0 +1,36 @@
+name: Test Design Materials
+
+on:
+  pull_request:
+    paths:
+      - docs/submission/design/**
+      - scripts/check-design-evidence.py
+      - scripts/test-design-evidence.py
+      - .github/workflows/test-design-materials.yml
+      - .gitattributes
+  push:
+    branches: [main]
+    paths:
+      - docs/submission/design/**
+      - scripts/check-design-evidence.py
+      - scripts/test-design-evidence.py
+      - .github/workflows/test-design-materials.yml
+      - .gitattributes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  design-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify schema, real FK and editable diagrams
+        run: python3 -I -B scripts/check-design-evidence.py
+      - name: Reject nine material corruption cases
+        run: python3 -I -B scripts/test-design-evidence.py
