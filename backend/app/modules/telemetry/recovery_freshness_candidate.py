@@ -156,8 +156,7 @@ def check_recovery_freshness_candidate(
                 original_body["kind"] != "temperature_high"
                 or original_body["related_source_event_id"] is not None
                 or original_body["source_event_id"] != str(original_id)
-                or original_body["observation_ids"]
-                != [str(original["observation_id"])]
+                or original_body["observation_ids"] != [str(original["observation_id"])]
                 or original_body["warehouse_id"] != str(warehouse_id)
                 or original_body["batch_id"] != body["batch_id"]
                 or _instant(original_body["sampled_at"])
