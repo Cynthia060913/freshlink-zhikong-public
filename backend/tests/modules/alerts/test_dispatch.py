@@ -541,7 +541,15 @@ class FailClosedCase(unittest.TestCase):
             cast(Session, _FailingExecSession()), _event(source="disp-fc-1")
         )
         assert report.dedup_error is True
-        assert report.results == ()
+        # Every configured channel reports a fixed redacted transient
+        # failure; nothing was sent and nothing recorded as an attempt.
+        assert [r.detail for r in report.results] == [
+            "dedup_store_unavailable",
+            "dedup_store_unavailable",
+        ]
+        assert all(
+            r.outcome is DeliveryOutcome.TRANSIENT_FAILURE for r in report.results
+        )
         assert report.skipped_channels == ()
         assert smtp.envelopes == []
         assert app_push.envelopes == []
@@ -612,7 +620,36 @@ class ChannelIsolationCase(unittest.TestCase):
             session.rollback()
 
         assert report.results[0].outcome is DeliveryOutcome.TIMEOUT
+        assert report.results[0].detail == "transport_timeout"
         assert len(second.envelopes) == 1
+
+    def test_transient_leak_is_retried_within_retry_budget(self) -> None:
+        # A connection-class exception leaking from send() is a
+        # transient outcome: the retry loop keeps the channel's budget
+        # instead of abandoning it.
+        class _FlakyTransport(NotificationTransport):
+            kind = NotificationKind.SMTP_EMAIL
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def send(self, envelope: NotificationEnvelope) -> NotificationResult:
+                self.calls += 1
+                if self.calls == 1:
+                    raise OSError("connection reset mid-send")
+                return _result()
+
+        flaky = _FlakyTransport()
+        dispatcher = AlertNotificationDispatcher([flaky], sleep=_Sleep())
+        with Session(engine) as session:
+            event = _event(source=f"disp-iso-3-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            report = dispatcher.dispatch(session, event)
+            session.rollback()
+
+        assert flaky.calls == 2
+        assert report.results[0].outcome is DeliveryOutcome.ACCEPTED_BY_SERVICE
 
 
 class SavepointCase(unittest.TestCase):
