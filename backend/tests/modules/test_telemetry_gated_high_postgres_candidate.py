@@ -23,6 +23,9 @@ from app.modules.telemetry.recovery_progress_candidate import (
     metadata as recovery_metadata,
 )
 from app.modules.telemetry.recovery_progress_candidate import recovery_progress
+from app.modules.telemetry.recovery_tick_candidate import (
+    LocalBHistoricalRecoveryRuleCandidate,
+)
 from app.modules.telemetry.rule_evaluation_candidate import (
     _SOURCE_NAMESPACE,
     LocalBRuleSelectionCandidate,
@@ -366,13 +369,65 @@ def test_actual_b_historical_rule_stages_c_high_under_real_a_gate(store):
 
 
 def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
-    """Real A gate/C transaction; B delivered state and historical rule are fixtures."""
+    """Actual B historical F02 + A gate/C recovery transaction in real PG."""
+    from sqlmodel import Session, SQLModel
+
+    from app.modules.alerts.models import (
+        Batch,
+        BatchRuleSnapshot,
+        BatchRuleSnapshotCreate,
+        RecoverySpec,
+        RuleDict,
+        RuleSeverity,
+        Warehouse,
+    )
+    from app.modules.alerts.services.rules import create_snapshot
+
+    b_tables = [Warehouse.__table__, Batch.__table__, BatchRuleSnapshot.__table__]
+    SQLModel.metadata.create_all(store.engine, tables=b_tables)
     recovery_metadata.create_all(store.engine)
     try:
         receipt = inbox_checks.frame(store)
         assert admit(store, receipt).status == "queued"
         terminal(store, receipt)
-        original_id, batch_id, snapshot_id = uuid4(), uuid4(), uuid4()
+        original_id, batch_id = uuid4(), uuid4()
+        with Session(store.engine) as session:
+            session.add(
+                Warehouse(id=store.warehouse_id, code="pg-c-recovery", name="Recovery")
+            )
+            session.flush()
+            session.add(
+                Batch(
+                    id=batch_id,
+                    warehouse_id=store.warehouse_id,
+                    code="pg-c-recovery-batch",
+                    product="apple",
+                    started_at=NOW - timedelta(days=2),
+                )
+            )
+            session.commit()
+            snapshot = create_snapshot(
+                session,
+                batch_id,
+                BatchRuleSnapshotCreate(
+                    version_id=uuid4(),
+                    rule_version="pg-recovery-v1",
+                    effective_start_at=NOW - timedelta(days=1),
+                    rules=[
+                        RuleDict(
+                            metric_code="temperature",
+                            candidate_kind="threshold_high",
+                            severity=RuleSeverity.WARNING,
+                            threshold_high=8.0,
+                            unit="°C",
+                            recovery=RecoverySpec(
+                                comparison="<=", threshold=7.0, min_samples=3
+                            ),
+                        )
+                    ],
+                ),
+            )
+            snapshot_id = snapshot.id
         anomaly_id = uuid4()
         recovered_ids = [uuid4() for _ in range(3)]
 
@@ -395,21 +450,6 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             "rule_version": "pg-recovery-v1",
             "algorithm_version": "threshold-rule/1",
             "evidence": {"comparison": ">", "threshold": 8.0},
-        }
-        historical_rule = {
-            "kind": "threshold_high",
-            "warehouse_id": str(store.warehouse_id),
-            "batch_id": str(batch_id),
-            "metric_code": "temperature",
-            "snapshot_id": str(snapshot_id),
-            "rule_version": "pg-recovery-v1",
-            "severity": "warning",
-            "unit": "°C",
-            "comparison": ">",
-            "threshold": 8.0,
-            "effective_start_at": sampled(NOW - timedelta(days=1)),
-            "effective_end_at": None,
-            "recovery": {"comparison": "<=", "threshold": 7.0, "min_samples": 3},
         }
         with store.engine.begin() as connection:
             for observation_id, moment, temperature in [
@@ -470,12 +510,19 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             )
             == "staged"
         )
+        # Delivery is a controlled fixture; this test does not call B F03 HTTP.
         with store.engine.begin() as connection:
             connection.execute(
                 update(outbox)
                 .where(outbox.c.source_event_id == original_id)
                 .values(state="delivered")
             )
+        historical_rule = LocalBHistoricalRecoveryRuleCandidate(
+            store.engine
+        ).for_original(original_id, NOW)
+        assert historical_rule is not None
+        assert historical_rule["snapshot_id"] == str(snapshot_id)
+        assert historical_rule["kind"] == "threshold_high"
         before = state(store)["evidence_revision"]
         kwargs = {
             "device_id": store.device_id,
@@ -506,3 +553,4 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
         assert state(store)["evidence_revision"] == before + 1
     finally:
         recovery_metadata.drop_all(store.engine)
+        SQLModel.metadata.drop_all(store.engine, tables=b_tables)
