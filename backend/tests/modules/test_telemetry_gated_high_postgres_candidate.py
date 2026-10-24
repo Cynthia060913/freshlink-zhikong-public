@@ -7,15 +7,19 @@ from unittest.mock import patch
 from uuid import UUID, uuid4, uuid5
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
-from app.modules.iot.stream_frontier import FrontierUnavailable
+from app.modules.iot.stream_frontier import FrontierUnavailable, begin_evidence_write
 from app.modules.telemetry.candidate_preview import build_candidate_preview
 from app.modules.telemetry.multi_batch_candidate import (
     stage_gated_multi_batch_candidate,
 )
 from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.quality import process_batch
+from app.modules.telemetry.recovery_freshness_candidate import (
+    RecoveryFreshnessCandidate,
+    check_recovery_freshness_candidate,
+)
 from app.modules.telemetry.recovery_outbox_candidate import (
     stage_gated_recovery_candidate,
 )
@@ -36,6 +40,7 @@ from app.modules.telemetry.storage_candidate import (
     evaluation_jobs,
     metadata,
     observations,
+    receptions,
 )
 from tests.api.routes import test_telemetry_inbox as inbox_checks
 from tests.api.routes.test_stream_frontier import admit, state, terminal
@@ -551,6 +556,45 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             stage_gated_recovery_candidate(store.engine, **kwargs).status == "duplicate"
         )
         assert state(store)["evidence_revision"] == before + 1
+        ready_args = {
+            "recovery_source_event_id": staged.source_event_id,
+            "device_id": store.device_id,
+            "warehouse_id": store.warehouse_id,
+            "stream_epoch": store.epoch,
+        }
+        ready = check_recovery_freshness_candidate(store.engine, **ready_args)
+        assert ready.status == "ready_at_check"
+        # A late invalid receipt has no new observation, but must still hold
+        # recovery. This direct insert is test evidence, not a trusted intake.
+        bad_receipt = uuid4()
+        with store.engine.begin() as connection:
+            connection.execute(
+                receptions.insert().values(
+                    id=bad_receipt,
+                    observation_id=None,
+                    device_id=store.device_id,
+                    warehouse_id=store.warehouse_id,
+                    received_at_utc=sampled(NOW + timedelta(minutes=4)),
+                    raw_text="synthetic-invalid",
+                    receipt_sha256="a" * 64,
+                    outcome="invalid",
+                    reason="invalid_unit",
+                )
+            )
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("held", "unresolved_bad_reception")
+        )
+        with store.engine.begin() as connection:
+            connection.execute(delete(receptions).where(receptions.c.id == bad_receipt))
+            begin_evidence_write(
+                connection,
+                device_id=store.device_id,
+                warehouse_id=store.warehouse_id,
+                epoch=store.epoch,
+            )
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("held", "stale_frozen_frontier")
+        )
     finally:
         recovery_metadata.drop_all(store.engine)
         SQLModel.metadata.drop_all(store.engine, tables=b_tables)
