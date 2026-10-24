@@ -564,6 +564,39 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
         }
         ready = check_recovery_freshness_candidate(store.engine, **ready_args)
         assert ready.status == "ready_at_check"
+        # A well-formed but altered body must not pass the pre-send gate merely
+        # because its IDs and temperature still match the frozen evidence.
+        for source_event_id in (staged.source_event_id, original_id):
+            with store.engine.begin() as connection:
+                saved_body = connection.execute(
+                    select(outbox.c.body).where(
+                        outbox.c.source_event_id == source_event_id
+                    )
+                ).scalar_one()
+                altered_body = {
+                    **saved_body,
+                    "severity": (
+                        "warning" if saved_body["severity"] != "warning" else "info"
+                    ),
+                }
+                connection.execute(
+                    update(outbox)
+                    .where(outbox.c.source_event_id == source_event_id)
+                    .values(body=altered_body)
+                )
+            assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+                RecoveryFreshnessCandidate("held", "invalid_stored_evidence")
+            )
+            with store.engine.begin() as connection:
+                connection.execute(
+                    update(outbox)
+                    .where(outbox.c.source_event_id == source_event_id)
+                    .values(body=saved_body)
+                )
+        assert (
+            check_recovery_freshness_candidate(store.engine, **ready_args).status
+            == "ready_at_check"
+        )
         # A late invalid receipt has no new observation, but must still hold
         # recovery. This direct insert is test evidence, not a trusted intake.
         bad_receipt = uuid4()

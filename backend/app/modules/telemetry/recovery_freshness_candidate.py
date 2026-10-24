@@ -19,7 +19,10 @@ from app.modules.iot.stream_frontier import (
     FrontierUnavailable,
     read_complete_frontier,
 )
-from app.modules.telemetry.f03_body_candidate import normalize_f03_body_candidate
+from app.modules.telemetry.f03_body_candidate import (
+    f03_digest_candidate,
+    normalize_f03_body_candidate,
+)
 from app.modules.telemetry.outbox_candidate import outbox
 from app.modules.telemetry.recovery_outbox_candidate import (
     _instant,
@@ -103,6 +106,11 @@ def check_recovery_freshness_candidate(
             ):
                 return RecoveryFreshnessCandidate("held", "stale_frozen_frontier")
             body = normalize_f03_body_candidate(recovery["body"])
+            if (
+                f03_digest_candidate(body).removeprefix("sha256:")
+                != recovery["body_sha256"]
+            ):
+                return RecoveryFreshnessCandidate("held", "invalid_stored_evidence")
             original_id = recovery["related_source_event_id"]
             if (
                 body["kind"] != "temperature_recovered"
@@ -138,6 +146,12 @@ def check_recovery_freshness_candidate(
                 or body["batch_id"] != str(progress["batch_id"])
             ):
                 return RecoveryFreshnessCandidate("held", "original_or_window_unready")
+            original_body = normalize_f03_body_candidate(original["body"])
+            if (
+                f03_digest_candidate(original_body).removeprefix("sha256:")
+                != original["body_sha256"]
+            ):
+                return RecoveryFreshnessCandidate("held", "invalid_stored_evidence")
             original_observation = (
                 connection.execute(
                     select(observations).where(
