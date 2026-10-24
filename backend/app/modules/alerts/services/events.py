@@ -223,6 +223,29 @@ def list_status_transitions(
     )
 
 
+def _lock_alert_row(session: Session, alert_event_id: uuid.UUID) -> None:
+    """Serialize lifecycle mutations with a row lock on the alert event.
+
+    ``acknowledge`` and recovery both used to read the status WITHOUT
+    a lock and then insert a transition (PR #10 concurrency reviews
+    5586949090 / 5586852909): two racing acks wrote two ``ack``
+    rows, and an ack racing a recovery could land an ``ack`` row
+    AFTER the ``resolved`` row — falling the alert's latest status
+    back to acknowledged. Taking ``FOR UPDATE`` on the immutable
+    event row BEFORE reading the status makes each alert's
+    transitions strictly serialized: the second writer blocks, then
+    re-reads the committed status and takes the idempotent/reject
+    path. The lock lives only inside this short business transaction
+    (commit/rollback releases it) — never across network I/O.
+    """
+
+    session.exec(
+        select(AlertEvent.id)
+        .where(col(AlertEvent.id) == alert_event_id)
+        .with_for_update()
+    ).first()
+
+
 # Kinds that OPEN an alert. Recovery candidates are traceability
 # records for an existing alert, and device lifecycle events are
 # ingestion records (device offline alerting is not part of B2), so
@@ -362,7 +385,6 @@ def _recovery_transition(
         return "recovery_missing_related"
     try:
         original = _get_by_source(session, related)
-        status = get_alert_status(session, original.id) if original else None
     except OperationalError:
         session.rollback()
         return "retryable"
@@ -387,7 +409,19 @@ def _recovery_transition(
         or original.severity != payload.severity
     ):
         return "related_rule_mismatch"
-    assert status is not None
+    # Serialize per-alert lifecycle mutations (PR #10 concurrency
+    # reviews 5586949090 / 5586852909): lock the original's event row
+    # BEFORE reading its status, so a concurrent acknowledge commits
+    # first (recovery then resolves FROM acknowledged) or blocks and
+    # re-reads the committed status — never lands a stale
+    # "from open" resolved row behind a fresh ack, and two racing
+    # recoveries leave ONE resolved row.
+    try:
+        _lock_alert_row(session, original.id)
+        status = get_alert_status(session, original.id)
+    except OperationalError:
+        session.rollback()
+        return "retryable"
     if status == AlertStatus.RESOLVED:
         return None
     return AlertStatusTransition(
@@ -609,10 +643,16 @@ def acknowledge_alert(
     second transition row is written). A ``resolved`` alert rejects
     with :class:`AlertAlreadyResolved`; nothing is written on
     rejection. There is no ``acknowledged -> open`` path: the
-    transition table is append-only.
+    transition table is append-only. Concurrent acks (or an ack
+    racing a recovery) serialize on the event row lock
+    (:func:`_lock_alert_row`) taken BEFORE the status read — the
+    loser re-reads the committed status and takes the idempotent or
+    reject path, so double-ack leaves ONE row and a committed
+    recovery is never regressed to acknowledged.
     """
 
     get_event(session, alert_event_id)
+    _lock_alert_row(session, alert_event_id)
     current = get_alert_status(session, alert_event_id)
     if current is AlertStatus.RESOLVED:
         raise AlertAlreadyResolved(f"alert {alert_event_id} is resolved")
