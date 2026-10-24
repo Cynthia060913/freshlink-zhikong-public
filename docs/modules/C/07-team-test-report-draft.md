@@ -1,5 +1,31 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-24 C 多批同事务、真实 F02 与第二机预检（M03/E1 未签收）
+
+C [PR #11 精确 `45c22e3ad7ede0d4fd02206b7b244285c284d3e8`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+以普通 merge 跟上共同 main `df3b3eda409924d05bb0b45c392d9041cd2611a9`，
+本轮相对 main 仅 C 模块/测试/说明 8 文件。新增一条已存观测对应全部有效批次的
+原子评估端口：先取 B 的历史 F02，随后在 A 同设备门禁/单事务内按批冻结高温
+候选、风险与同一个评估任务。测试覆盖混合高温/正常、两个高温不同稳定来源 ID、
+缺规则/错单位/缺湿度保守未知，以及第二个 outbox 写失败时全部回滚。修复一处
+恢复集成测试夹具：F02 规则种类应为 `threshold_high`，F03 事件种类仍为
+`temperature_high`；前一头的红灯不写成通过。
+
+本人 Windows 项目隔离 Python3.13/SQLite 相关 unittest **37项、35通过/2跳过**
+（实际 B 服务测试需要项目 Python3.14），Ruff、单文件 mypy、差异检查通过。
+同一精确头 [Backend run 40074918444](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40074918444)
+在云端项目 Python3.14/受控 PG 执行 **1214 passed/12 skipped/161 warnings、
+92% 覆盖率**，日志中 B 实际 F02 多批与恢复各 1 项、严格 PG 门禁文件
+5 项均执行通过。Compose、archive、Playwright、pre-commit、Zizmor 同头适用
+检查也 completed/success；通用 Playwright 不等于 C 页面实际操作。
+
+第二机只读准备：这台电脑 PowerShell 7.6.5 运行项目环境检查，Docker CLI
+`NOT FOUND`；Windows PowerShell 5.1 直接运行脚本受执行策略阻止，未改策略。
+WSL 版本可读、状态及固件虚拟化/SLAT 未能核验。没有安装 Docker、收到 A 的
+离线包或在第二电脑运行，**云端 PG 不能代本机 PG，更不能代第二机**。A
+多批 caller、自动恢复/B 投递与双终端实收、完整 E1 仍待；本项是测试证据，
+不是 M03、E1 或材料签收。
+
 ## 2026-10-23 C 真实 B 规则到高温门禁组合（M03 仍未签收）
 
 C [PR #11 精确 `5ddca2a46bbea8ece72a777ef044fe31915d6a8f`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)

@@ -1,5 +1,24 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-24 多批原子评价与恢复规则夹具修复
+
+精确 C HEAD `45c22e3ad7ede0d4fd02206b7b244285c284d3e8`，共同 main
+`df3b3eda409924d05bb0b45c392d9041cd2611a9`。本机 Windows 项目隔离
+Python3.13/SQLite 运行相关 unittest **37项、35通过/2跳过**（需项目
+Python3.14 的真实 B 服务集成测试跳过）；Ruff lint/format、单文件 mypy
+和 `git diff --check` 通过。先前 `8db5a40e4270ff6f6d704b47976e3bae40bc17f5`
+远端 Backend 1 项失败，定位为 C 测试夹具将 B F02 规则 `candidate_kind`
+误写成 F03 `temperature_high`；`903f5230d0482b2e751fdaf0a70c5dc1761f228a`
+改为实际 F02 `threshold_high`，不改 F03 事件类型。
+
+[当前 Backend run 40074918444](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40074918444)
+项目 Python3.14/受控 PG **1214 passed/12 skipped/161 warnings、92%**；
+实际 B 历史 F02 多批/恢复集成测试与严格 PG 门禁文件 5 项在日志中均执行。
+相同 SHA 适用六项检查 completed/success；12 skipped 不算通过，通用
+Playwright 不算 C 页面联调。本人电脑 Docker CLI 未找到，未运行本机 PG/MQTT
+或重启验证；第二机仅只读预检、未收到 A 的离线包。A 多批 caller、自动恢复、
+B 可靠外发/真实双收件和完整 E1 未验。
+
 ## 2026-10-23 历史 B 规则与 C 高温门禁同版组合
 
 业务头 `8d6026367119c79cae00bf5e1a4ab7dfe37563a3`，测试夹具修复头
