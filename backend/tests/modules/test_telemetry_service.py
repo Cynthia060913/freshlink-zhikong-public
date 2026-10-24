@@ -1,5 +1,6 @@
 """Process config/lifecycle checks; real PG scope cases are separate."""
 
+import logging
 import threading
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -55,7 +56,17 @@ def test_stop_does_not_process_an_extra_page():
     worker.run_once.assert_not_called()
 
 
-def test_storage_error_is_redacted_and_later_tick_retries(caplog):
+def test_storage_error_is_redacted_and_later_tick_retries(caplog, monkeypatch):
+    from app.modules.iot import telemetry_service
+
+    # In-process Alembic tests call fileConfig, which disables existing loggers.
+    # Capture a real, test-owned logger explicitly instead of depending on
+    # unrelated migration/root logging state. All message/redaction assertions
+    # remain in place; production logging and migration config are unchanged.
+    owned_logger = logging.Logger("freshlink.telemetry.regression", logging.WARNING)
+    owned_logger.addHandler(caplog.handler)
+    owned_logger.propagate = False
+    monkeypatch.setattr(telemetry_service, "logger", owned_logger)
     worker, stopped = MagicMock(), threading.Event()
 
     def tick(**_kwargs):
