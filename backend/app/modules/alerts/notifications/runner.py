@@ -5,7 +5,7 @@ dispatches ONE already-committed event per call; it has no memory
 across process restarts. This module adds the running layer A asked
 for (#8 6383401217/6382361717): an explicitly-started worker that
 scans for committed alert events still owed a notification and
-dispatches them through independent attempt transactions, so progress
+    dispatches them through independent attempt transactions, so progress
 survives crashes and restarts.
 
 Durability properties (no new framework, no new tables, no migration):
@@ -39,7 +39,7 @@ Durability properties (no new framework, no new tables, no migration):
   worker stops claiming new dispatches.
 - **Inert by default**: with no channels configured,
   :func:`build_transports` yields nothing and every cycle is a
-  no-op scan. Real sending requires explicit channel configuration
+  no-op. Real sending requires explicit channel configuration
   AND a specific human authorization; this module never enables it
   on its own.
 
@@ -267,15 +267,16 @@ def run_pending_dispatch_cycle(
     One cycle = one bounded scan + one :func:`dispatch_committed_event`
     per pending event. With ``dry_run=True`` the cycle reports the
     pending ids and performs NO sends and NO writes. Transports are
-    built once per cycle unless supplied (or unless dry-run).
+    built once per cycle unless supplied, including for dry-run so its
+    pending set reflects the actual configured channels.
     """
 
+    if transports is None:
+        transports = build_transports()
     pending = tuple(
         pending_alert_event_ids(
             session_factory,
-            channels=None
-            if transports is None
-            else tuple(transport.kind.value for transport in transports),
+            channels=tuple(transport.kind.value for transport in transports),
             limit=limit,
             max_attempts_per_event=max_attempts_per_event,
             min_attempt_age_s=min_attempt_age_s,
@@ -283,8 +284,6 @@ def run_pending_dispatch_cycle(
     )
     if dry_run:
         return RunnerCycleReport(pending=pending, dry_run=True)
-    if transports is None:
-        transports = build_transports()
     reports: list[tuple[uuid.UUID, DispatchReport]] = []
     for event_id in pending:
         report = dispatch_committed_event(

@@ -15,12 +15,14 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from typing import Any, cast
+from unittest.mock import patch
 
+from sqlalchemy import delete
 from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, col, func, select
 
 from app.core.db import engine
-from app.modules.alerts.models.event import NotificationAttempt
+from app.modules.alerts.models.event import AlertEvent, NotificationAttempt
 from app.modules.alerts.notifications.runner import (
     _DISPATCH_LEASE_KEY,
     RunnerCycleReport,
@@ -191,6 +193,79 @@ class PendingScanCase(unittest.TestCase):
 class RunnerCycleCase(unittest.TestCase):
     """run_pending_dispatch_cycle: dispatch, complete missing channels,
     stop re-sending delivered ones, respect the hammering guard."""
+
+    def test_default_single_channel_scan_does_not_starve_new_event(self) -> None:
+        # A two-row page reproduces the production 50-row starvation case:
+        # old events have SMTP delivered but no unconfigured app_push attempt.
+        created: list[uuid.UUID] = []
+        try:
+            for minute in (0, 1):
+                created.append(
+                    _commit_event(
+                        source=f"run-smtp-old-{uuid.uuid4()}",
+                        created_at=datetime(2020, 1, 1, 0, minute, tzinfo=UTC),
+                    )
+                )
+            new_id = _commit_event(
+                source=f"run-smtp-new-{uuid.uuid4()}",
+                created_at=datetime(2021, 1, 1, tzinfo=UTC),
+            )
+            created.append(new_id)
+            with Session(engine) as session:
+                session.add_all(
+                    _seed_attempt(
+                        event_id, NotificationKind.SMTP_EMAIL.value, delivered=True
+                    )
+                    for event_id in created[:2]
+                )
+                session.commit()
+
+            smtp = _TargetedTransport(NotificationKind.SMTP_EMAIL, [], new_id)
+            with patch(
+                "app.modules.alerts.notifications.runner.build_transports",
+                return_value=[smtp],
+            ):
+                preview = run_pending_dispatch_cycle(
+                    _independent_factory,
+                    limit=2,
+                    min_attempt_age_s=0.0,
+                    dry_run=True,
+                )
+                self.assertIn(new_id, preview.pending)
+                self.assertFalse(set(created[:2]) & set(preview.pending))
+                self.assertEqual(smtp.envelopes, [])
+                report = run_pending_dispatch_cycle(
+                    _independent_factory,
+                    limit=1,
+                    min_attempt_age_s=0.0,
+                )
+            self.assertIn(new_id, report.pending)
+            self.assertEqual(len(_targeted(smtp, new_id)), 1)
+            with Session(engine) as reader:
+                self.assertEqual(len(_attempts(reader, new_id)), 1)
+        finally:
+            if created:
+                with Session(engine) as session:
+                    session.execute(
+                        delete(NotificationAttempt).where(
+                            col(NotificationAttempt.alert_event_id).in_(created)
+                        )
+                    )
+                    session.execute(
+                        delete(AlertEvent).where(col(AlertEvent.id).in_(created))
+                    )
+                    session.commit()
+
+    def test_no_configured_channel_has_no_pending_or_dispatch(self) -> None:
+        with patch(
+            "app.modules.alerts.notifications.runner.build_transports",
+            return_value=[],
+        ):
+            dry = run_pending_dispatch_cycle(_independent_factory, dry_run=True)
+            live = run_pending_dispatch_cycle(_independent_factory)
+        self.assertEqual(dry.pending, ())
+        self.assertEqual(live.pending, ())
+        self.assertEqual(live.reports, ())
 
     def test_cycle_dispatches_then_next_cycle_skips(self) -> None:
         event_id = _commit_event(source=f"run-cycle-{uuid.uuid4()}")
