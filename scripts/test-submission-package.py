@@ -142,7 +142,17 @@ class SubmissionTests(unittest.TestCase):
                         f for f in data["files"] if f["role"] != "presentation"
                     ]
                 elif case == "extra_secret":
-                    (root / ".env.local").write_text("synthetic only", encoding="utf-8")
+                    private = root / ".ENV.local"
+                    private.write_text("synthetic only", encoding="utf-8")
+                    data["files"].append(
+                        {
+                            "role": "supporting",
+                            "path": private.name,
+                            "source": data["source"],
+                            "bytes": private.stat().st_size,
+                            "sha256": gate.digest(private),
+                        }
+                    )
                 elif case == "path_escape":
                     data["files"][0]["path"] = "../outside.tar"
                 elif case == "missing_reviewer":

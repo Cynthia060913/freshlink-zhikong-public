@@ -193,11 +193,11 @@ def verify(directory, manifest_name="submission-manifest.json"):
             require(not is_link(path), "linked_package_entry")
             name = path.relative_to(root).as_posix()
             require(
-                entry not in {".git", "__pycache__", "node_modules"},
+                entry.casefold() not in {".git", "__pycache__", "node_modules"},
                 "private_or_cache_path",
             )
             require(
-                not entry.startswith(".env")
+                not entry.casefold().startswith(".env")
                 and path.suffix.lower()
                 not in {".db", ".sqlite", ".sqlite3", ".key", ".pyc"},
                 "private_or_database_path",
