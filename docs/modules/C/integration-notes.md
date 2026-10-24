@@ -952,3 +952,21 @@ device_id, warehouse_id, stream_epoch, observation_id, batch_id, selected_rule)`
 端口。多批次不能逐批调用此端口，因为第一批会终结 observation 的唯一任务；
 需 C 另提供全批次原子评估或逐批任务模型，A 不得先循环并取第一批结果当全局
 正常。恢复窗口与发送前前沿复核仍独立待验。
+
+## 2026-10-24：已持久恢复窗口的门禁分页入口
+
+`recovery_tick_candidate.py::LocalBHistoricalRecoveryRuleCandidate(engine)` 从 C
+原异常冻结正文取可信仓/批次与原采样时刻，再经 B 真实 F02 历史服务选规则；
+`stage_gated_recovery_page_candidate(engine, *, historical_rules,
+frontier_epochs, now, after=None, limit=50)` 只扫描已合格的持久窗口，先核
+原异常已投递和可信 A epoch，再在门禁**外**读取 B 历史规则，最终调用现有
+`stage_gated_recovery_candidate` 在 A 设备锁同一事务冻结恢复 F03 与完整前沿。
+无 epoch/缺规则/原异常未交付/读故障分别保持 held/wait/retry，不回退到旧
+`stage_recovery_page_candidate` 无门禁写入口。分页游标只用于本次扫描，未来
+重试必须从头扫描等待项；不会自行安装后台任务。
+
+本轮 SQLite 回归用 Mock A gate/stamp 核选规则先于门禁、冻结/重复及缺 epoch
+不写；另有项目 Python3.14 专用测试读取 B 实际 F02 服务并核原快照/恢复条件。
+Mock/SQLite 不证明 PG 行锁，且**队列完整戳仅为发送的必要条件**；A 当前
+PR57 尚未调用此恢复页，C 也未实现发送瞬间当前戳和晚到坏证据复核、B 已接
+受后重开，因此自动恢复外发继续关闭、完整 E1 未验收。
