@@ -140,3 +140,25 @@ A 实际整合后，B 模块才能进一步落地 service.py / routes.py。
 ### 6.3 权限约定（已实现，供 A 接根时核对）
 - 读：任何活跃用户；确认：`get_current_active_superuser`；普通账号确认返回
   403 且零写入（与 A 的"普通账号只读且实际 POST 403"一致）。
+
+## 7. B3 通知派发层（2026-10-21，PR #10 本轮提交）
+
+`backend/app/modules/alerts/notifications/dispatch.py`，纯库层，**未接路由**（A 并发
+小包复审期间 B 不碰 `routes/lifecycle.py` 与 `services/events.py`）：
+
+- `build_envelope(event, kind)`：从 `AlertEvent` 构建消息；正文带业务
+  `source_event_id`（字符串幂等键）、设备/指标/采样时间（Asia/Shanghai）；
+  envelope 契约的 UUID 字段用告警行内部 `id`。
+- `AlertNotificationDispatcher.dispatch(session, event)`：对每个已配置渠道发送；
+  仅对 `transient_failure`/`timeout` 有界重试（指数退避与 `Retry-After` 取大、
+  `max_delay_s` 封顶）；每次尝试追加 `alerts_notification_attempt` 行；同一
+  (事件, 渠道) 已有 `delivered` 记录则跳过（同源去重）；派发全程不抛异常，
+  attempt 持久化失败在结果 detail 上如实标注。可选
+  `attempt_session_factory` 用独立 session 提交审计行（主事务回滚也不丢）。
+- `build_transports(settings=..., env=...)`：仅收集已配置渠道（SMTP：settings
+  的 host+from_email；飞书：官方 webhook 环境变量）；坏配置跳过不拖垮另一渠道。
+- 边界不变：`delivered=True` 仍只代表服务接受；终端实收须带外核验。
+- 测试：`backend/tests/modules/alerts/test_dispatch.py` 20 项（合成传输、无网络
+  无凭据）；alerts 套件 334 passed / 2 skipped。
+- 待接线（A 或 B 后续，依接力顺序）：候选/设备事件入库后触发派发的调用点，
+  以及 SMTP/飞书真实凭据（`.env.freshlink`，未授权不真实发送）。
