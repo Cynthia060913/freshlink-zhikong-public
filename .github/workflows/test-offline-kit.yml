@@ -1,0 +1,29 @@
+name: Test Offline Kit Guards
+
+on:
+  pull_request:
+    paths:
+      - scripts/windows/*offline*.ps1
+      - docs/submission/OFFLINE-FLEET-KIT.md
+      - .github/workflows/test-offline-kit.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/windows/*offline*.ps1
+      - .github/workflows/test-offline-kit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  offline-kit-guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reject corrupted transport candidates without Docker
+        shell: pwsh
+        run: ./scripts/windows/test-offline-kit-guards.ps1
