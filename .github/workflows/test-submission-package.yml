@@ -1,0 +1,30 @@
+name: Test Submission Package Consistency
+
+on:
+  pull_request:
+    paths:
+      - scripts/check-submission-package.py
+      - scripts/test-submission-package.py
+      - docs/submission/PACKAGE-GATE.md
+      - .github/workflows/test-submission-package.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/check-submission-package.py
+      - scripts/test-submission-package.py
+      - .github/workflows/test-submission-package.yml
+
+permissions:
+  contents: read
+
+jobs:
+  submission-consistency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test synthetic inventory and reject incomplete or mixed packages
+        run: python3 -I -B scripts/test-submission-package.py
