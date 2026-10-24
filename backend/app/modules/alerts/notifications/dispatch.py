@@ -198,10 +198,21 @@ class AlertNotificationDispatcher:
         try:
             accepted = self._accepted_channels(session, event.id)
         except Exception:
-            # FAIL CLOSED: without a trustworthy dedup read, sending
-            # risks duplicate notifications to recipients. Zero sends,
-            # no raise — the caller sees dedup_error=True.
-            return DispatchReport(dedup_error=True)
+            # FAIL CLOSED (A review 6320881681): without a trustworthy
+            # dedup read, sending risks duplicate notifications to
+            # recipients. Zero sends, no raise; every configured channel
+            # reports a fixed, redacted transient failure so the caller
+            # sees per-channel outcomes, and dedup_error=True explains
+            # why nothing was attempted.
+            guarded = tuple(
+                self._failure_result(
+                    transport.kind,
+                    DeliveryOutcome.TRANSIENT_FAILURE,
+                    "dedup_store_unavailable",
+                )
+                for transport in self._transports
+            )
+            return DispatchReport(results=guarded, dedup_error=True)
         results: list[NotificationResult] = []
         skipped: list[NotificationKind] = []
         for transport in self._transports:
@@ -209,38 +220,17 @@ class AlertNotificationDispatcher:
                 skipped.append(transport.kind)
                 continue
             envelope = build_envelope(event, transport.kind, recipients=recipients)
-            try:
-                results.append(
-                    self._send_with_retry(session, event, transport, envelope)
-                )
-            except Exception as exc:
-                # A transport leaked an exception past its never-raise
-                # contract (reproduced with a read TimeoutError on the
-                # first channel). Isolate THIS channel only and continue
-                # with the remaining ones; exception text is never
-                # stored.
-                failure = self._contract_violation_result(transport.kind, exc)
-                results.append(self._record_attempt(session, event, failure))
+            results.append(self._send_with_retry(session, event, transport, envelope))
         return DispatchReport(results=tuple(results), skipped_channels=tuple(skipped))
 
     # -- internals -------------------------------------------------------
 
     @staticmethod
-    def _contract_violation_result(
-        kind: NotificationKind, exc: Exception
+    def _failure_result(
+        kind: NotificationKind, outcome: DeliveryOutcome, detail: str
     ) -> NotificationResult:
-        if isinstance(exc, TimeoutError):
-            outcome = DeliveryOutcome.TIMEOUT
-        elif isinstance(exc, urllib.error.URLError | OSError):
-            outcome = DeliveryOutcome.TRANSIENT_FAILURE
-        else:
-            outcome = DeliveryOutcome.PERMANENT_FAILURE
-        detail = (
-            "transport raised an exception past its never-raise contract "
-            f"({type(exc).__name__}); channel isolated so remaining "
-            "channels were still attempted; exception text and any URLs "
-            "intentionally not stored"
-        )
+        # Exception messages can embed addresses, webhook URLs or
+        # secrets: results carry FIXED text only (C PR #56 66d5f98).
         return NotificationResult(
             attempt_id=uuid.uuid4(),
             transport=kind,
@@ -248,6 +238,42 @@ class AlertNotificationDispatcher:
             delivered=False,
             detail=detail,
         )
+
+    def _send_once(
+        self, transport: NotificationTransport, envelope: NotificationEnvelope
+    ) -> NotificationResult:
+        """One guarded send: any leak past the never-raise contract
+        becomes a structured, redacted outcome for THIS channel only
+        (C PR #56 66d5f98 shape; TimeoutError stays its own outcome,
+        connection-class failures are transient, other contract
+        violations permanent so they are not retried blindly)."""
+        try:
+            result = transport.send(envelope)
+            if not isinstance(result, NotificationResult):
+                return self._failure_result(
+                    transport.kind,
+                    DeliveryOutcome.TRANSIENT_FAILURE,
+                    "invalid_transport_result",
+                )
+            return result
+        except TimeoutError:
+            return self._failure_result(
+                transport.kind, DeliveryOutcome.TIMEOUT, "transport_timeout"
+            )
+        except (urllib.error.URLError, OSError):  # fmt: skip
+            return self._failure_result(
+                transport.kind,
+                DeliveryOutcome.TRANSIENT_FAILURE,
+                "transport_unavailable",
+            )
+        except Exception as exc:
+            detail = (
+                "transport_contract_violation "
+                f"({type(exc).__name__}); exception text intentionally not stored"
+            )
+            return self._failure_result(
+                transport.kind, DeliveryOutcome.PERMANENT_FAILURE, detail
+            )
 
     @staticmethod
     def _accepted_channels(
@@ -273,13 +299,13 @@ class AlertNotificationDispatcher:
         transport: NotificationTransport,
         envelope: NotificationEnvelope,
     ) -> NotificationResult:
-        result = transport.send(envelope)
+        result = self._send_once(transport, envelope)
         result = self._record_attempt(session, event, result)
         attempt_no = 1
         while result.outcome in _RETRYABLE_OUTCOMES and attempt_no < self._max_attempts:
             self._sleep(self._next_delay(attempt_no, result.retry_after_s))
             attempt_no += 1
-            result = transport.send(envelope)
+            result = self._send_once(transport, envelope)
             result = self._record_attempt(session, event, result)
         return result
 
