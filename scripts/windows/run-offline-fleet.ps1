@@ -103,7 +103,8 @@ networks:
         if($service.Value.PSObject.Properties['ports'] -or $service.Value.PSObject.Properties['privileged'] -or $service.Value.PSObject.Properties['network_mode']){throw 'Unsafe service model'}
     }
     $mounts=@($model.services.'test-runner'.volumes)
-    if($mounts.Count -ne 1 -or $mounts[0].target -cne '/results' -or $mounts[0].source -ine $out){throw 'No application source/data mount is allowed'}
+    if($mounts.Count -ne 1 -or $mounts[0].target -cne '/results' -or
+        -not [string]::Equals($mounts[0].source,$out,[StringComparison]::OrdinalIgnoreCase)){throw 'No application source/data mount is allowed'}
     $existing=@(& $docker ps -aq --filter ('label=com.docker.compose.project='+$run))
     if($LASTEXITCODE -or $existing.Count){throw 'Refusing existing project containers'}
     $existingNetworks=@(& $docker network ls -q --filter ('label=com.docker.compose.project='+$run))
