@@ -1,0 +1,54 @@
+# Owned tmpfs database/internal MQTT network; no host ports or real senders.
+services:
+  test-db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: freshlink_test
+      POSTGRES_PASSWORD: gated_fleet_disposable_only
+      POSTGRES_DB: freshlink_test
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freshlink_test -d freshlink_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  broker:
+    image: eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408
+    entrypoint: ["sh", "/fixtures/start.sh"]
+    volumes:
+      - ./scripts/mqtt-fleet:/fixtures:ro
+  test-runner:
+    image: ${GATED_FLEET_APP_IMAGE:?Use the owned test driver}
+    working_dir: /source/backend
+    environment:
+      PROJECT_NAME: FreshLink-test
+      FASTAPI_ENV: development
+      SECRET_KEY: gated-fleet-disposable-test-key-only
+      FIRST_SUPERUSER: admin@example.com
+      FIRST_SUPERUSER_PASSWORD: gated-fleet-disposable-admin-only
+      DATABASE_URL: postgresql://freshlink_test:gated_fleet_disposable_only@test-db:5432/freshlink_test
+      SMTP_HOST: ""
+      SMTP_PASSWORD: ""
+      EMAILS_FROM_EMAIL: ""
+      SENTRY_DSN: ""
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /source/backend
+      FRESHLINK_GATED_FLEET_PROOF: "1"
+      GATED_FLEET_SOURCE: ${GATED_FLEET_SOURCE:?Missing source identity}
+      GATED_FLEET_DIRTY: ${GATED_FLEET_DIRTY:?Missing worktree identity}
+    volumes:
+      - ./backend:/source/backend:ro
+      - ${GATED_FLEET_RESULTS:?Missing owned result directory}:/results
+    entrypoint: ["/app/.venv/bin/python", "-B", "-c"]
+    command:
+      - >-
+        import subprocess,sys;
+        subprocess.run([sys.executable,'scripts/check-gated-fleet.py','--preflight'],check=True);
+        subprocess.run([sys.executable,'-m','alembic','upgrade','head'],check=True);
+        subprocess.run([sys.executable,'-m','alembic','check'],check=True);
+        subprocess.run([sys.executable,'app/initial_data.py'],check=True);
+        subprocess.run([sys.executable,'scripts/check-gated-fleet.py'],check=True)
+networks:
+  default:
+    internal: true
