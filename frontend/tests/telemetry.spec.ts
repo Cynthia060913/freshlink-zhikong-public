@@ -33,7 +33,12 @@ test("Telemetry UI mock: CSV uses the filtered list's fixed snapshot", async ({
     } else if (url.pathname === "/api/v1/telemetry/observations/") {
       lists.push(url)
       await route.fulfill({
-        json: { snapshot_id: snapshotId, items: [], total: 0, next_cursor: null },
+        json: {
+          snapshot_id: snapshotId,
+          items: [],
+          total: 0,
+          next_cursor: null,
+        },
       })
     } else {
       await route.abort()
@@ -70,9 +75,7 @@ test("Telemetry UI mock: CSV uses the filtered list's fixed snapshot", async ({
   }
   expect(filtered.searchParams.get("device_id")).toBe(deviceId)
   expect(filtered.searchParams.get("warehouse_id")).toBe(warehouseId)
-  expect(filtered.searchParams.get("sampled_from")).toBe(
-    "2026-10-24T09:00Z",
-  )
+  expect(filtered.searchParams.get("sampled_from")).toBe("2026-10-24T09:00Z")
   expect(exported.searchParams.get("snapshot_id")).toBe(snapshotId)
   expect(dataFilters(exported)).toEqual(dataFilters(filtered))
 })
