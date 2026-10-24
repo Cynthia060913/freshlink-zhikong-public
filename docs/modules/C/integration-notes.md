@@ -465,6 +465,8 @@ snapshot；后续分页用同 actor/筛选/策略绑定的签名游标，CSV 使
 有效项，满额 429 `snapshot_capacity` + `Retry-After: 30`；跨人/筛选不符/失效
 422，存储异常 503。当前首版没有逐仓 ACL，任何活跃账号可读取全库范围，
 与 S0 签收包一致，页面和材料需如实说明。
+列表、原文详情、实时读及 CSV 成功响应均设置 `Cache-Control: no-store`；
+这只限制客户端缓存，不代替登录鉴权或将来若需新增的逐仓授权。
 
 **此 router 未挂共享根路由**，只基于 C 独立 candidate metadata 和测试库。
 集成 Agent 在 B 唯一迁移正式合入、C 迁移审查后，需将候选表接正式 schema，

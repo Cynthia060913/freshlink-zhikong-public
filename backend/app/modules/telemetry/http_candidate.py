@@ -96,6 +96,7 @@ def list_observations(
     actor: CurrentUser,
     engine: Annotated[Engine, Depends(_engine)],
     filters: Annotated[HistoryFiltersCandidate, Depends(_filters)],
+    response: Response,
     snapshot_id: UUID | None = None,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -122,6 +123,7 @@ def list_observations(
             cursor=cursor,
             limit=limit,
         )
+        response.headers["Cache-Control"] = "no-store"
         return {
             "snapshot_id": page.snapshot_id,
             "items": page.items,
@@ -154,7 +156,10 @@ def export_observations(
     return Response(
         body,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="observations.csv"'},
+        headers={
+            "Content-Disposition": 'attachment; filename="observations.csv"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -185,6 +190,7 @@ def read_latest_observation(
 def read_observation(
     actor: CurrentUser,
     engine: Annotated[Engine, Depends(_engine)],
+    response: Response,
     observation_id: UUID,
 ) -> dict[str, Any]:
     """Expose exact raw and reception evidence to an active logged-in user."""
@@ -220,6 +226,7 @@ def read_observation(
                 )
                 .where(receptions.c.observation_id == observation_id)
             ).scalar_one()
+        response.headers["Cache-Control"] = "no-store"
         return {
             "observation_id": row["id"],
             "device_id": row["device_id"],

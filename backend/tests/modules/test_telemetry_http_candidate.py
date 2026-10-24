@@ -137,6 +137,7 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
             BASE + "/", params=params, headers=self.headers(self.user)
         )
         self.assertEqual(page.status_code, 200, page.text)
+        self.assertEqual(page.headers["Cache-Control"], "no-store")
         data = page.json()
         self.assertEqual(data["total"], 2)
         self.assertEqual(
@@ -149,6 +150,7 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         self.assertNotEqual(bad["risk_state"], "normal")
         detail = self.client.get(BASE + f"/{hot_id}", headers=self.headers(self.user))
         self.assertEqual(detail.status_code, 200, detail.text)
+        self.assertEqual(detail.headers["Cache-Control"], "no-store")
         self.assertEqual(detail.json()["raw_text"], raw)
         self.assertEqual(len(detail.json()["receptions"]), 1)
         snapshot = data["snapshot_id"]
@@ -158,6 +160,7 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
             headers=self.headers(self.user),
         )
         self.assertEqual(csv_response.status_code, 200, csv_response.text)
+        self.assertEqual(csv_response.headers["Cache-Control"], "no-store")
         rows = list(csv.DictReader(StringIO(csv_response.content.decode("utf-8-sig"))))
         self.assertEqual(len(rows), 2)
         self.assertEqual(
