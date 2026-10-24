@@ -1,0 +1,11 @@
+# Overlay ONLY for the existing disposable, internal gated proof environment.
+# No published ports, real notification settings, original database or volumes.
+services:
+  test-runner:
+    command:
+      - >-
+        import subprocess,sys;
+        subprocess.run([sys.executable,'-m','alembic','upgrade','head'],check=True);
+        subprocess.run([sys.executable,'-m','alembic','check'],check=True);
+        subprocess.run([sys.executable,'app/initial_data.py'],check=True);
+        subprocess.run([sys.executable,'scripts/check-runtime-composition.py'],check=True)
