@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -79,9 +81,8 @@ class SubmissionTests(unittest.TestCase):
             self.assertTrue(result["limits"])
 
     def folder(self):
-        temp = script.parents[1] / "work/submission-gate-tests"
-        temp.mkdir(parents=True, exist_ok=True)
-        return tempfile.TemporaryDirectory(dir=temp)
+        # Synthetic fixtures live in the system temp dir, never in the package.
+        return tempfile.TemporaryDirectory()
 
     def save(self, root, data):
         (root / "submission-manifest.json").write_text(
@@ -110,6 +111,13 @@ class SubmissionTests(unittest.TestCase):
             "missing_gate",
             "unlisted_evidence",
             "windows_unsafe_name",
+            "smtp_password_field",
+            "unknown_field_e1",
+            "unknown_field_nested_dict",
+            "unknown_field_nested_array",
+            "notification_field_in_normal",
+            "second_machine_field_in_notification",
+            "notification_field_in_second_machine",
         )
         for case in cases:
             with self.subTest(case=case), self.folder() as name:
@@ -171,9 +179,52 @@ class SubmissionTests(unittest.TestCase):
                     data["acceptance"]["M03"]["evidence"] = ["not-listed.md"]
                 elif case == "windows_unsafe_name":
                     data["files"][0]["path"] = "02-application/bad?.tar"
+                elif case == "smtp_password_field":
+                    data["acceptance"]["SMTP_RECEIPT"]["smtp_password"] = (
+                        "SYNTHETIC_ONLY"
+                    )
+                elif case == "unknown_field_e1":
+                    data["acceptance"]["E1"]["extra_note"] = "SYNTHETIC_ONLY"
+                elif case == "unknown_field_nested_dict":
+                    data["acceptance"]["E1"]["extra_note"] = {
+                        "smtp_password": "SYNTHETIC_ONLY"
+                    }
+                elif case == "unknown_field_nested_array":
+                    data["acceptance"]["E1"]["extra_note"] = ["SYNTHETIC_ONLY", 1, 2]
+                elif case == "notification_field_in_normal":
+                    data["acceptance"]["E1"]["consent_confirmed"] = True
+                elif case == "second_machine_field_in_notification":
+                    data["acceptance"]["SMTP_RECEIPT"][
+                        "independent_computer_confirmed"
+                    ] = True
+                elif case == "notification_field_in_second_machine":
+                    data["acceptance"]["SECOND_MACHINE"][
+                        "terminal_received_confirmed"
+                    ] = True
                 self.save(root, data)
                 with self.assertRaises(gate.PackageError):
                     gate.verify(root)
+
+    def test_cli_error_does_not_leak_secret_or_manifest_text(self):
+        with self.folder() as name:
+            root = Path(name)
+            data = self.fixture(root)
+            marker = "SYNTHETIC-SECRET-MARKER-9f3a7c"
+            data["acceptance"]["SMTP_RECEIPT"]["smtp_password"] = marker
+            data["acceptance"]["SMTP_RECEIPT"]["nested"] = {"token": marker}
+            self.save(root, data)
+            completed = subprocess.run(
+                [sys.executable, "-I", "-B", str(script), str(root)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            output = completed.stdout + completed.stderr
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertNotIn(marker, output)
+            self.assertNotIn("smtp_password", output)
+            self.assertNotIn("nested", output)
+            self.assertNotIn("02-application/app.tar", output)
 
 
 if __name__ == "__main__":

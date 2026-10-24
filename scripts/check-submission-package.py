@@ -39,6 +39,14 @@ SUFFIXES = {
     "presentation": {".pptx"},
     "video": {".mp4", ".webm"},
 }
+# Each acceptance record allows only its own field set; an unexpected key
+# (e.g. a stray credential literal) must never ride along unnoticed.
+ACCEPTANCE_FIELDS = {
+    gate: {"state", "source", "reviewer", "evidence"} for gate in GATES
+}
+for gate in ("SMTP_RECEIPT", "FEISHU_RECEIPT"):
+    ACCEPTANCE_FIELDS[gate] |= {"consent_confirmed", "terminal_received_confirmed"}
+ACCEPTANCE_FIELDS["SECOND_MACHINE"] |= {"independent_computer_confirmed"}
 
 
 class PackageError(ValueError):
@@ -161,6 +169,7 @@ def verify(directory, manifest_name="submission-manifest.json"):
     require(roles == ROLES, "missing_required_material")
     for gate, value in gates.items():
         require(isinstance(value, dict), "invalid_acceptance_record")
+        require(set(value) <= ACCEPTANCE_FIELDS[gate], "unknown_acceptance_fields")
         require(value.get("state") == "passed", "acceptance_not_passed")
         require(value.get("source") == source, "mixed_acceptance_source")
         require(value.get("reviewer") in {"A", "B", "C", "captain"}, "missing_reviewer")
