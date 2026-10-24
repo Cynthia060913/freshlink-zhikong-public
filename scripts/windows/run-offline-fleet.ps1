@@ -1,11 +1,12 @@
 # Verify first; -RunFleet explicitly opts into a disposable, internal-only proof.
 [CmdletBinding()]
 param(
-    [string]$Package=$PSScriptRoot,
+    [string]$Package='',
     [Parameter(Mandatory=$true)][string]$ExpectedManifestSha256,
     [switch]$RunFleet
 )
 $ErrorActionPreference='Stop'
+if([string]::IsNullOrWhiteSpace($Package)){$Package=$PSScriptRoot}
 . (Join-Path $PSScriptRoot 'offline-kit-guards.ps1')
 $manifest=Assert-OfflineKit $Package $ExpectedManifestSha256
 if(-not $RunFleet){Write-Output 'PASS transport integrity only; no Docker operation, not E1 or second-machine acceptance.';return}
