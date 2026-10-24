@@ -1,5 +1,22 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-24 C 恢复保守核对与第二机环境（M02/M03/E1 未签收）
+
+C [PR #11 精确 `a30e8b608e5c8bfd4e8e579984a493665647d7cf`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+增加只读恢复新鲜度端口和严格 PG 测试：冻结版本与原异常/当前证据相符时仅
+返回 `ready_at_check`，晚到非法接收或版本变化时保守 hold。端口没有自动发送，
+没有在锁外消除新接纳竞态；B/A 的更正事件契约仍待确认。
+
+[本头 Backend Actions 40096723151](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40096723151)
+在 Python3.14.8/受控 PostgreSQL 执行 **1217 passed/12 skipped/161 warnings，
+覆盖率92%**，同头其余五项适用检查 success。本人 Windows 仅 AST/差异检查；
+Python3.13 环境未跑 PG 专项。第二台 Windows 已安装并实际验证 Docker Desktop
+Linux amd64 引擎 29.9.2、Compose 5.6.1；没有收到最终同版离线包或在此机
+运行/登录系统。A 的 PR #63/#64/#66 的正式审查与其分段实测分别按对应 PR/
+[#6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6)
+来源记录，不把 A 的 PG/MQTT 分段拼成 C 本机 E1。B 真实两渠道发送与收件、
+恢复闭环、第二机业务复现和 M01—M05 成品仍未签收。
+
 ## 2026-10-24 C 多批同事务、真实 F02 与第二机预检（M03/E1 未签收）
 
 C [PR #11 精确 `45c22e3ad7ede0d4fd02206b7b244285c284d3e8`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)

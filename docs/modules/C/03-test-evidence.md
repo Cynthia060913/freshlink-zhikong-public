@@ -1,5 +1,28 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-24 恢复新鲜度候选与第二机 Docker 环境
+
+C 分支完整 `a30e8b608e5c8bfd4e8e579984a493665647d7cf`，已正常合入
+共同 main `0d12cf56f569223f78ad7fcb1edcc25e05bafb02`；相对 main
+behind 0/ahead 11。C 只读 `check_recovery_freshness_candidate` 在 A 完整
+接纳前沿锁内核对冻结身份、epoch、证据版本、原异常和恢复窗口；严格 PostgreSQL
+回归覆盖当时可读、晚到非法接收后 hold、证据版本改变后 hold。此检查不发 B 网络，
+锁释放后仍有新接纳竞态，不能称自动恢复完成；B 的晚到坏证据更正事件语义见
+[#5 待确认](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6384562071)。
+
+本人 Windows 仅做 AST 语法和 `git diff --check`；本机项目 Python3.13 缺
+SQLAlchemy，没有运行此 PG 测试。精确头
+[Backend run 40096723151](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40096723151)
+使用项目 Python3.14.8，受控 PG 严格文件实际执行，**1217 passed / 12
+skipped / 161 warnings / 92% 覆盖**；同头另五项适用 Actions 均 success。
+12 skipped 仍为未执行项目，不能以总数替代完整 E1。
+
+第二台 Windows 已经本人同意安装官方 Docker Desktop。安装包有效 Docker Inc
+签名，按 per-user 模式安装；本机实际 `docker version` 为 CLI/ Linux x86_64
+engine 29.9.2，Compose v5.6.1。没有拉镜像、收到 A 的最终同版离线包与独立
+哈希、启动/登录应用、测试真实 PostgreSQL/MQTT 业务或两个真实收件终端。
+下一步需要 A 私下交付最终同版包与独立哈希，再在此电脑按实际版本复现。
+
 ## 2026-10-24 多批原子评价与恢复规则夹具修复
 
 精确 C HEAD `45c22e3ad7ede0d4fd02206b7b244285c284d3e8`，共同 main
