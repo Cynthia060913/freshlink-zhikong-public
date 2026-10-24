@@ -2,6 +2,7 @@
 
 import os
 from datetime import timedelta
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -151,6 +152,28 @@ def test_actual_bounded_worker_loop_drains_the_committed_high(setup):
     worker.run(max_seconds=0.02)
     assert case.rows()[0]["state"] == "delivered"
     assert transport.posts == 1
+
+
+def test_runtime_claim_uses_fresh_time_after_discovery(setup):
+    case, client = setup
+    observed_leases = []
+
+    class InspectLease(RootTransport):
+        def request(self, method, path, body=None):
+            observed_leases.append(case.rows()[0]["lease_until_utc"])
+            return super().request(method, path, body)
+
+    worker = HighDeliveryWorker(
+        case.store.engine,
+        BHttpCandidatePort(InspectLease(case, client)),
+        device_ids=[case.store.device_id],
+    )
+    with patch("app.modules.iot.high_delivery_worker.datetime") as clock:
+        clock.now.side_effect = [checks.T0, checks.T0 + timedelta(seconds=31)]
+        assert worker.run_once()[0][1] == "delivered"
+    assert observed_leases and all(
+        item == checks.T0 + timedelta(seconds=61) for item in observed_leases
+    )
 
 
 def test_recovery_rows_and_other_device_scope_are_never_claimed(setup):

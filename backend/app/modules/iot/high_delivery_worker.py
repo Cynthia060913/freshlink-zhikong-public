@@ -41,8 +41,11 @@ class HighDeliveryWorker:
         self.device_ids = tuple(device_ids)
         self.stop_requested = threading.Event()
 
-    def run_once(self, *, now: datetime) -> list[tuple[UUID, DeliveryOutcome]]:
-        if now.tzinfo is None:
+    def run_once(
+        self, *, now: datetime | None = None
+    ) -> list[tuple[UUID, DeliveryOutcome]]:
+        current = datetime.now(UTC) if now is None else now
+        if current.tzinfo is None:
             raise ValueError("aware delivery time required")
         due_at = case(
             (outbox.c.state == "leased", outbox.c.lease_until_utc),
@@ -58,8 +61,8 @@ class HighDeliveryWorker:
                         outbox.c.related_source_event_id.is_(None),
                         outbox.c.body["kind"].as_string() == "temperature_high",
                         or_(
-                            and_(outbox.c.state == "pending", due_at <= now),
-                            and_(outbox.c.state == "leased", due_at <= now),
+                            and_(outbox.c.state == "pending", due_at <= current),
+                            and_(outbox.c.state == "leased", due_at <= current),
                         ),
                     )
                     .order_by(due_at, outbox.c.source_event_id)
@@ -72,7 +75,12 @@ class HighDeliveryWorker:
             (
                 source,
                 deliver_once_candidate(
-                    self.engine, source_event_id=source, now=now, port=self.port
+                    self.engine,
+                    source_event_id=source,
+                    # A slow prior HTTP call must not backdate the next lease.
+                    # Explicit time remains available for deterministic proofs.
+                    now=datetime.now(UTC) if now is None else now,
+                    port=self.port,
                 ),
             )
             for source in sources
@@ -89,7 +97,7 @@ class HighDeliveryWorker:
             if deadline is not None and time.monotonic() >= deadline:
                 return
             try:
-                self.run_once(now=datetime.now(UTC))
+                self.run_once()
             except SQLAlchemyError:
                 logger.warning("High alarm delivery storage temporarily unavailable")
             wait = (
