@@ -1,4 +1,4 @@
-"""Explicit receive/store/evaluate process entries, reusing reviewed ports.
+"""Explicit telemetry and high-alarm process entries, reusing reviewed ports.
 
 No import-time start, DDL, epoch seeding, recovery or notification delivery.
 Run each role separately so a broker callback never performs C business work.
@@ -25,6 +25,7 @@ from sqlmodel import col, create_engine
 
 from app.core.db import engine as application_engine
 from app.modules.iot.heartbeat_worker import HeartbeatWorkerSettings
+from app.modules.iot.high_delivery_worker import HighDeliveryWorker
 from app.modules.iot.high_evaluation_worker import GatedHighWorker
 from app.modules.iot.models import Device
 from app.modules.iot.stream_frontier import FrontierUnavailable
@@ -32,9 +33,13 @@ from app.modules.iot.stream_frontier_models import streams
 from app.modules.iot.telemetry_storage_bridge import GatedTelemetrySink
 from app.modules.iot.telemetry_worker import TelemetryDeliveryWorker, TelemetryReceiver
 from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
+from app.modules.telemetry.b_http_candidate import (
+    BHttpCandidatePort,
+    UrllibCandidateTransport,
+)
 
 logger = logging.getLogger(__name__)
-Role = Literal["receive", "store", "evaluate"]
+Role = Literal["receive", "store", "evaluate", "deliver-high"]
 
 
 class TelemetryServiceSettings(HeartbeatWorkerSettings):
@@ -108,7 +113,9 @@ def run_evaluation_loop(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--role", required=True, choices=("receive", "store", "evaluate")
+        "--role",
+        required=True,
+        choices=("receive", "store", "evaluate", "deliver-high"),
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--max-seconds", type=float)
@@ -128,6 +135,10 @@ def main() -> None:
         password = os.environ.get("FRESHLINK_TELEMETRY_MQTT_PASSWORD", "")
         if args.role == "receive" and not password:
             raise ValueError("MQTT account owner password required")
+        if args.role == "deliver-high" and not os.environ.get(
+            "FRESHLINK_B_SERVICE_BEARER"
+        ):
+            raise ValueError("B authenticated ingestion credential required")
         owned_engine = create_engine(
             application_engine.url,
             pool_pre_ping=True,
@@ -157,6 +168,21 @@ def main() -> None:
             )
             stop_requested = delivery_worker.stop_requested
             run = delivery_worker.run
+        elif args.role == "deliver-high":
+            sender = HighDeliveryWorker(
+                owned_engine,
+                BHttpCandidatePort(
+                    UrllibCandidateTransport(
+                        base_url=os.environ.get(
+                            "FRESHLINK_B_INTERNAL_ORIGIN", "http://127.0.0.1:8000"
+                        ),
+                        bearer=lambda: os.environ.get("FRESHLINK_B_SERVICE_BEARER", ""),
+                    )
+                ),
+                device_ids=settings.device_ids,
+            )
+            stop_requested = sender.stop_requested
+            run = sender.run
         else:
             high_worker = GatedHighWorker(
                 owned_engine, frontier_epochs=settings.frontier_epochs
