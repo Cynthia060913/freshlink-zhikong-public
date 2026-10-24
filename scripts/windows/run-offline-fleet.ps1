@@ -114,7 +114,16 @@ networks:
     $runner=$run+'-runner'
     & $docker @compose run --name $runner --no-deps --pull never test-runner
     $testExit=$LASTEXITCODE
-    & $docker logs $runner 2>&1|Out-File -LiteralPath (Join-Path $out 'runner.log') -Encoding utf8
+    # Windows PowerShell 5.1 wraps native stderr log lines as ErrorRecords.
+    # Preserve them without treating Alembic INFO as failure; still check the
+    # actual logs command exit code and the fleet process exit code separately.
+    $logPreference=$ErrorActionPreference
+    try {
+        $ErrorActionPreference='Continue'
+        & $docker logs $runner 2>&1|ForEach-Object {$_.ToString()}|Out-File -LiteralPath (Join-Path $out 'runner.log') -Encoding utf8
+        $logExit=$LASTEXITCODE
+    } finally {$ErrorActionPreference=$logPreference}
+    if($logExit){throw 'Cannot collect runner logs; evidence incomplete'}
     if($testExit){throw 'Fleet proof failed; retained evidence must be reviewed'}
     $result=Get-Content -LiteralPath (Join-Path $out 'gated-fleet.json') -Raw -Encoding UTF8|ConvertFrom-Json
     if($result.source -cne $manifest.source -or $result.dirty -or $result.complete_e1 -or $result.notifications_sent -ne 0 -or

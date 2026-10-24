@@ -49,7 +49,14 @@ function Require-Rejection($Fixture,[string]$Hash){
     if(-not $rejected){throw 'Corrupt candidate incorrectly accepted'}
 }
 $good=New-TestKit 'valid-unicode'
+foreach($name in @('run-offline-fleet.ps1','offline-kit-guards.ps1')){
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $good.root $name)
+}
+$good.hash=Save-TestManifest $good.root $good.manifest
 [void](Assert-OfflineKit $good.root $good.hash)
+# Exercise the actual standalone default-package parameter path, not only a
+# function call. Verify-only must work without Git, Python or Docker calls.
+& (Join-Path $good.root 'run-offline-fleet.ps1') -ExpectedManifestSha256 $good.hash
 $cases=@('manifest-hash','payload-byte','missing-file','extra-file','path-traversal','duplicate-file','missing-image','wrong-platform','wrong-source','zip-byte','zip-omission','zip-escape')
 foreach($case in $cases){
     $fixture=New-TestKit $case
