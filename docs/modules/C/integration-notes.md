@@ -1,5 +1,42 @@
 # C 共享接线请求
 
+## 2026-10-23 F02 真实规则种类到 F03 事件种类映射
+
+核对本仓 B `services/rules.py::select_rules_for_observation` 的实际返回，
+F02 `RuleSelectionEntry.kind` 是规则候选类型 `threshold_high`，
+而 C→B F03 冻结异常正文的 `kind` 是 `temperature_high`。C 的高温评估
+和历史恢复规则绑定现严格消费前者，继续产生后者；两者不可直接等值比较，
+也不修改 B 的 F02 字段。C 自身合成选择器样例/测试同步为真实 F02 值。
+`rule_evaluation_candidate.py::LocalBRuleSelectionCandidate(engine)` 用独立
+短 Session 调实际 B 服务并输出 `model_dump(mode="json")`，在 A/C 写锁外完成
+规则读取；读库失败向外抛以保留待评估重试。该适配器不选择可信批次、不
+安装调度。新跨模块测试使用 B 真正的仓库/批次/快照服务和 C 观测/异常/
+恢复规则绑定；A worker 调用、正式发送和 E1 仍须同版验证。
+
+## 2026-10-23 恢复候选同事务门禁入口（未接 worker/发送）
+
+`recovery_outbox_candidate.py::stage_gated_recovery_candidate(engine, *,
+device_id, warehouse_id, stream_epoch, original_source_event_id,
+historical_rule, now)` 要求调用方在进入时已经取得 B 原异常**历史**规则；
+本函数内部先以 A `begin_evidence_write` 锁可信设备，复核 C 已存恢复窗口，
+再用 A `read_complete_frontier` 取写后完整戳，并在**同一 Connection/事务**
+调用既有 `freeze_recovery_frontier_on_connection_candidate`。成功一次提交
+A revision、C 恢复 outbox 与六个冻结字段；前沿不完整时整体回滚、保守 hold。
+重复/未到期/等原异常或规则时回滚无用 revision；来源正文冲突时保留 C
+冲突审计并用 A `mark_uncertain` 保守保持设备 hold。锁内没有 B 查询、HTTP 或
+通知发送。旧 Engine 单独恢复入口继续存在，但不能用于正式自动恢复。
+
+此为显式调用候选，**未安装轮询 worker**。本机 Windows 隔离 Python3.13.9
+SQLite Mock-A 新增门禁/冻结与前沿不完整回滚两例，文件全套 22/22；
+本小包精确 `a6bc1121c84b29766556d8dc194d7095fbc0d457` 另在受控远端
+[A–C strict run 39898732584](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/39898732584)
+以真实 PG/A 门禁跑新增冻结/重放测试，文件两项通过、全 1134/0跳；
+B `delivered` 状态和历史规则仍是夹具。本机 SQLite Mock-A 不证明 PG 锁；
+远端专项也不证明所有 C 直写入口覆盖、实际 B 接受、发送前戳复核、
+重启/并发完整业务或 E1。A/C 仍须在唯一已审 A05→C01 组合下跑这些
+同版场景，并由 B 确认已受理后更正语义。
+恢复自动外发继续关闭，候选和测试不得记为完整 E1。
+
 ## 2026-10-22 恢复冻结戳持久字段候选（未启用投递）
 
 `outbox_candidate.outbox` 与非活动 `migration_candidates/c01_telemetry_storage.py`
@@ -772,7 +809,8 @@ C 另提供未挂载的 `b_http_candidate.py`：按 B 给定的
 B 的可信设备/批次关联传 `batch_id`，并把 B 的
 `select_rules_for_observation(session, *, warehouse_id, batch_ids,
 metric_code, sampled_at) -> RuleSelection` 转为 `model_dump(mode="json")`
-后注入。仅支持**一批次、温度 `°C`、`temperature_high`、严格 `>`**。
+后注入。仅支持**一批次、温度 `°C`、F02 `threshold_high` 映射到
+F03 `temperature_high`、严格 `>`**。
 同一个业务观测只用 `sampled_at` UTC 选择历史规则，保留原始 `raw_text`、
 `raw_payload` 和原质量标记；真实高温且缺湿度时仍可生成高温候选，同时
 证据保留 `missing_metric:humidity`。无规则、无可用温度或不完整的非高温
@@ -781,7 +819,7 @@ metric_code, sampled_at) -> RuleSelection` 转为 `model_dump(mode="json")`
 示意的 B→C 选择回复（仅端口输入样例，非真实服务回执）：
 
 ```json
-{"status":"configured","rules":[{"batch_id":"33333333-3333-4333-8333-333333333333","warehouse_id":"22222222-2222-4222-8222-222222222222","rule_version":"temp-v1","snapshot_id":"88888888-8888-4888-8888-888888888888","metric_code":"temperature","unit":"°C","kind":"temperature_high","severity":"warning","comparison":">","threshold":8.0,"recovery":{"comparison":"<=","threshold":7.0,"min_samples":3},"effective_start_at":"2026-10-14T00:00:00Z","effective_end_at":null,"source":"warehouse-manager-ui"}],"reason_code":null}
+{"status":"configured","rules":[{"batch_id":"33333333-3333-4333-8333-333333333333","warehouse_id":"22222222-2222-4222-8222-222222222222","rule_version":"temp-v1","snapshot_id":"88888888-8888-4888-8888-888888888888","metric_code":"temperature","unit":"°C","kind":"threshold_high","severity":"warning","comparison":">","threshold":8.0,"recovery":{"comparison":"<=","threshold":7.0,"min_samples":3},"effective_start_at":"2026-10-14T00:00:00Z","effective_end_at":null,"source":"warehouse-manager-ui"}],"reason_code":null}
 ```
 
 选择器返回 `no_rule` 且空规则时，任务记 `no_rule` 而观测风险仍为 `unknown`；
@@ -850,3 +888,67 @@ invalid/冲突接纳、候选投递和发送前复核等其他写入口仍待同
 开关；本人 Windows Python3.13 无法加载完整项目测试配置，待精确提交的
 远端门禁真实执行后再记录结果。测试中直接插入合成观测/规则正文，不证明
 真实 B 历史规则选择或正式 C01 升级。
+
+## 2026-10-23：B 历史 F02 到 C 高温门禁的显式组合
+
+`LocalBRuleSelectionCandidate(engine)` 用独立短 `Session` 调用 B 的真实
+`select_rules_for_observation`，转换为 JSON DTO 后关闭会话。新增
+`select_and_stage_gated_high_candidate(engine, *, device_id, warehouse_id,
+stream_epoch, observation_id, batch_id, selector, now)` 先读已存 C 观测、按
+`sampled_at` 调 F02、核单条 `threshold_high` 规则的批次/仓库/单位/版本/生效
+区间，从原文重算质量并构造 `temperature_high` F03 正文；随后才调用现有
+`stage_gated_high_candidate`，在 A 同设备门禁下原子写候选、风险及任务。
+读取 B 的阶段**不持 A 锁**。调用方仍须提供经认证的设备、冷库、epoch
+及可信批次关联；当前没有共享 worker 自动调用此组合。
+
+此入口只处理确认为高温的单批次样本。无规则、完整性不足、常温或不匹配
+的历史规则均不写正常/低风险，保留待评估状态并返回 `held_unknown`；规则库
+临时失败返回 `retryable_failure`。原始观测和质量标记不变。SQLite 回归
+覆盖选择发生在门禁之前、写入/重放、无规则不改风险；Python3.14 远端还
+需执行真实 B DTO 到本端口的回归。Mock A 的 SQLite 用例不证明 PG 锁；
+原有严格 PG 高温写测试使用合成 B 规则；新增同文件的实际 B F02 服务
+用例另验其到 A gate/C 写的组合。两者都不证明完整 E1 或 B F03 实际接收。
+
+## 2026-10-23：C outbox → B 实际路由/服务的接收回读测试
+
+`test_telemetry_b_service_delivery_candidate.py` 在两个隔离 SQLite 文件库中
+分别保存 C 原始观测/outbox 和 B 冷库/批次/告警。B 使用实际 events router 与
+`receive_candidate`，HTTP 请求由进程内 `TestClient` 转发给现有
+`BHttpCandidatePort`；C `deliver_once_candidate` 先按来源查询，再提交冻结 F03。
+测试特意在 B 已提交 POST 后丢掉响应，C 再按同一 `source_event_id` 回读摘要，
+只有正文摘要一致才把 outbox 标为 delivered；再次运行不再 POST，B 告警一条。
+需项目 Python3.14；本人本机3.13仅能验证测试被跳过，远端结果按精确头登记。
+
+这是实际 B 应用服务/数据库逻辑的隔离调用，不是部署后的 HTTP/TCP、真实
+MQTT 上报、后台调度、两渠道通知或完整 E1；用于在正式接线前发现 F03 回执
+字段/摘要/幂等不兼容。发布时仍需可信服务鉴权和同版 PG/重启/失败联调。
+
+## 2026-10-23：未冻结的恢复候选不得进入通用投递队列
+
+`outbox_candidate.py::_dependency_ready` 现在对带原异常引用的恢复候选额外要求
+完整的 A 前沿冻结字段（可信设备/仓库/epoch、正序 admission、水位相等、
+revision 非空）以及原异常已投递。`claim_candidate` 与 `due_source_ids_candidate`
+共用此条件；旧候选、非门禁 `stage_recovery_page_candidate` 产生的候选和
+只有部分冻结字段的行保持 pending、attempt_count 不增加、不会调用 B。
+异常候选的领取行为不变。已有单测用**合成完整 stamp**仅检查队列条件与 B
+回读语义；不把手工写入的 stamp 当作 A 当前前沿验证。
+
+这仍只是必要条件。恢复发送前必须在 A 同设备锁内核当前 stamp、迟到无效
+证据与绑定，并与 B 对已经接受后的更正/重开语义验收；网络发送跨事务，
+不能把一次事前读称为线性化。此检查和正式调用尚未完成，自动恢复外发保持
+关闭。不会修改活动 C01 迁移或共享根路由。
+
+## 2026-10-23：一批次常温样本的 A 门禁写端口
+
+`rule_evaluation_candidate.py::stage_gated_within_rule_candidate(engine, *,
+device_id, warehouse_id, stream_epoch, observation_id, batch_id, selected_rule)`
+接收调用方**在锁外按采样时刻选出的 B F02 单条规则**。在 A 同设备写门禁内复核
+可信归属、待评估任务、规则批次/仓库/温度单位/版本/生效区间，再用已存原文重算
+质量与温度。只有质量恰为 `['ok']`、温度存在且未超过有效阈值时，同事务将
+任务记 `within_rule`、风险记 `normal`；缺测、坏原文、过期/缺失规则及真正高温
+均保持 pending/unknown，空操作回滚 A revision。不访问 B 网络，不形成 F03。
+
+这是**一个批次**的显式端口；A 的 PR57 caller 当前只处理高温，尚未调用此
+端口。多批次不能逐批调用此端口，因为第一批会终结 observation 的唯一任务；
+需 C 另提供全批次原子评估或逐批任务模型，A 不得先循环并取第一批结果当全局
+正常。恢复窗口与发送前前沿复核仍独立待验。

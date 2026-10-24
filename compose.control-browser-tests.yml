@@ -19,7 +19,7 @@ services:
     volumes:
       - ./scripts/mqtt-runtime:/fixtures:ro
   test-runner:
-    image: freshlink-app:p0
+    image: ${CONTROL_BROWSER_APP_IMAGE:-freshlink-app:p0}
     working_dir: /tmp
     environment:
       PROJECT_NAME: FreshLink-test
