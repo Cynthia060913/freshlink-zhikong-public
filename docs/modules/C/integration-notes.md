@@ -1007,6 +1007,10 @@ recovery_source_event_id, device_id, warehouse_id, stream_epoch)` 在受控 PG
 原始及恢复观测的质量/温度/时间，以及原异常接收后有无未解决的 invalid/conflict
 接收或重复冲突。返回 `ready_at_check`、`held` 或 `retryable_failure`，原因仅固定错误码。
 该入口不认领 outbox、不访问 B、不发网络请求、不把告警标记 resolved。
+发前检查还会重算冻结恢复正文与原异常正文各自的 F03 摘要，拒绝入库后被改动的
+正文；即使摘要与正文一致，原事件也必须仍是同来源、同观测、同批次和同采样
+时刻的 `temperature_high`。这些都是必要的持久证据检查，不能替代 B 已受理恢复
+后的更正事件契约。
 
 锁在检查事务结束后释放，因此 `ready_at_check` 只代表该时点；后续新证据仍可能
 到达。正式恢复 sender 必须设计认领与发送前复核的调用顺序，并落实 B 对已受理

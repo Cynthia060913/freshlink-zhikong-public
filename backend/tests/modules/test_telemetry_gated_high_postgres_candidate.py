@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select, update
 
 from app.modules.iot.stream_frontier import FrontierUnavailable, begin_evidence_write
 from app.modules.telemetry.candidate_preview import build_candidate_preview
+from app.modules.telemetry.f03_body_candidate import f03_digest_candidate
 from app.modules.telemetry.multi_batch_candidate import (
     stage_gated_multi_batch_candidate,
 )
@@ -593,6 +594,43 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
                     .where(outbox.c.source_event_id == source_event_id)
                     .values(body=saved_body)
                 )
+        assert (
+            check_recovery_freshness_candidate(store.engine, **ready_args).status
+            == "ready_at_check"
+        )
+        # A matching digest alone does not make a different original kind a
+        # valid high-temperature anomaly for this recovery window.
+        with store.engine.begin() as connection:
+            original_row = (
+                connection.execute(
+                    select(outbox).where(outbox.c.source_event_id == original_id)
+                )
+                .mappings()
+                .one()
+            )
+            changed_original = {**original_row["body"], "kind": "temperature_low"}
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == original_id)
+                .values(
+                    body=changed_original,
+                    body_sha256=f03_digest_candidate(changed_original).removeprefix(
+                        "sha256:"
+                    ),
+                )
+            )
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("held", "invalid_original_link")
+        )
+        with store.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == original_id)
+                .values(
+                    body=original_row["body"],
+                    body_sha256=original_row["body_sha256"],
+                )
+            )
         assert (
             check_recovery_freshness_candidate(store.engine, **ready_args).status
             == "ready_at_check"
