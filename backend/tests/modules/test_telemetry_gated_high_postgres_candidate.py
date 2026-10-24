@@ -3,15 +3,23 @@
 import json
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import UUID, uuid4, uuid5
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
-from app.modules.iot.stream_frontier import FrontierUnavailable
+from app.modules.iot.stream_frontier import FrontierUnavailable, begin_evidence_write
 from app.modules.telemetry.candidate_preview import build_candidate_preview
+from app.modules.telemetry.multi_batch_candidate import (
+    stage_gated_multi_batch_candidate,
+)
 from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.quality import process_batch
+from app.modules.telemetry.recovery_freshness_candidate import (
+    RecoveryFreshnessCandidate,
+    check_recovery_freshness_candidate,
+)
 from app.modules.telemetry.recovery_outbox_candidate import (
     stage_gated_recovery_candidate,
 )
@@ -19,6 +27,9 @@ from app.modules.telemetry.recovery_progress_candidate import (
     metadata as recovery_metadata,
 )
 from app.modules.telemetry.recovery_progress_candidate import recovery_progress
+from app.modules.telemetry.recovery_tick_candidate import (
+    LocalBHistoricalRecoveryRuleCandidate,
+)
 from app.modules.telemetry.rule_evaluation_candidate import (
     _SOURCE_NAMESPACE,
     LocalBRuleSelectionCandidate,
@@ -29,6 +40,7 @@ from app.modules.telemetry.storage_candidate import (
     evaluation_jobs,
     metadata,
     observations,
+    receptions,
 )
 from tests.api.routes import test_telemetry_inbox as inbox_checks
 from tests.api.routes.test_stream_frontier import admit, state, terminal
@@ -154,6 +166,121 @@ def test_high_candidate_and_a_revision_commit_together_and_replay_is_noop(store)
         assert connection.scalar(select(func.count()).select_from(outbox)) == 1
 
 
+def test_two_batch_one_high_one_normal_share_one_real_pg_gate(store):
+    observation_id, first, _body = _observation_and_body(store)
+    second = uuid4()
+
+    def selected(batch_id, threshold):
+        return {
+            "batch_id": str(batch_id),
+            "warehouse_id": str(store.warehouse_id),
+            "snapshot_id": str(uuid4()),
+            "rule_version": f"pg-{threshold}-v1",
+            "metric_code": "temperature",
+            "kind": "threshold_high",
+            "comparison": ">",
+            "severity": "warning",
+            "threshold": threshold,
+            "unit": "°C",
+            "effective_start_at": "2026-10-17T00:00:00Z",
+            "effective_end_at": None,
+        }
+
+    before = state(store)["evidence_revision"]
+    kwargs = {
+        "device_id": store.device_id,
+        "warehouse_id": store.warehouse_id,
+        "stream_epoch": store.epoch,
+        "observation_id": observation_id,
+        "batch_ids": (first, second),
+        "selected_rules": [selected(first, 8), selected(second, 20)],
+        "now": NOW,
+    }
+    result = stage_gated_multi_batch_candidate(store.engine, **kwargs)
+    assert result.status == "candidate_staged"
+    assert len(result.source_event_ids) == 1
+    with store.engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(outbox)) == 1
+        risk = connection.scalar(
+            select(observations.c.risk).where(observations.c.id == observation_id)
+        )
+        assert {item["batch_id"]: item["state"] for item in risk["batches"]} == {
+            str(first): "candidate",
+            str(second): "normal",
+        }
+    assert state(store)["evidence_revision"] == before + 1
+    assert stage_gated_multi_batch_candidate(store.engine, **kwargs).status == "not_due"
+    assert state(store)["evidence_revision"] == before + 1
+
+
+def test_two_batch_second_write_failure_rolls_back_real_pg_frontier(store):
+    from sqlalchemy.exc import OperationalError
+
+    from app.modules.telemetry import multi_batch_candidate as module
+
+    observation_id, first, _body = _observation_and_body(store)
+    second = uuid4()
+    rules = [
+        {
+            "batch_id": str(batch),
+            "warehouse_id": str(store.warehouse_id),
+            "snapshot_id": str(uuid4()),
+            "rule_version": "pg-both-high-v1",
+            "metric_code": "temperature",
+            "kind": "threshold_high",
+            "comparison": ">",
+            "severity": "warning",
+            "threshold": threshold,
+            "unit": "°C",
+            "effective_start_at": "2026-10-17T00:00:00Z",
+            "effective_end_at": None,
+        }
+        for batch, threshold in ((first, 8), (second, 9))
+    ]
+    kwargs = {
+        "device_id": store.device_id,
+        "warehouse_id": store.warehouse_id,
+        "stream_epoch": store.epoch,
+        "observation_id": observation_id,
+        "batch_ids": (first, second),
+        "selected_rules": rules,
+        "now": NOW,
+    }
+    before = state(store)["evidence_revision"]
+    actual = module.stage_f03_on_connection_candidate
+    calls = 0
+
+    def fail_second(*args, **options):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OperationalError("synthetic", {}, RuntimeError("private"))
+        return actual(*args, **options)
+
+    with patch.object(
+        module, "stage_f03_on_connection_candidate", side_effect=fail_second
+    ):
+        with pytest.raises(OperationalError):
+            stage_gated_multi_batch_candidate(store.engine, **kwargs)
+    assert state(store)["evidence_revision"] == before
+    with store.engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(outbox)) == 0
+        assert (
+            connection.scalar(
+                select(evaluation_jobs.c.state).where(
+                    evaluation_jobs.c.observation_id == observation_id
+                )
+            )
+            == "pending"
+        )
+    assert (
+        stage_gated_multi_batch_candidate(store.engine, **kwargs).status
+        == "candidate_staged"
+    )
+    with store.engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(outbox)) == 2
+
+
 def test_actual_b_historical_rule_stages_c_high_under_real_a_gate(store):
     """PG A gate + actual B F02 service + C high write; no B delivery."""
     from sqlmodel import Session, SQLModel
@@ -247,13 +374,65 @@ def test_actual_b_historical_rule_stages_c_high_under_real_a_gate(store):
 
 
 def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
-    """Real A gate/C transaction; B delivered state and historical rule are fixtures."""
+    """Actual B historical F02 + A gate/C recovery transaction in real PG."""
+    from sqlmodel import Session, SQLModel
+
+    from app.modules.alerts.models import (
+        Batch,
+        BatchRuleSnapshot,
+        BatchRuleSnapshotCreate,
+        RecoverySpec,
+        RuleDict,
+        RuleSeverity,
+        Warehouse,
+    )
+    from app.modules.alerts.services.rules import create_snapshot
+
+    b_tables = [Warehouse.__table__, Batch.__table__, BatchRuleSnapshot.__table__]
+    SQLModel.metadata.create_all(store.engine, tables=b_tables)
     recovery_metadata.create_all(store.engine)
     try:
         receipt = inbox_checks.frame(store)
         assert admit(store, receipt).status == "queued"
         terminal(store, receipt)
-        original_id, batch_id, snapshot_id = uuid4(), uuid4(), uuid4()
+        original_id, batch_id = uuid4(), uuid4()
+        with Session(store.engine) as session:
+            session.add(
+                Warehouse(id=store.warehouse_id, code="pg-c-recovery", name="Recovery")
+            )
+            session.flush()
+            session.add(
+                Batch(
+                    id=batch_id,
+                    warehouse_id=store.warehouse_id,
+                    code="pg-c-recovery-batch",
+                    product="apple",
+                    started_at=NOW - timedelta(days=2),
+                )
+            )
+            session.commit()
+            snapshot = create_snapshot(
+                session,
+                batch_id,
+                BatchRuleSnapshotCreate(
+                    version_id=uuid4(),
+                    rule_version="pg-recovery-v1",
+                    effective_start_at=NOW - timedelta(days=1),
+                    rules=[
+                        RuleDict(
+                            metric_code="temperature",
+                            candidate_kind="threshold_high",
+                            severity=RuleSeverity.WARNING,
+                            threshold_high=8.0,
+                            unit="°C",
+                            recovery=RecoverySpec(
+                                comparison="<=", threshold=7.0, min_samples=3
+                            ),
+                        )
+                    ],
+                ),
+            )
+            snapshot_id = snapshot.id
         anomaly_id = uuid4()
         recovered_ids = [uuid4() for _ in range(3)]
 
@@ -276,21 +455,6 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             "rule_version": "pg-recovery-v1",
             "algorithm_version": "threshold-rule/1",
             "evidence": {"comparison": ">", "threshold": 8.0},
-        }
-        historical_rule = {
-            "kind": "threshold_high",
-            "warehouse_id": str(store.warehouse_id),
-            "batch_id": str(batch_id),
-            "metric_code": "temperature",
-            "snapshot_id": str(snapshot_id),
-            "rule_version": "pg-recovery-v1",
-            "severity": "warning",
-            "unit": "°C",
-            "comparison": ">",
-            "threshold": 8.0,
-            "effective_start_at": sampled(NOW - timedelta(days=1)),
-            "effective_end_at": None,
-            "recovery": {"comparison": "<=", "threshold": 7.0, "min_samples": 3},
         }
         with store.engine.begin() as connection:
             for observation_id, moment, temperature in [
@@ -351,12 +515,19 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             )
             == "staged"
         )
+        # Delivery is a controlled fixture; this test does not call B F03 HTTP.
         with store.engine.begin() as connection:
             connection.execute(
                 update(outbox)
                 .where(outbox.c.source_event_id == original_id)
                 .values(state="delivered")
             )
+        historical_rule = LocalBHistoricalRecoveryRuleCandidate(
+            store.engine
+        ).for_original(original_id, NOW)
+        assert historical_rule is not None
+        assert historical_rule["snapshot_id"] == str(snapshot_id)
+        assert historical_rule["kind"] == "threshold_high"
         before = state(store)["evidence_revision"]
         kwargs = {
             "device_id": store.device_id,
@@ -385,5 +556,45 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             stage_gated_recovery_candidate(store.engine, **kwargs).status == "duplicate"
         )
         assert state(store)["evidence_revision"] == before + 1
+        ready_args = {
+            "recovery_source_event_id": staged.source_event_id,
+            "device_id": store.device_id,
+            "warehouse_id": store.warehouse_id,
+            "stream_epoch": store.epoch,
+        }
+        ready = check_recovery_freshness_candidate(store.engine, **ready_args)
+        assert ready.status == "ready_at_check"
+        # A late invalid receipt has no new observation, but must still hold
+        # recovery. This direct insert is test evidence, not a trusted intake.
+        bad_receipt = uuid4()
+        with store.engine.begin() as connection:
+            connection.execute(
+                receptions.insert().values(
+                    id=bad_receipt,
+                    observation_id=None,
+                    device_id=store.device_id,
+                    warehouse_id=store.warehouse_id,
+                    received_at_utc=sampled(NOW + timedelta(minutes=4)),
+                    raw_text="synthetic-invalid",
+                    receipt_sha256="a" * 64,
+                    outcome="invalid",
+                    reason="invalid_unit",
+                )
+            )
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("held", "unresolved_bad_reception")
+        )
+        with store.engine.begin() as connection:
+            connection.execute(delete(receptions).where(receptions.c.id == bad_receipt))
+            begin_evidence_write(
+                connection,
+                device_id=store.device_id,
+                warehouse_id=store.warehouse_id,
+                epoch=store.epoch,
+            )
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("held", "stale_frozen_frontier")
+        )
     finally:
         recovery_metadata.drop_all(store.engine)
+        SQLModel.metadata.drop_all(store.engine, tables=b_tables)
