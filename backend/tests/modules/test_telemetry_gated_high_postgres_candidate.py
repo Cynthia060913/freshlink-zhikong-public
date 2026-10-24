@@ -3,6 +3,7 @@
 import json
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import UUID, uuid4, uuid5
 
 import pytest
@@ -10,6 +11,9 @@ from sqlalchemy import func, select, update
 
 from app.modules.iot.stream_frontier import FrontierUnavailable
 from app.modules.telemetry.candidate_preview import build_candidate_preview
+from app.modules.telemetry.multi_batch_candidate import (
+    stage_gated_multi_batch_candidate,
+)
 from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.quality import process_batch
 from app.modules.telemetry.recovery_outbox_candidate import (
@@ -152,6 +156,121 @@ def test_high_candidate_and_a_revision_commit_together_and_replay_is_noop(store)
     assert state(store)["evidence_revision"] == before + 1
     with store.engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(outbox)) == 1
+
+
+def test_two_batch_one_high_one_normal_share_one_real_pg_gate(store):
+    observation_id, first, _body = _observation_and_body(store)
+    second = uuid4()
+
+    def selected(batch_id, threshold):
+        return {
+            "batch_id": str(batch_id),
+            "warehouse_id": str(store.warehouse_id),
+            "snapshot_id": str(uuid4()),
+            "rule_version": f"pg-{threshold}-v1",
+            "metric_code": "temperature",
+            "kind": "threshold_high",
+            "comparison": ">",
+            "severity": "warning",
+            "threshold": threshold,
+            "unit": "°C",
+            "effective_start_at": "2026-10-17T00:00:00Z",
+            "effective_end_at": None,
+        }
+
+    before = state(store)["evidence_revision"]
+    kwargs = {
+        "device_id": store.device_id,
+        "warehouse_id": store.warehouse_id,
+        "stream_epoch": store.epoch,
+        "observation_id": observation_id,
+        "batch_ids": (first, second),
+        "selected_rules": [selected(first, 8), selected(second, 20)],
+        "now": NOW,
+    }
+    result = stage_gated_multi_batch_candidate(store.engine, **kwargs)
+    assert result.status == "candidate_staged"
+    assert len(result.source_event_ids) == 1
+    with store.engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(outbox)) == 1
+        risk = connection.scalar(
+            select(observations.c.risk).where(observations.c.id == observation_id)
+        )
+        assert {item["batch_id"]: item["state"] for item in risk["batches"]} == {
+            str(first): "candidate",
+            str(second): "normal",
+        }
+    assert state(store)["evidence_revision"] == before + 1
+    assert stage_gated_multi_batch_candidate(store.engine, **kwargs).status == "not_due"
+    assert state(store)["evidence_revision"] == before + 1
+
+
+def test_two_batch_second_write_failure_rolls_back_real_pg_frontier(store):
+    from sqlalchemy.exc import OperationalError
+
+    from app.modules.telemetry import multi_batch_candidate as module
+
+    observation_id, first, _body = _observation_and_body(store)
+    second = uuid4()
+    rules = [
+        {
+            "batch_id": str(batch),
+            "warehouse_id": str(store.warehouse_id),
+            "snapshot_id": str(uuid4()),
+            "rule_version": "pg-both-high-v1",
+            "metric_code": "temperature",
+            "kind": "threshold_high",
+            "comparison": ">",
+            "severity": "warning",
+            "threshold": threshold,
+            "unit": "°C",
+            "effective_start_at": "2026-10-17T00:00:00Z",
+            "effective_end_at": None,
+        }
+        for batch, threshold in ((first, 8), (second, 9))
+    ]
+    kwargs = {
+        "device_id": store.device_id,
+        "warehouse_id": store.warehouse_id,
+        "stream_epoch": store.epoch,
+        "observation_id": observation_id,
+        "batch_ids": (first, second),
+        "selected_rules": rules,
+        "now": NOW,
+    }
+    before = state(store)["evidence_revision"]
+    actual = module.stage_f03_on_connection_candidate
+    calls = 0
+
+    def fail_second(*args, **options):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OperationalError("synthetic", {}, RuntimeError("private"))
+        return actual(*args, **options)
+
+    with patch.object(
+        module, "stage_f03_on_connection_candidate", side_effect=fail_second
+    ):
+        with pytest.raises(OperationalError):
+            stage_gated_multi_batch_candidate(store.engine, **kwargs)
+    assert state(store)["evidence_revision"] == before
+    with store.engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(outbox)) == 0
+        assert (
+            connection.scalar(
+                select(evaluation_jobs.c.state).where(
+                    evaluation_jobs.c.observation_id == observation_id
+                )
+            )
+            == "pending"
+        )
+    assert (
+        stage_gated_multi_batch_candidate(store.engine, **kwargs).status
+        == "candidate_staged"
+    )
+    with store.engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(outbox)) == 2
 
 
 def test_actual_b_historical_rule_stages_c_high_under_real_a_gate(store):
