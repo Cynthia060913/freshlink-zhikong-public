@@ -1,4 +1,4 @@
-"""Opt-in one-batch high-temperature caller using real B F02 and C's gate.
+"""Opt-in one-batch temperature caller using real B F02 and C's gate.
 
 No scheduling/startup, DDL, B delivery, recovery or external notification here.
 Multiple active batches deliberately remain pending until C's per-batch job
@@ -31,17 +31,18 @@ from app.modules.telemetry.rule_evaluation_candidate import (
     _SOURCE_NAMESPACE,
     EvaluationResultCandidate,
     stage_gated_high_candidate,
+    stage_gated_within_rule_candidate,
 )
 from app.modules.telemetry.storage_candidate import evaluation_jobs, observations
 
 
 class GatedHighWorker:
-    """Explicit bounded caller; only high candidates change C's pending job.
+    """Explicit bounded caller; only clean, historically ruled samples finish.
 
     Rules are read from B before C opens its gated transaction. The C port
     rechecks stored ownership/raw evidence and commits outbox/risk/job with
     A's revision. No network call occurs while the evidence lock is held.
-    Binding mutation linearization and multi-batch/normal/recovery writers
+    Binding mutation linearization and multi-batch/recovery writers
     remain separate acceptance items; do not enable an unattended E1 sender.
     """
 
@@ -128,12 +129,14 @@ class GatedHighWorker:
             if selection["status"] != "configured" or len(rules) != 1:
                 return held("unsupported_rule_selection")
             rule = rules[0]
-            if any(
+            # B historically stored F03's temperature_high as candidate_kind;
+            # newer F02 uses threshold_high. Both mean strict high-temperature
+            # comparison here, never a recovery or arbitrary rule kind.
+            if rule.get("kind") not in {"threshold_high", "temperature_high"} or any(
                 rule.get(key) != value
                 for key, value in {
                     "warehouse_id": str(warehouse),
                     "batch_id": str(batch_id),
-                    "kind": "temperature_high",
                     "metric_code": "temperature",
                     "unit": "°C",
                     "comparison": ">",
@@ -170,7 +173,15 @@ class GatedHighWorker:
                 },
             )
             if body is None:
-                return held("not_high_candidate")
+                return stage_gated_within_rule_candidate(
+                    self.engine,
+                    device_id=identity,
+                    warehouse_id=warehouse,
+                    stream_epoch=epoch,
+                    observation_id=observation_id,
+                    batch_id=batch_id,
+                    selected_rule={**rule, "kind": "threshold_high"},
+                )
             return stage_gated_high_candidate(
                 self.engine,
                 device_id=identity,
