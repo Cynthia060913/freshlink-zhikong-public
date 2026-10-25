@@ -1,5 +1,31 @@
 # C 共享接线请求
 
+## 2026-10-25 B PR #80 更正 DTO 的 C 只读准备端口
+
+共同 main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546` 已含 A PR #78；
+B 独立 [PR #80](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/80)
+精确 `b07a5e3e91cc674b3b06469a35f7c130839f1982` 仍待审。
+`correction_wire_candidate.py::prepare_held_correction_wire_on_connection_candidate`
+在调用方事务内只读 C 的 `held_contract` 更正与已投递原温度异常，验证原内部
+body/hash、原 F03 body/hash、原异常关联/冷库/观测归属及 UUIDv5 稳定来源，再
+确定性映射到 B 1.0 DTO 和单独 wire 摘要。`source_event_id` 不变；
+`related_source_event_id` 指向原异常；`batch_id`、历史规则标识来自原异常；
+`sampled_at` 使用坏接收的 UTC **接收时刻**，不宣称它是设备有效采样时刻；
+`value=null`、`severity=info`，不把缺测或错误单位显示为正常温度。
+原内部正文和摘要不改写，原始坏输入仅在受限接收审计表；wire 不复制原文。
+
+固定有效 JSON 为
+[`examples/data-quality-correction-f03-wire-candidate.json`](examples/data-quality-correction-f03-wire-candidate.json)，
+wire 摘要 `sha256:8c04fb17927df069a2a4bf02213f221a76af0fa62110313db07f34e566290dbf`。
+跨批/跨库或关联错误不能从 C 准备端口通过；B 对未知原异常返回
+`invalid/unknown_related_event`，跨批/库返回 `invalid/related_event_mismatch`，
+同 source 同摘要返回 `accepted_duplicate`，改正文返回 `conflict`。
+本端口尚未运行 B HTTP，也不修改 `held_contract/attempt0`。A/B 请在 #5 明确
+PR #80 审查修复后的精确头与 B 回执签名；C 随后提供独立 claim/投递小包，
+不能把现有通用 claim 的恢复冻结戳门槛套到更正，不能只把 held 改 pending。
+发送超时用原 source 查 B by-source，保持同一 wire body/digest 重放；
+瞬时失败走有界重试，永久拒绝保留证据，发送不得在 A 设备锁事务内进行。
+
 ## 2026-10-25 恢复观测同连接端口（待 A 接线）
 
 新增 `advance_saved_recovery_observation_on_connection_candidate(connection, ...)`，
