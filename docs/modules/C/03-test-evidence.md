@@ -1,5 +1,19 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 跨冷库归属冲突回归
+
+C [PR #11 源码提交 `894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993`](https://github.com/Cynthia060913/freshlink-zhikong-public/commit/894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993)
+对同设备/同消息 ID 在冷库重新归属后冲突的边界增加保守处理：保留新冷库回执，
+并按旧观测关联旧冷库的已投递异常，生成不可领取的 held 更正；恢复证据查询也
+阻断旧冷库，重放不重复生成更正。本机 Windows 隔离 Python 3.13.9/SQLite 分别
+运行更正、恢复 outbox、存储和恢复进度四组 unittest，**4+25+13+5＝47/47
+通过**；Ruff lint/format、差异及暂存文本安全检查通过。
+[本头 Test Backend run 40187429556](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40187429556)
+在 GitHub 项目 Python 3.14 执行整仓 **1225 passed/15 skipped/165 warnings、92%**，
+另五项适用检查成功。15 skipped 不计作通过；本人本机没有对本头重跑严格 PG、
+主程序、浏览器或最终第二机同版。A 接线、B F03 更正接收、通知实收和完整 E1
+仍待独立证据；该结果不改写下节旧版本 31 项 Python 3.14/临时 PG 的归属。
+
 ## 2026-10-25 同连接恢复端口与晚到更正持久化
 
 在 C 分支 `feature/c-data-quality-bootstrap` 的 `09823df9b7ab5c884813aa46fa7dc1a05bc3cc7f`
