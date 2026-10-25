@@ -13,7 +13,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.modules.telemetry.f03_body_candidate import (
@@ -24,7 +24,7 @@ from app.modules.telemetry.outbox_candidate import outbox
 from app.modules.telemetry.quality import _number, process_batch
 from app.modules.telemetry.recovery_outbox_candidate import _instant
 from app.modules.telemetry.recovery_progress_candidate import (
-    advance_persisted_recovery_window,
+    advance_persisted_recovery_window_on_connection_candidate,
 )
 from app.modules.telemetry.recovery_rule_candidate import bind_original_recovery_rule
 from app.modules.telemetry.recovery_window_candidate import (
@@ -96,58 +96,53 @@ def _sample_from_saved(row: Any, *, batch_id: UUID) -> RecoverySampleCandidate:
     )
 
 
-def advance_saved_recovery_observation_candidate(
-    engine: Engine,
+def advance_saved_recovery_observation_on_connection_candidate(
+    connection: Connection,
     *,
     original_source_event_id: UUID,
     observation_id: UUID,
     batch_id: UUID,
     historical_rule: dict[str, Any] | None,
 ) -> RecoveryAdvanceResultCandidate:
-    """Advance one saved sample; original evidence and rule stay immutable.
+    """Stage one saved sample in the caller's open transaction.
 
     A replay of the same observation cannot add another recovery sample. An
     invalid/missing reading resets or holds the window according to its saved
-    quality; it never proves recovery. B acceptance is checked at later staging.
+    quality; it never proves recovery. This function neither opens another
+    connection nor commits/rolls back. SQLAlchemy failures propagate so the
+    caller can roll back its whole admission transaction. B acceptance is
+    checked at later staging.
     """
+    if not connection.in_transaction():
+        raise ValueError("an open caller transaction is required")
     if not all(
         isinstance(value, UUID)
         for value in (original_source_event_id, observation_id, batch_id)
     ):
         raise ValueError("recovery IDs must be UUIDs")
-    try:
-        with engine.connect() as connection:
-            original = (
-                connection.execute(
-                    select(outbox).where(
-                        outbox.c.source_event_id == original_source_event_id
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            original_observation = (
-                connection.execute(
-                    select(observations).where(
-                        observations.c.id == original["observation_id"]
-                    )
-                )
-                .mappings()
-                .one_or_none()
-                if original is not None
-                else None
-            )
-            observation = (
-                connection.execute(
-                    select(observations).where(observations.c.id == observation_id)
-                )
-                .mappings()
-                .one_or_none()
-            )
-    except SQLAlchemyError:
-        return RecoveryAdvanceResultCandidate(
-            "retryable_failure", reason="storage_unavailable"
+    original = (
+        connection.execute(
+            select(outbox).where(outbox.c.source_event_id == original_source_event_id)
         )
+        .mappings()
+        .one_or_none()
+    )
+    original_observation = (
+        connection.execute(
+            select(observations).where(observations.c.id == original["observation_id"])
+        )
+        .mappings()
+        .one_or_none()
+        if original is not None
+        else None
+    )
+    observation = (
+        connection.execute(
+            select(observations).where(observations.c.id == observation_id)
+        )
+        .mappings()
+        .one_or_none()
+    )
     try:
         if original is None or original_observation is None or observation is None:
             raise ValueError("original or recovery observation is unavailable")
@@ -179,11 +174,33 @@ def advance_saved_recovery_observation_candidate(
             batch_id=batch_id,
             anomaly_sampled_at=_instant(body["sampled_at"]),
         )
-        _, decision = advance_persisted_recovery_window(engine, initial, rule, sample)
-    except ValueError as exc:
+        _, decision = advance_persisted_recovery_window_on_connection_candidate(
+            connection, initial, rule, sample
+        )
+    except (KeyError, TypeError, ValueError) as exc:
         return RecoveryAdvanceResultCandidate("held_invalid_evidence", reason=str(exc))
+    return RecoveryAdvanceResultCandidate("advanced", decision)
+
+
+def advance_saved_recovery_observation_candidate(
+    engine: Engine,
+    *,
+    original_source_event_id: UUID,
+    observation_id: UUID,
+    batch_id: UUID,
+    historical_rule: dict[str, Any] | None,
+) -> RecoveryAdvanceResultCandidate:
+    """Standalone wrapper; the caller-owned variant is preferred for A gates."""
+    try:
+        with engine.begin() as connection:
+            return advance_saved_recovery_observation_on_connection_candidate(
+                connection,
+                original_source_event_id=original_source_event_id,
+                observation_id=observation_id,
+                batch_id=batch_id,
+                historical_rule=historical_rule,
+            )
     except SQLAlchemyError:
         return RecoveryAdvanceResultCandidate(
             "retryable_failure", reason="storage_unavailable"
         )
-    return RecoveryAdvanceResultCandidate("advanced", decision)
