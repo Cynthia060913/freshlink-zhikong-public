@@ -210,7 +210,6 @@ def read_observation(
                 connection.execute(
                     select(receptions)
                     .where(receptions.c.observation_id == observation_id)
-                    .order_by(receptions.c.received_at_utc, receptions.c.id)
                 )
                 .mappings()
                 .all()
@@ -226,6 +225,16 @@ def read_observation(
                 )
                 .where(receptions.c.observation_id == observation_id)
             ).scalar_one()
+        # Stored receipts use canonical UTC text with optional fractional
+        # seconds. Lexical order puts ``.100Z`` before ``Z`` in the same
+        # second, so sort the exact timestamps after reading the detail rows.
+        attempts = sorted(
+            attempts,
+            key=lambda item: (
+                datetime.fromisoformat(item["received_at_utc"].replace("Z", "+00:00")),
+                item["id"],
+            ),
+        )
         response.headers["Cache-Control"] = "no-store"
         return {
             "observation_id": row["id"],

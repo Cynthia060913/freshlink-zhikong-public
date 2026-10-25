@@ -298,6 +298,43 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
         self.assertEqual(refreshed.json()["reception_reuse_conflict_count"], 1)
         self.assertEqual(len(refreshed.json()["receptions"]), 3)
 
+    def test_detail_orders_mixed_precision_receipt_times_chronologically(self) -> None:
+        first_at = datetime(2026, 10, 18, tzinfo=UTC)
+        observation_id, raw = self.ingest(received_at=first_at)
+        later = ingest_observation(
+            self.engine,
+            Reception(raw, uuid4(), first_at + timedelta(milliseconds=500)),
+        )
+        changed = json.loads(raw)
+        changed["metrics"][0]["value"] = 15
+        earlier = ingest_observation(
+            self.engine,
+            Reception(
+                json.dumps(changed, ensure_ascii=False),
+                uuid4(),
+                first_at + timedelta(milliseconds=100),
+            ),
+        )
+        self.assertEqual(later.status, "accepted_duplicate")
+        self.assertEqual(earlier.status, "conflict")
+
+        detail = self.client.get(
+            BASE + f"/{observation_id}", headers=self.headers(self.user)
+        )
+        self.assertEqual(detail.status_code, 200, detail.text)
+        self.assertEqual(
+            [item["received_at"] for item in detail.json()["receptions"]],
+            [
+                "2026-10-18T00:00:00Z",
+                "2026-10-18T00:00:00.100000Z",
+                "2026-10-18T00:00:00.500000Z",
+            ],
+        )
+        self.assertEqual(
+            [item["outcome"] for item in detail.json()["receptions"]],
+            ["accepted_new", "conflict", "accepted_duplicate"],
+        )
+
     def test_rejected_audit_is_privileged_bounded_and_keeps_orphan_raw(self) -> None:
         first_at = datetime(2026, 10, 18, tzinfo=UTC)
         original_id = uuid4()
