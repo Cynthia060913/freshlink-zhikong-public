@@ -19,6 +19,7 @@ from app.modules.alerts.models import (
 from app.modules.alerts.services.batches import create_batch
 from app.modules.alerts.services.rules import create_snapshot
 from app.modules.iot.high_evaluation_worker import GatedHighWorker
+from app.modules.telemetry.multi_batch_candidate import MultiBatchResultCandidate
 from app.modules.telemetry.outbox_candidate import outbox
 from app.modules.telemetry.storage_candidate import evaluation_jobs, observations
 from tests.api.routes import test_stream_frontier as checks
@@ -107,16 +108,62 @@ class GatedHighBusinessTests(unittest.TestCase):
         )
         self.assertEqual(checks.state(self.store)["evidence_revision"], before + 1)
 
-    def test_zero_and_multiple_batches_remain_pending_without_silent_first_batch(self):
+    def test_zero_batches_remains_pending(self):
         observation = self.saved()
-        for count in (0, 2):
-            if count:
-                self.configure()
-                self.configure()
-            result = self.worker.evaluate(observation, now=checks.T0)
-            self.assertEqual(result.reason, "one_active_batch_required")
-            self.assertEqual(self.pending(observation), "pending")
-            self.assertEqual(self.rows(), [])
+        result = self.worker.evaluate(observation, now=checks.T0)
+        self.assertEqual(result.reason, "one_active_batch_required")
+        self.assertEqual(self.pending(observation), "pending")
+        self.assertEqual(self.rows(), [])
+
+    def test_two_batches_high_and_normal_finish_one_complete_job(self):
+        high = self.configure(threshold=8)
+        normal = self.configure(threshold=20)
+        observation = self.saved()
+        before = checks.state(self.store)["evidence_revision"]
+        result = self.worker.evaluate(observation, now=checks.T0)
+        self.assertEqual(result.status, "candidate_staged")
+        assert isinstance(result, MultiBatchResultCandidate)
+        self.assertEqual(len(result.source_event_ids), 1)
+        self.assertEqual(self.pending(observation), "candidate_staged")
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["body"]["batch_id"], str(high))
+        with self.store.engine.connect() as connection:
+            risk = connection.scalar(
+                select(observations.c.risk).where(observations.c.id == observation)
+            )
+        self.assertEqual(
+            {item["batch_id"]: item["state"] for item in risk["batches"]},
+            {str(high): "candidate", str(normal): "normal"},
+        )
+        self.assertEqual(checks.state(self.store)["evidence_revision"], before + 1)
+        self.assertEqual(
+            self.worker.evaluate(observation, now=checks.T0).status, "not_due"
+        )
+        self.assertEqual(checks.state(self.store)["evidence_revision"], before + 1)
+
+    def test_two_high_batches_return_both_sources_without_finishing_early(self):
+        batches = {self.configure(threshold=8), self.configure(threshold=9)}
+        observation = self.saved()
+        result = self.worker.evaluate(observation, now=checks.T0)
+        self.assertEqual(result.status, "candidate_staged")
+        assert isinstance(result, MultiBatchResultCandidate)
+        self.assertEqual(len(set(result.source_event_ids)), 2)
+        self.assertEqual(
+            {row["body"]["batch_id"] for row in self.rows()},
+            {str(batch) for batch in batches},
+        )
+
+    def test_multi_batch_missing_rule_cannot_finish_first_batch_only(self):
+        self.configure()
+        self.configure(rule=False)
+        observation = self.saved()
+        before = checks.state(self.store)["evidence_revision"]
+        result = self.worker.evaluate(observation, now=checks.T0)
+        self.assertEqual(result.status, "held_unknown")
+        self.assertEqual(self.pending(observation), "pending")
+        self.assertEqual(self.rows(), [])
+        self.assertEqual(checks.state(self.store)["evidence_revision"], before)
 
     def test_no_rule_remains_pending_then_valid_non_high_finishes_under_gate(self):
         batch = self.configure(rule=False)

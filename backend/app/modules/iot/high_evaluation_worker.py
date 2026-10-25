@@ -1,8 +1,8 @@
-"""Opt-in one-batch temperature caller using real B F02 and C's gate.
+"""Opt-in temperature caller using real B F02 and C's device gate.
 
 No scheduling/startup, DDL, B delivery, recovery or external notification here.
-Multiple active batches deliberately remain pending until C's per-batch job
-contract exists; never silently evaluate only the first of several batches.
+Multiple active batches use C's all-batch atomic port, never a loop over the
+single-batch port that would finish the shared job after only the first batch.
 """
 
 from collections.abc import Mapping
@@ -26,6 +26,10 @@ from app.modules.telemetry.candidate_preview import (
     _required_utc,
     build_candidate_preview,
 )
+from app.modules.telemetry.multi_batch_candidate import (
+    MultiBatchResultCandidate,
+    select_and_stage_gated_multi_batch_candidate,
+)
 from app.modules.telemetry.quality import _number, process_batch
 from app.modules.telemetry.rule_evaluation_candidate import (
     _SOURCE_NAMESPACE,
@@ -42,7 +46,7 @@ class GatedHighWorker:
     Rules are read from B before C opens its gated transaction. The C port
     rechecks stored ownership/raw evidence and commits outbox/risk/job with
     A's revision. No network call occurs while the evidence lock is held.
-    Binding mutation linearization and multi-batch/recovery writers
+    Binding mutation linearization and recovery writers
     remain separate acceptance items; do not enable an unattended E1 sender.
     """
 
@@ -58,7 +62,7 @@ class GatedHighWorker:
 
     def evaluate(
         self, observation_id: UUID, *, now: datetime
-    ) -> EvaluationResultCandidate:
+    ) -> EvaluationResultCandidate | MultiBatchResultCandidate:
         if not isinstance(observation_id, UUID) or now.tzinfo is None:
             raise ValueError("observation UUID and aware time required")
 
@@ -94,6 +98,8 @@ class GatedHighWorker:
             sampled_at = _required_utc(
                 row["normalized"].get("sampled_at"), "sampled_at"
             )
+            batch_id = None
+            selection = None
             with Session(self.engine) as session:
                 device = session.get(Device, identity)
                 if (
@@ -113,16 +119,32 @@ class GatedHighWorker:
                     if batch.started_at <= sampled_at
                     and (batch.ended_at is None or sampled_at < batch.ended_at)
                 ]
-                if len(active) != 1:
+                if not active:
                     return held("one_active_batch_required")
-                batch_id = active[0].id
-                selection = select_rules_for_observation(
-                    session,
+                if len(active) == 1:
+                    batch_id = active[0].id
+                    selection = select_rules_for_observation(
+                        session,
+                        warehouse_id=warehouse,
+                        batch_ids=(batch_id,),
+                        metric_code="temperature",
+                        sampled_at=sampled_at,
+                    ).model_dump(mode="json")
+            if len(active) > 1:
+                # The preliminary B read is closed before C selects the full
+                # historical set and enters one shared evidence transaction.
+                # Keep the tuple of all source IDs; never return only the
+                # first batch's result as if it represented the whole job.
+                return select_and_stage_gated_multi_batch_candidate(
+                    self.engine,
+                    device_id=identity,
                     warehouse_id=warehouse,
-                    batch_ids=(batch_id,),
-                    metric_code="temperature",
-                    sampled_at=sampled_at,
-                ).model_dump(mode="json")
+                    stream_epoch=epoch,
+                    observation_id=observation_id,
+                    now=now,
+                )
+            if batch_id is None or selection is None:
+                return held("unsupported_rule_selection")
             if selection["status"] == "no_rule":
                 return held("no_rule")
             rules = selection["rules"]
@@ -201,7 +223,7 @@ class GatedHighWorker:
 
     def run_once(
         self, *, now: datetime, limit: int = 100
-    ) -> list[EvaluationResultCandidate]:
+    ) -> list[EvaluationResultCandidate | MultiBatchResultCandidate]:
         if (
             isinstance(limit, bool)
             or not isinstance(limit, int)
