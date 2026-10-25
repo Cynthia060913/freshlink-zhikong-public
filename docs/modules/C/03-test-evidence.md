@@ -14,6 +14,15 @@ C [PR #11 源码提交 `894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993`](https://githu
 主程序、浏览器或最终第二机同版。A 接线、B F03 更正接收、通知实收和完整 E1
 仍待独立证据；该结果不改写下节旧版本 31 项 Python 3.14/临时 PG 的归属。
 
+同日共同 main 发布 PR #76 后，C 分支普通合入 main
+`7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e`，合并提交
+`a620761795f0c04096ce0c826fbe0e3ff5c8a9a0`，无冲突、未强推；
+相对 main 仅 11 个 C 角色文件。本人在新合并头重新运行上述四组 SQLite
+unittest，**47/47 通过**。[该精确头 Backend run 40189299528](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40189299528)
+于云端项目 Python 3.14 执行整仓 **1337 passed/15 skipped/174 warnings、
+92% 覆盖率**，另五项适用检查成功。此次没有重新跑 5c41 的受控 PG
+31 项或最终同版 E1，不能把不同运行批次相加。
+
 ## 2026-10-25 同连接恢复端口与晚到更正持久化
 
 在 C 分支 `feature/c-data-quality-bootstrap` 的 `09823df9b7ab5c884813aa46fa7dc1a05bc3cc7f`
