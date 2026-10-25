@@ -1,5 +1,29 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 更正投递前原始观测复核（仍只读）
+
+在已有 `correction_wire_candidate.py` 同 Connection 只读准备端口增加一次
+原异常持久观测复核：按保存的 raw JSON 重新计算规范值与质量，要求原高温/低温
+事件的观测 ID、冷库、采样时刻和温度与原有效观测一致。原 raw 或质量记录被
+改变时拒绝生成 wire；C 更正 outbox 保持 `held_contract/attempt0`，不释放、
+不领取、不发送。固定 JSON 与 wire 摘要不变。
+
+本机 Windows 使用缓存项目 `freshlink-app:p0`（Python3.14.8）只读挂载、
+`--network none` 执行 C 定向 unittest：**7/7 通过，0 跳过**，其中同一持久
+fixture 验证正常原高温可映射、篡改 raw 与质量各被拒绝且更正行不变。Ruff
+lint/format、mypy 生产文件通过。首次 Ruff 尝试因只读缓存目录不能建临时
+文件而未执行规范检查，改用容器临时缓存后通过；这不是代码检查通过记录。
+
+随后执行仓库原受控脚本 `scripts/windows/check-a01-acceptance.ps1`，随机项目
+`a01-tests-20261025234151-19988`，隔离 PostgreSQL18/tmpfs，唯一 Alembic
+升级至 C01 与 metadata check 无差异；整仓 **1370 passed / 0 failed /
+0 skipped / 2 warnings / 91% coverage**，退出码 0。JUnit `pytest.xml`
+SHA256 `07c3731beca25bbf7dea028f5218334f19bdd8a40f8c54274f245eea64d8935c`；
+XML suite `tests=1669` 包含 subtest 展开，不当作 1669 个独立用例。原件在被忽略的
+本机 `work/a01-tests-20261025234151-19988`；按该项目标签回读容器/网络均 0。
+本轮未运行真实 B HTTP、自动发送、通知终端或 E1；远端 CI 须待推送本增量后
+单独回读，不能沿用旧头绿灯。
+
 ## 2026-10-25 持续正常样本后的恢复前沿续验（定向 PG）
 
 在 C 新端口 `refresh_pending_recovery_frontier_on_connection_candidate` 的
