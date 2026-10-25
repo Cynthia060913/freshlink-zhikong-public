@@ -5,9 +5,14 @@
 C [PR #11 最终 `6474de86a30da1ebe1c36716583d198bc94b5a01`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
 修复观测详情中同一秒的整秒与带小数 UTC 接收时间按文本排序会颠倒的问题。
 候选 HTTP 回归使用独立测试库实际保存同一消息的整秒首次接收、100 ms 冲突
-和 500 ms 重复，断言详情按真实时刻返回且原始值不被覆盖。本人 Windows
-Python3.13 仅做 AST、Ruff0.16.9、差异和有限公开安全检查；缺项目
-FastAPI/SQLAlchemy，**没有在此机运行该业务测试或 PostgreSQL**。
+和 500 ms 重复，断言详情按真实时刻返回且原始值不被覆盖。初次提交时
+Codex 隔离 Python3.13 缺业务依赖，只做 AST、Ruff0.16.9、差异和有限公开
+安全检查；随后在本人 Windows 用户会话以 Python3.14.3、uv0.9.26、
+原 `uv.lock` 的 `--frozen` 模式安装到**工作区旁独立虚拟环境**，没有修改
+宿主 Python。以 `python -m unittest -q` 运行候选 HTTP、存储、历史、
+快照和质量五个模块，**64项实际通过/0失败**，均使用临时 SQLite；其中
+HTTP 文件 **8/8**，含本次混合精度详情回归。**没有在此机运行 PostgreSQL、
+主程序或第二机完整业务**。
 [最终头 Backend run 40166876095](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40166876095)
 在云端 Python3.14.8 执行 `test_telemetry_http_candidate.py` 8 项，整仓
 **1219通过/12跳过/165 warnings/92%**，另五项适用检查成功。首头

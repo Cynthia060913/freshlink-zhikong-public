@@ -7,8 +7,12 @@
 [对应 Backend run 40166876095](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40166876095)
 在云端 Python3.14.8/受控服务跑整仓 **1219通过、12跳过、165 warnings、
 92%**；该测试文件 8 项实际列入执行，另五项适用 Actions 成功。
-本人 Windows Python3.13 缺业务依赖，只完成 AST、Ruff、差异和有限安全
-检查，**没有本机业务/PG/主程序浏览器实测**。详情排序修复不是新增数据入库、
+本人初次保存时 Codex 隔离 Python3.13 缺业务依赖，只完成 AST、Ruff、
+差异和有限安全检查；随后在本人 Windows 用户会话以项目 Python3.14.3、
+uv0.9.26 与原锁文件 `--frozen` 同步到工作区旁独立虚拟环境，以
+`python -m unittest -q` 实跑 C HTTP/存储/历史/快照/质量 **64项通过、
+0失败**，其中 HTTP 8项，均为临时 SQLite。**本机仍没有运行 PostgreSQL、
+主程序或浏览器业务实测**。详情排序修复不是新增数据入库、
 正式导出或 E1 闭环。
 
 C 辅助 B 的 [Draft PR #72 精确 `b4027b0cba293d3fb05262524397a3d7fd87ad35`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/72)
