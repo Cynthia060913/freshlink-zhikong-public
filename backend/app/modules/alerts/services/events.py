@@ -388,6 +388,44 @@ def statuses_for_events(
     return latest
 
 
+def _correction_related_check(session: Session, payload: CandidateCreate) -> str | None:
+    """Validate a ``data_quality`` correction's original-anomaly link.
+
+    Late bad evidence for an already-accepted anomaly/recovery arrives
+    as a data_quality candidate whose ``related_source_event_id`` names
+    the original anomaly (F03 contract, #5 6394581672). The referenced
+    original must exist and belong to the SAME warehouse and batch —
+    the correction is about THAT anomaly's evidence, not another cold
+    store's.
+
+    The correction takes the SAME original-row lock as ACK/recovery
+    (:func:`_lock_alert_by_source`) and re-reads under it, so a
+    correction racing a recovery serializes instead of reading stale
+    state. It NEVER writes a transition row: a resolved alert stays
+    resolved (history is never rewritten or reopened), an open one
+    stays open; traceability is the correction row's link itself.
+    Returns a permanent reason code, the literal ``"retryable"`` on a
+    transient failure, or None when valid.
+    """
+
+    related = payload.related_source_event_id
+    if not related:
+        return None
+    try:
+        original = _lock_alert_by_source(session, related)
+    except SQLAlchemyError, AlertLifecycleUnavailable:
+        session.rollback()
+        return "retryable"
+    if original is None:
+        return "unknown_related_event"
+    if (
+        original.warehouse_id != payload.warehouse_id
+        or original.batch_id != payload.batch_id
+    ):
+        return "related_event_mismatch"
+    return None
+
+
 def _recovery_transition(
     session: Session, payload: CandidateCreate, source_event_id: str
 ) -> AlertStatusTransition | None | str:
@@ -477,7 +515,11 @@ def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateRe
     source_event_id = payload.source_event_id
     digest = compute_content_digest(payload)
 
-    if payload.kind is CandidateKind.TEMPERATURE_RECOVERED:
+    if payload.kind is CandidateKind.TEMPERATURE_RECOVERED or (
+        payload.kind is CandidateKind.DATA_QUALITY and payload.related_source_event_id
+    ):
+        # Both take the original-row lock below, so both need the
+        # service-owned lifecycle unit first.
         try:
             _require_lifecycle_unit(session)
         except AlertLifecycleUnavailable:
@@ -521,6 +563,15 @@ def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateRe
         except SQLAlchemyError:
             session.rollback()
             return _retryable_receipt(source_event_id)
+    elif payload.kind is CandidateKind.DATA_QUALITY and (
+        payload.related_source_event_id
+    ):
+        outcome = _correction_related_check(session, payload)
+        if isinstance(outcome, str):
+            if outcome == "retryable":
+                return _retryable_receipt(source_event_id)
+            session.rollback()  # semantic rejection must release the original lock
+            return _invalid_receipt(source_event_id, outcome)
 
     row = _candidate_row(payload, digest)
     failure = _insert_event(session, row, *([transition] if transition else ()))
