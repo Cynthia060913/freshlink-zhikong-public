@@ -1,0 +1,25 @@
+\documentclass[border=6pt]{standalone}
+\usepackage{fontspec}
+\setmainfont{Microsoft YaHei}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,shadows}
+\begin{document}
+\begin{tikzpicture}[
+box/.style={draw=teal!70!black,fill=teal!5,text=black,rounded corners=3pt,line width=.7pt,align=center,text width=3.3cm,minimum height=1.25cm,font=\small,drop shadow={opacity=.15,shadow xshift=.5pt,shadow yshift=-.5pt}},
+arr/.style={-{Stealth},draw=teal!70!black,line width=.8pt},
+lab/.style={font=\scriptsize,text=black,fill=white,inner sep=2pt}
+]
+\node[box,text width=3.3cm,minimum height=1.25cm] (warehouse) at (0,0) {冷库\\\scriptsize alerts\_\allowbreak{}warehouse\\PK: id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (batch) at (0,-2.8) {苹果批次\\\scriptsize alerts\_\allowbreak{}batch\\PK: id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (rule) at (-3.5,-5.6) {版本规则快照\\\scriptsize alerts\_\allowbreak{}batch\_\allowbreak{}rule\_\allowbreak{}snapshot\\PK: id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (event) at (3.5,-5.6) {异常与来源事件\\\scriptsize alerts\_\allowbreak{}event\\PK: id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (status) at (0,-8.4) {处置状态变化\\\scriptsize alerts\_\allowbreak{}status\_\allowbreak{}transition\\PK: id};
+\node[box,text width=3.3cm,minimum height=1.25cm] (attempt) at (7,-8.4) {渠道投递尝试\\\scriptsize alerts\_\allowbreak{}notification\_\allowbreak{}attempt\\PK: id};
+\draw[arr] (warehouse) -- node[lab,midway,above,sloped]{FK} (batch);
+\draw[arr] (batch) -- node[lab,midway,above,sloped]{FK} (rule);
+\draw[arr] (batch) -- node[lab,midway,above,sloped]{FK} (event);
+\draw[arr] (warehouse.east) -- (9,0) |- node[lab,pos=.75,right]{FK} (event.east);
+\draw[arr] (event) -- node[lab,midway,above,sloped]{FK} (status);
+\draw[arr] (event) -- node[lab,midway,above,sloped]{FK} (attempt);
+\end{tikzpicture}
+\end{document}
