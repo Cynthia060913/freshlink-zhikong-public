@@ -19,9 +19,22 @@ C 来源 `09823df9b7ab5c884813aa46fa7dc1a05bc3cc7f`（PR11），仅接入：
 
 ## 验证出口与未完成
 
-先在专属临时 PG 验证 C 五项严格数据库场景、HTTP/原始接收排序、A 的全批次和
-生命周期防护，再实跑当前同版 MQTT/四CLI/TCP B/历史CSV/合成持久通知。
-本说明在运行前只定义验证范围，不预填通过。
+2026-10-25 15:41（北京时间），精确代码提交
+`ecf19d092075fa825e565d7f5f47c39519432ead`、工作区干净，实际完成：
+
+- **63实际 testcase 全部通过、零跳过**：C严格PG5、C HTTP8、A全批次13、
+  A/C门内存储15、A生命周期并发13、A通知启动9。唯一链空库upgrade/check通过。
+  XML `work/notify-subset-50ecf4673dc04e3ea440ab3b2233d74e/current-c-subset.xml`，
+  SHA256 `cf50e4361a571d06895f517034308d914c1748d2ecb6a531a05c8531b67e1b68`。
+- 当前C组合真实MQTT→四CLI→PG/TCP B→raw/同快照CSV→独立合成派发重启验证通过。
+  `work/gated-7387543ca2134cfc8aa4ece023491f1c/notification-composition.json`，
+  SHA256 `4d1199f5dd81608b4faefe360aaf5b86f2e5ec5b5123eb75bbd03f8b6a7af743`。
+  合成attempt仍为0/2/3/3，`notifications_sent=0`、`complete_e1=false`。
+- 新C两端口mypy与五个涉及Python文件Ruff通过；有限公开文本检查735文件无检出，
+  不是完整安全审计。两专属项目清理回读容器/网络均为空。
+
+A54的1341/92%属于先前代码提交1b7a9d9；本次C增量只补相关专项与实际运行，
+不将旧全套自动套到新头，也不将二者相加称全套测试数。后续文档更新不改变已测代码。
 
 C 严格恢复场景中的 original delivered 标记是明确夹具；它验证真实 B 历史规则与
 真实 A/C PG 事务，不是恢复候选经 B HTTP 接收或通知实收。旧 F03 仍不支持
