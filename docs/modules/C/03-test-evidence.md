@@ -1,5 +1,32 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 关联更正 wire 准备端口（未投递）
+
+在已安全合入共同 main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546`
+的 C 分支，新增内部冻结更正到 B PR #80 候选 DTO 的只读映射与同 Connection
+读取端口。Windows 上使用已缓存 `freshlink-app:p0`（Python 3.14.8）只读挂载
+源码运行 `python -m unittest tests.modules.test_telemetry_correction_wire_candidate -v`：
+**7/7 通过，0 跳过**。验证固定 JSON/摘要、同一记录重放、原正文不变、
+关联错/摘要错/稳定来源错拒绝、SQLite 持久行读取后仍 `held_contract/attempt0`。
+另将 B PR #80 精确 `b07a5e3e91cc674b3b06469a35f7c130839f1982` 的
+`models/event.py` 单文件以只读覆盖挂载进同镜像：固定 DTO 实际通过
+`CandidateCreate.model_validate`，B `compute_content_digest` 与 C 摘要相等。
+首次对拍缺 `PYTHONPATH` 而未导入测试模块；修正路径后通过，未改 B 源码。
+Ruff lint/format 与 mypy 单生产文件通过。没有 B HTTP、PostgreSQL 更正
+并发/重启、真实投递或 E1；PR #80 仍需 A 独立审查及 B 修复后再按新头对拍。
+
+随后运行仓库 `scripts/windows/check-a01-acceptance.ps1`：本机 Windows、
+隔离 `freshlink-app:p0` / Python 3.14.8 与 `postgres:18`，随机项目
+`a01-tests-20261025230110-46300` 的临时库，唯一 Alembic 链升级至 C01，
+`alembic check` 无差异。完整后端 **1370 passed / 0 failed / 0 skipped /
+2 warnings / 91% coverage**，282.59 秒，脚本退出码 0；JUnit
+`pytest.xml` SHA256
+`58283e669a997c5110dd9de8be0f0ec5c19023f3f7bf565f6213d86512c1991e`。
+原件保存在忽略的本机 `work/a01-tests-20261025230110-46300`；按该随机项目
+标签复查容器和网络均为空。91% 满足项目 90% 门禁；和旧头 92% 分别记账，
+不伪称覆盖率没有变化。此运行不测试浏览器、远端 CI、真实 B HTTP、通知
+终端实收或完整 E1。
+
 ## 2026-10-25 恢复发前原始观测复核与同头完整 PG 回归
 
 在已同步共同 main `7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e` 的
