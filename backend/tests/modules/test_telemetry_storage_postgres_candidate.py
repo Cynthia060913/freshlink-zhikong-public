@@ -53,6 +53,9 @@ from app.modules.telemetry.recovery_progress_candidate import (
 from app.modules.telemetry.recovery_progress_candidate import (
     metadata as progress_metadata,
 )
+from app.modules.telemetry.recovery_reception_evidence_candidate import (
+    has_unresolved_reception_evidence_candidate,
+)
 from app.modules.telemetry.recovery_window_candidate import (
     RecoveryRuleCandidate,
     RecoverySampleCandidate,
@@ -80,6 +83,7 @@ from app.modules.telemetry.storage_candidate import (
 _ENABLED = os.getenv("FRESHLINK_C_TEST_POSTGRES") == "1"
 _DEVICE_ID = UUID("11111111-1111-4111-8111-111111111111")
 _WAREHOUSE_ID = UUID("22222222-2222-4222-8222-222222222222")
+_OTHER_WAREHOUSE_ID = UUID("44444444-4444-4444-8444-444444444444")
 _SAMPLED_AT = "2026-10-15T00:00:00Z"
 _RECEIVED_AT = datetime(2026, 10, 15, 0, 0, tzinfo=UTC)
 
@@ -347,6 +351,67 @@ class PostgresStorageCandidateTests(unittest.TestCase):
                 ),
                 1,
             )
+
+    def test_reassigned_warehouse_conflict_holds_original_pg_alarm(self) -> None:
+        message_id = uuid4()
+        accepted = ingest_observation(self.engine, _reception(message_id))
+        self.assertEqual(accepted.status, "accepted_new")
+        assert accepted.observation_id is not None
+        original_id = uuid4()
+        self._stage_delivered_high_anomaly(
+            source_event_id=original_id,
+            observation_id=accepted.observation_id,
+            batch_id=uuid4(),
+            snapshot_id=uuid4(),
+        )
+        later = _reception(message_id, seconds=20)
+        reassigned = _Reception(
+            raw_text=later.raw_text,
+            reception_id=later.reception_id,
+            received_at=later.received_at,
+            warehouse_id=_OTHER_WAREHOUSE_ID,
+        )
+
+        first = ingest_observation(self.engine, reassigned)
+        self.assertEqual(first.status, "conflict")
+        self.assertEqual(first.observation_id, accepted.observation_id)
+        with self.engine.connect() as connection:
+            receipt = (
+                connection.execute(
+                    select(receptions).where(receptions.c.id == reassigned.reception_id)
+                )
+                .mappings()
+                .one()
+            )
+            correction = (
+                connection.execute(
+                    select(outbox).where(
+                        outbox.c.related_source_event_id == original_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            self.assertTrue(
+                has_unresolved_reception_evidence_candidate(
+                    connection,
+                    device_id=_DEVICE_ID,
+                    warehouse_id=_WAREHOUSE_ID,
+                    original_received_at=_RECEIVED_AT,
+                )
+            )
+        self.assertEqual(receipt["warehouse_id"], _OTHER_WAREHOUSE_ID)
+        self.assertEqual(correction["body"]["warehouse_id"], str(_WAREHOUSE_ID))
+        self.assertEqual(correction["state"], "held_contract")
+        self.assertIsNone(
+            claim_candidate(
+                self.engine,
+                source_event_id=correction["source_event_id"],
+                now=reassigned.received_at,
+            )
+        )
+        self.assertEqual(ingest_observation(self.engine, reassigned).status, "conflict")
+        self.assertEqual(self._count(outbox), 2)
 
     def test_frozen_recovery_fields_share_pg_commit_and_survive_new_connection(
         self,
