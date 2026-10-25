@@ -9,7 +9,7 @@
 | ID | 交付物 | 负责人 | 当前可定位 | 状态 |
 |---|---|---|---|---|
 | M01 | 源码 | A；三人供模块 | `SOURCE-CANDIDATE-EXPORT.md` + `export-source-candidate.ps1` | 候选底稿（工具就绪） |
-| M02 | 可运行应用 | A；B/C 供依赖说明 | `APPLICATION-CANDIDATE-BUILD.md` + `build/check-application-candidate.ps1` | 候选底稿 |
+| M02 | 可运行应用 | A；B/C 供依赖说明 | `APPLICATION-CANDIDATE-BUILD.md` + `build/check-application-candidate.ps1` | 部分已实测，仍不签 M02 |
 | M03 | 设计/测试报告 | B 文档、A 架构 ER、C 测试 | `A-SYSTEM-DESIGN.md`、`A-TEST-REPORT-CANDIDATE.md` | 候选底稿 |
 | M04 | 可编辑 PPT | B；A/C 供素材 | 未定位成品 | 未签收 |
 | M05 | 视频 | A；B/C 供短录屏 | `DEMO-SCRIPT.md`（`claude/demo-script` 分支） | 脚本候选，成品未录 |
@@ -26,9 +26,12 @@
 
 - 可定位：`docs/submission/APPLICATION-CANDIDATE-BUILD.md`；`build-application-candidate.ps1`
   `-Revision <SHA>` 产出唯一镜像，`check-application-candidate.ps1 -BuildReport <json>` 做默认启动检查。
-- 尚缺：镜像默认 CMD 实际启动、空库/已有数据升级、A/B/C worker 接线、第二机从交付物启动。
+- 已实测（A 新证据，见 #6/#12）：96 的 M02 默认 CMD 已实测；同源归档镜像**无源码挂载**下
+  HTTP/登录/注册通过；镜像四进程 TCP B/raw/CSV、两库三批十四设备跑通。
+- 尚缺：镜像归档/获准获取途径 + 启动配置与所需依赖、空库/已有数据升级、A/B/C worker 接线、
+  第二机从交付物启动。镜像 ID + 构建报告**不是**可运行交付物。
 - 证明完成：另一电脑从交付物启动并实跑普通操作，不依赖 A 私有缓存/路径。
-- 当前状态：**候选底稿**；不能把镜像标签或构建成功当“可运行签收”。
+- 当前状态：**部分已实测，仍不签 M02**；不代 E1/通知/第二机。
 
 ## M03 设计文档与真实测试
 
@@ -40,7 +43,7 @@
 
 ## M04 可编辑 PPT
 
-- 负责人：B；A/C 各供 4 页素材/来源/讲稿。当前仓库内未定位最终成品。
+- 负责人：B；A/C 供素材/来源/讲稿。“每人供 4 页”是旧素材建议，不是比赛硬要求。当前仓库内未定位最终成品。
 - 尚缺：PPT 成品、可编辑稿、截图/数字/主张可追溯到同版发布。
 - 证明完成：打开可编辑、内容可追溯、无夸大主张。
 - 当前状态：**未签收**；本任务不替 B 制作或覆盖 PPT。

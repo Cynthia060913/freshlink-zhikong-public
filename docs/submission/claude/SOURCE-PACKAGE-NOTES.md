@@ -9,7 +9,7 @@
 | 物 | 是什么 | 谁产生 | 交付时 |
 |---|---|---|---|
 | 交付源码 | 固定版本的全部已跟踪文件 | `scripts/windows/export-source-candidate.ps1 -Revision <40位SHA>` | 源码 ZIP + `manifest.json` |
-| 可运行应用 | 从源码构建的镜像 | `scripts/windows/build-application-candidate.ps1 -Revision <SHA>` | 镜像 ID + 构建报告 |
+| 可运行应用 | 从源码构建的镜像 | `scripts/windows/build-application-candidate.ps1 -Revision <SHA>` | 镜像归档/获准获取途径 + 启动配置与依赖；镜像 ID + 构建报告只是来源声明 |
 | 数据库初始化 | 迁移链 + 空库起点 | 镜像内 prestart/迁移 | 由第二机用**自己的**空库执行，不分发数据 |
 | 私有配置样例 | 无秘密的模板 | 上游根 `.env` 与 `frontend/.env`（已审核 blob） | 只交模板，真实值由使用者本地 `.env.freshlink` 生成 |
 
@@ -31,7 +31,7 @@
 | 类别 | 内容 | 可核对来源 |
 |---|---|---|
 | 上游模板 | FastAPI 全栈模板、认证/用户/items 示例 | `docs/UPSTREAM.md`，MIT LICENSE |
-| 团队新增 | `AGENTS.md`、`START_HERE.md`、`docs/`、`contracts/`、`scripts/windows/`、`compose.freshlink.yml` | 本仓库对应文件 |
+| 团队新增 | 业务模块 `backend/app/modules/iot`、`alerts`、`telemetry` 与对应 `frontend/src/features/*`；另含 `AGENTS.md`、`START_HERE.md`、`docs/`、`contracts/`、`scripts/windows/`、`compose.freshlink.yml` | 本仓库对应源码文件 |
 | 第三方组件 | Python/Bun 依赖，版本见 `uv.lock`/`bun.lock` | 各锁文件记录来源；**不逐个猜测许可证** |
 
 ## 5. 交付边界
@@ -39,4 +39,6 @@
 - 源码 ZIP 状态只是 `verified_source_candidate_not_final_submission`（逐字节核对 Git 树），
   不等于 M01 签收、可运行、可公开或已完成安全/许可证审计。
 - 依赖锁是来源声明，不是跨日期 bit-for-bit 复现承诺；构建成功时另记实际镜像 digest。
+- 镜像 ID + 构建报告**不是**可运行交付物：另一电脑还需要镜像归档或获准获取途径、启动配置与
+  所需依赖（含 Hatchling 等构建要求），否则仍不能算 M02 可运行。
 - 最终发布仍需：对齐冻结版 SHA、E1/完整场景、第二机复现、M01—M05 逐项签收、人工复核秘密与许可证。
