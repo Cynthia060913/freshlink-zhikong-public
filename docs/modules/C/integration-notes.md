@@ -1,5 +1,23 @@
 # C 共享接线请求
 
+## 2026-10-25 持续接纳后的恢复前沿续验候选
+
+`recovery_refreeze_candidate.py::refresh_pending_recovery_frontier_on_connection_candidate`
+是 C 的调用方事务端口。A 先在**同一 PostgreSQL Connection**完成新观测/接收终态，
+再在设备前沿锁保护下调用；函数自行读当前完整 A 前沿并锁 C pending 恢复行。
+仅当恢复未领取/attempt0、同设备/冷库/epoch、原高温与冻结窗口原始证据仍一致，
+且从旧冻结序号到当前序号的**每条** A 接收均有同 ID 的 C 审计回执及有效保存
+观测，温度按原历史规则仍在恢复范围、采样顺序与最大间隔未破坏时，才 CAS 更新
+三个 `frozen_*` 前沿数值。恢复 F03 正文、稳定 ID、摘要、原规则、窗口、旧尝试历史
+一律不变；`leased/delivered`、换 epoch、坏证据、高温、不完整前沿均不更新。
+数据库错误向调用方抛出，调用方回滚整个事务；不会在持锁期间调用 B HTTP。
+
+本端口是一次有界续验，**不自动发送**。A 仍需在锁外真实发送前调用
+`check_recovery_freshness_candidate` 并处理再变更窗口；B 关联更正和真正恢复回执
+另行联调。若新增样本超过原规则最大间隔或出现新高温，本冻结候选保持 held；
+是否另开新恢复窗口/新 source ID 需 A/B/C 在 #5 确认，不能靠覆写旧 F03 body
+或重置 attempt 绕过幂等。
+
 ## 2026-10-25 B PR #80 更正 DTO 的 C 只读准备端口
 
 共同 main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546` 已含 A PR #78；

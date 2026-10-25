@@ -1,6 +1,15 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
-## 2026-10-25 收口证据核对（本节最新，M03/E1 未签收）
+## 2026-10-25 C 当前恢复续验与更正映射证据（M03/E1 未签收）
+
+| 范围 | 本人实际运行 | 尚未验证 |
+| --- | --- | --- |
+| 已推送 C [PR #11 `ae51bad7ad7cdfcc144806bf9dc18671ed9741e1`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)，共同 main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546` | Windows 项目 Python3.14.8、隔离 PG18/tmpfs、唯一迁移至 C01/metadata check，完整 **1370 passed/0 skipped/91%**，JUnit SHA256 `58283e669a997c5110dd9de8be0f0ec5c19023f3f7bf565f6213d86512c1991e`；六项适用 CI 成功，Backend PR 合并测试引用 1354 passed/16 skipped/91%。B PR80 精确 DTO 对拍可解析且 wire digest 一致，但仅只读映射，C 更正仍 held/attempt0。 | B PR80 最终审查、C 更正领取/真实 HTTP、A 真实恢复自动发送、两通知终端及完整 E1。CI 的 16 跳过不算本机 PG 通过。 |
+| C 新的持续接纳恢复前沿续验端口（本节版本以文件所在提交为准） | 同一 Windows 项目 Python3.14.8/隔离 PG18，定向新场景 **1 passed/0 skipped**，首轮缺湿度样本被正确拒绝后在新库补齐重跑；完整整仓 **1370 passed/0 failed/0 skipped/2 warnings/91%**，JUnit SHA256 `e5cb18bcb6e90188c2deb6f3bd9355befafacb7c29a1f161034b8b9371edd709`。按随机项目标签核验本轮容器/网络残留 0。续验只改 C 冻结前沿序号/修订，不改 F03 正文、ID、摘要、尝试历史。 | 本增量远端 CI、A 生产组合与持续 sender、B 恢复实际回执/更正、最终同版第二机及 E1；超过历史规则最大间隔或新增高温时保守 held，后续新恢复窗口策略待共同确定。 |
+
+不同 SHA、机器和运行批次的测试条目不能求和为一套完整 E1。详细原始方法和失败记录见 [C 测试证据](03-test-evidence.md)，A/B 结果只按本人 GitHub 证据引用。
+
+## 2026-10-25 此前收口证据核对（M03/E1 未签收）
 
 | 来源与精确版本 | 实际证据 | 边界与下一步 |
 | --- | --- | --- |
