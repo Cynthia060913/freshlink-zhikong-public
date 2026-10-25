@@ -43,6 +43,7 @@ SENSOR = UUID("11111111-1111-4111-8111-111111111111")
 
 
 def run():
+    prepare_recovery = os.environ.get("FRESHLINK_RECOVERY_PREPARATION_PROOF") == "1"
     database = urlparse(str(settings.DATABASE_URL))
     if (
         database.hostname != "test-db"
@@ -181,6 +182,17 @@ def run():
                             "severity": "warning",
                             "threshold_high": 8,
                             "unit": "°C",
+                            **(
+                                {
+                                    "recovery": {
+                                        "comparison": "<=",
+                                        "threshold": 7,
+                                        "min_samples": 3,
+                                    }
+                                }
+                                if prepare_recovery
+                                else {}
+                            ),
                         }
                     ],
                 },
@@ -339,6 +351,56 @@ def run():
             assert (
                 detail.status_code == 200 and detail.json()["raw_text"] == raw.decode()
             )
+            prepared = False
+            if prepare_recovery:
+                original_id = rows(outbox)[0]["source_event_id"]
+                # All three normal samples enter through authenticated MQTT and
+                # the actual receive/store processes, not direct fixture rows.
+                for index in range(3):
+                    packet = json.loads(raw)
+                    packet["message_id"] = str(uuid4())
+                    packet["sampled_at"] = datetime.now(UTC).isoformat()
+                    packet["metrics"][0]["value"] = 6
+                    publisher.publish(
+                        topic, json.dumps(packet).encode(), qos=1
+                    ).wait_for_publish(5)
+                    wait_for(
+                        lambda expected=index + 2: len(rows(observations)) == expected
+                    )
+                # Freeze only a stable, fully stored test frontier. This is an
+                # explicit bounded preparation proof, not continuous recovery.
+                for name, process, _ in owned:
+                    if name in {"receive", "store", "evaluate", "deliver-high"}:
+                        process.terminate()
+                        assert process.wait(timeout=12) == 0
+                cli = start(
+                    "prepare-recovery",
+                    [
+                        "-m",
+                        "app.modules.iot.recovery_observation_service",
+                        "--config",
+                        str(config_file),
+                        "--original-source-event-id",
+                        str(original_id),
+                    ],
+                )
+                assert cli.wait(timeout=20) == 0
+                summary = json.loads(
+                    Path("/results/runtime-prepare-recovery.log").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                assert summary["results"] == {"progress": 2, "staged": 1}
+                child = [
+                    row
+                    for row in rows(outbox)
+                    if row["related_source_event_id"] == original_id
+                ]
+                assert len(child) == 1
+                assert child[0]["state"] == "pending" and child[0]["attempt_count"] == 0
+                assert child[0]["frozen_stream_epoch"] == epoch
+                assert len(rows(AlertEvent.__table__)) == 1
+                prepared = True
             result = {
                 "phase": "actual_runtime_processes_tcp_b_csv_passed",
                 "source_revision": os.environ["GATED_SOURCE_REVISION"],
@@ -356,6 +418,7 @@ def run():
                 "one_observation_one_b_event": True,
                 "raw_preserved": True,
                 "same_snapshot_csv": True,
+                "explicit_recovery_cli_staged_without_delivery": prepared,
                 "notifications_sent": 0,
                 "complete_e1": False,
                 "not_tested": [
