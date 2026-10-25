@@ -8,6 +8,7 @@ an exception resolution, a notification or a terminal receipt.
 
 import argparse
 import json
+import signal
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -219,9 +220,12 @@ def main() -> None:
     mode.add_argument("--original-source-event-id", action="append")
     mode.add_argument("--check-recovery-id", action="append")
     mode.add_argument("--refresh-recovery-id", action="append")
+    mode.add_argument("--watch-preparation", action="store_true")
     parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument("--max-seconds", type=float)
     args = parser.parse_args()
     owned: Engine | None = None
+    previous_signals = {}
     try:
         if args.config.stat().st_size > 65536:
             raise ValueError("config too large")
@@ -237,7 +241,9 @@ def main() -> None:
             if refreshing
             else args.original_source_event_id
         )
-        identities = tuple(UUID(value) for value in requested)
+        identities = tuple(UUID(value) for value in (requested or ()))
+        if not args.watch_preparation and args.max_seconds is not None:
+            raise ValueError("max seconds is only supported for the explicit watch")
         owned = create_engine(
             application_engine.url,
             pool_pre_ping=True,
@@ -247,7 +253,23 @@ def main() -> None:
                 "options": "-c statement_timeout=10000 -c lock_timeout=5000",
             },
         )
-        if refreshing:
+        if args.watch_preparation:
+            # Deferred import avoids a module cycle; importing the CLI never
+            # creates a thread, modifies schema or enables any sender.
+            from app.modules.iot.recovery_preparation_worker import (
+                RecoveryPreparationWorker,
+            )
+
+            verify_scope(owned, settings)
+            watcher = RecoveryPreparationWorker(owned, settings)
+
+            def stop(_signum: int, _frame: object) -> None:
+                watcher.stop_requested.set()
+
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous_signals[signum] = signal.signal(signum, stop)
+            counts = watcher.run(max_seconds=args.max_seconds)
+        elif refreshing:
             counts = refresh_once(owned, settings, identities)
         elif checking:
             counts = check_ready_once(owned, settings, identities)
@@ -259,17 +281,23 @@ def main() -> None:
             json.dumps(
                 {
                     "scope": (
-                        "readiness_at_check_only_not_send_authorization"
+                        "local_continuous_preparation_only_not_B_delivery"
+                        if args.watch_preparation
+                        else "readiness_at_check_only_not_send_authorization"
                         if checking
                         else "local_frontier_renewal_only_not_B_delivery"
                         if refreshing
                         else "local_recovery_evidence_only_not_B_delivery"
                     ),
                     (
-                        "recoveries_requested"
+                        "devices_scoped"
+                        if args.watch_preparation
+                        else "recoveries_requested"
                         if checking or refreshing
                         else "originals_requested"
-                    ): len(identities),
+                    ): len(settings.device_ids)
+                    if args.watch_preparation
+                    else len(identities),
                     "results": counts,
                 },
                 sort_keys=True,
@@ -281,6 +309,8 @@ def main() -> None:
         # Pydantic/SQL/config errors can contain private paths or credentials.
         raise SystemExit("recovery preparation failed; check private scope") from None
     finally:
+        for signum, handler in previous_signals.items():
+            signal.signal(signum, handler)
         if owned is not None:
             owned.dispose()
 

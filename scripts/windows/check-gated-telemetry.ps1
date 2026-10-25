@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$AppImage='freshlink-app:p0',[switch]$ControlEntry,[switch]$RuntimeProcesses,[switch]$NotificationRunner,[switch]$RecoveryContinuation)
+param([string]$AppImage='freshlink-app:p0',[switch]$ControlEntry,[switch]$RuntimeProcesses,[switch]$NotificationRunner,[switch]$RecoveryContinuation,[switch]$RecoveryPreparationWatch)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $root=Get-FreshLinkRoot
@@ -12,7 +12,8 @@ $docker=$null
 $exitCode=1
 $cleanup=1
 try {
-    if(@($ControlEntry,$RuntimeProcesses,$NotificationRunner,$RecoveryContinuation).Where({$_}).Count -gt 1){throw 'Select one proof mode; results must not be conflated'}
+    if(@($ControlEntry,$RuntimeProcesses,$NotificationRunner,$RecoveryContinuation,$RecoveryPreparationWatch).Where({$_}).Count -gt 1){throw 'Select one proof mode; results must not be conflated'}
+    if($RecoveryPreparationWatch){$RecoveryContinuation=$true}
     Set-Location -LiteralPath $root
     $docker=Assert-FreshLinkDocker
     foreach($image in @($AppImage,'postgres:18','eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408')){
@@ -38,6 +39,7 @@ try {
     $compose=@('compose','--project-name',$project,'-f','compose.gated-telemetry-tests.yml')
     if($RuntimeProcesses -or $RecoveryContinuation){$compose+=@('-f','compose.runtime-composition-tests.yml')}
     if($RecoveryContinuation){$compose+=@('-f','compose.recovery-continuation-tests.yml')}
+    if($RecoveryPreparationWatch){$compose+=@('-f','compose.recovery-preparation-watch-tests.yml')}
     if($NotificationRunner){$compose+=@('-f','compose.notification-runtime-tests.yml')}
     & $docker @compose config --quiet
     if($LASTEXITCODE){throw 'Owned compose configuration invalid'}
@@ -54,6 +56,7 @@ try {
     if($report.phase -ne $phase -or $report.source_revision -ne $revision -or $report.complete_e1 -or $report.notifications_sent -ne 0){throw 'Wrong proof identity/scope'}
     if(($RuntimeProcesses -or $RecoveryContinuation) -and (($report.actual_runtime_processes -join ',') -ne 'receive,store,evaluate,deliver-high' -or -not $report.actual_tcp_http_api)){throw 'Runtime process/TCP proof incomplete'}
     if($RecoveryContinuation -and (-not $report.new_mqtt_admission_refrozen_while_workers_live -or -not $report.actual_recovery_http_and_resolved_readback)){throw 'Live recovery continuation proof incomplete'}
+    if($RecoveryPreparationWatch -and -not $report.actual_preparation_watch_restart){throw 'Preparation watch/restart proof incomplete'}
     if($NotificationRunner -and (-not $report.synthetic_sinks_only -or -not $report.actual_pg_dispatch_lease -or -not $report.restart_sends_only_missing_channel -or -not $report.third_delivery_process_no_resend -or $report.persistent_attempt_rows -ne 3)){throw 'Persistent synthetic notification proof incomplete'}
     if($ControlEntry -and -not $report.actual_control_and_subsequent_c_data.actual_control_process_entry){throw 'Control process entry was not exercised'}
     $exitCode=0

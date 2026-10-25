@@ -58,8 +58,11 @@ SENSOR = UUID("11111111-1111-4111-8111-111111111111")
 def run():
     prepare_recovery = os.environ.get("FRESHLINK_RECOVERY_PREPARATION_PROOF") == "1"
     continue_recovery = os.environ.get("FRESHLINK_RECOVERY_CONTINUATION_PROOF") == "1"
+    watch_recovery = os.environ.get("FRESHLINK_RECOVERY_WATCH_PROOF") == "1"
     if continue_recovery and not prepare_recovery:
         raise RuntimeError("Continuation requires the explicit recovery proof")
+    if watch_recovery and not continue_recovery:
+        raise RuntimeError("Preparation watch requires the continuation proof")
     database = urlparse(str(settings.DATABASE_URL))
     if (
         database.hostname != "test-db"
@@ -128,6 +131,7 @@ def run():
                         "check-recovery",
                         "check-stale",
                         "refresh-recovery",
+                        "watch-recovery",
                     }
                     and process.poll() is not None
                 ):
@@ -412,23 +416,40 @@ def run():
                             process.terminate()
                             assert process.wait(timeout=12) == 0
                 cli = start(
-                    "prepare-recovery",
+                    "watch-recovery" if watch_recovery else "prepare-recovery",
                     [
                         "-m",
                         "app.modules.iot.recovery_observation_service",
                         "--config",
                         str(config_file),
-                        "--original-source-event-id",
-                        str(original_id),
+                        *(
+                            ["--watch-preparation", "--max-seconds", "120"]
+                            if watch_recovery
+                            else ["--original-source-event-id", str(original_id)]
+                        ),
                     ],
                 )
+                if watch_recovery:
+                    wait_for(
+                        lambda: any(
+                            row["related_source_event_id"] == original_id
+                            and row["state"] == "pending"
+                            for row in rows(outbox)
+                        )
+                    )
+                    cli.terminate()
                 assert cli.wait(timeout=20) == 0
                 summary = json.loads(
-                    Path("/results/runtime-prepare-recovery.log").read_text(
-                        encoding="utf-8"
-                    )
+                    Path(
+                        "/results/runtime-watch-recovery.log"
+                        if watch_recovery
+                        else "/results/runtime-prepare-recovery.log"
+                    ).read_text(encoding="utf-8")
                 )
-                assert summary["results"] == {"progress": 2, "staged": 1}
+                if watch_recovery:
+                    assert summary["results"]["observation_staged"] == 1
+                else:
+                    assert summary["results"] == {"progress": 2, "staged": 1}
                 child = [
                     row
                     for row in rows(outbox)
@@ -503,20 +524,34 @@ def run():
                         Path("/results/runtime-check-stale.log").read_text()
                     )["results"] == {"held": 1}
                     refresh = start(
-                        "refresh-recovery",
+                        "watch-restarted" if watch_recovery else "refresh-recovery",
                         [
                             "-m",
                             "app.modules.iot.recovery_observation_service",
                             "--config",
                             str(config_file),
-                            "--refresh-recovery-id",
-                            str(recovery_id),
+                            *(
+                                ["--watch-preparation", "--max-seconds", "120"]
+                                if watch_recovery
+                                else ["--refresh-recovery-id", str(recovery_id)]
+                            ),
                         ],
                     )
-                    assert refresh.wait(timeout=20) == 0
-                    assert json.loads(
-                        Path("/results/runtime-refresh-recovery.log").read_text()
-                    )["results"] == {"refrozen": 1}
+                    if watch_recovery:
+                        wait_for(
+                            lambda: any(
+                                row["source_event_id"] == recovery_id
+                                and row["frozen_admitted_seq"]
+                                > child[0]["frozen_admitted_seq"]
+                                for row in rows(outbox)
+                            )
+                        )
+                        assert refresh.poll() is None
+                    else:
+                        assert refresh.wait(timeout=20) == 0
+                        assert json.loads(
+                            Path("/results/runtime-refresh-recovery.log").read_text()
+                        )["results"] == {"refrozen": 1}
                     assert (
                         check_recovery_freshness_candidate(
                             engine,
@@ -588,6 +623,7 @@ def run():
                 and not continued,
                 "new_mqtt_admission_refrozen_while_workers_live": continued,
                 "actual_recovery_http_and_resolved_readback": continued,
+                "actual_preparation_watch_restart": watch_recovery and continued,
                 "notifications_sent": 0,
                 "complete_e1": False,
                 "not_tested": [
