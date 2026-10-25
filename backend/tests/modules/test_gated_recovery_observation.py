@@ -45,6 +45,7 @@ from app.modules.telemetry.recovery_progress_candidate import (
     metadata as progress_metadata,
 )
 from app.modules.telemetry.recovery_progress_candidate import recovery_progress
+from app.modules.telemetry.storage_candidate import observations
 from tests.api.routes import test_stream_frontier as checks
 from tests.modules import test_gated_high_business as high_checks
 from tests.modules.test_telemetry_service import settings_for
@@ -348,3 +349,77 @@ class GatedRecoveryObservationTests(unittest.TestCase):
             )
         self.assertEqual(checks.state(self.store)["evidence_revision"], before)
         self.assertIsNone(self.progress())
+
+    def test_ready_check_revalidates_real_saved_raw_without_claim_or_revision_write(
+        self,
+    ):
+        samples = [self.save(6, second) for second in (10, 20, 30)]
+        for sample in samples:
+            result = self.advance(sample)
+        self.assertEqual(result.status, "staged")
+        recovery = result.source_event_id
+        settings = settings_for(self.store.device_id, self.store.epoch)
+        before = checks.state(self.store)["evidence_revision"]
+        self.assertEqual(
+            service.check_ready_once(self.store.engine, settings, (recovery,)),
+            {"ready_at_check": 1},
+        )
+        with self.store.engine.begin() as connection:
+            original_raw = connection.scalar(
+                select(observations.c.raw_payload).where(
+                    observations.c.id == samples[1]
+                )
+            )
+            altered = {
+                **original_raw,
+                "metrics": [
+                    {**original_raw["metrics"][0], "value": 99},
+                    *original_raw["metrics"][1:],
+                ],
+            }
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == samples[1])
+                .values(raw_payload=altered)
+            )
+        self.assertEqual(
+            service.check_ready_once(self.store.engine, settings, (recovery,)),
+            {"held": 1},
+        )
+        self.assertEqual(checks.state(self.store)["evidence_revision"], before)
+        child = [row for row in self.rows() if row["source_event_id"] == recovery][0]
+        self.assertEqual((child["state"], child["attempt_count"]), ("pending", 0))
+
+    def test_check_only_cli_reports_current_ready_without_sending(self):
+        for second in (10, 20, 30):
+            self.advance(self.save(6, second))
+        recovery = [
+            row
+            for row in self.rows()
+            if row["related_source_event_id"] == self.original
+        ][0]["source_event_id"]
+        settings = settings_for(self.store.device_id, self.store.epoch)
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "scope.json"
+            config.write_text(settings.model_dump_json(), encoding="utf-8")
+            output = io.StringIO()
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "prepare",
+                        "--config",
+                        str(config),
+                        "--check-recovery-id",
+                        str(recovery),
+                    ],
+                ),
+                patch.object(service, "create_engine", return_value=self.store.engine),
+                redirect_stdout(output),
+            ):
+                service.main()
+            report = json.loads(output.getvalue())
+            self.assertEqual(report["results"], {"ready_at_check": 1})
+            self.assertIn("not_send_authorization", report["scope"])
+        child = [row for row in self.rows() if row["source_event_id"] == recovery][0]
+        self.assertEqual((child["state"], child["attempt_count"]), ("pending", 0))

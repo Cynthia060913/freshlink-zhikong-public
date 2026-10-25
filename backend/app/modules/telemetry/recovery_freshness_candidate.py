@@ -24,6 +24,7 @@ from app.modules.telemetry.f03_body_candidate import (
     normalize_f03_body_candidate,
 )
 from app.modules.telemetry.outbox_candidate import outbox
+from app.modules.telemetry.recovery_observation_candidate import _sample_from_saved
 from app.modules.telemetry.recovery_outbox_candidate import (
     _instant,
     _stored_observation_ids,
@@ -178,6 +179,16 @@ def check_recovery_freshness_candidate(
                 or original_observation["warehouse_id"] != warehouse_id
             ):
                 return RecoveryFreshnessCandidate("held", "original_owner_mismatch")
+            # A previously valid anomaly must still match its preserved raw
+            # sample, normalized value and quality at the send-time check.
+            original_sample = _sample_from_saved(
+                original_observation, batch_id=progress["batch_id"]
+            )
+            if (
+                original_sample.sampled_at != _instant(original_body["sampled_at"])
+                or original_sample.temperature_c != original_body["value"]
+            ):
+                return RecoveryFreshnessCandidate("held", "invalid_original_link")
             if has_unresolved_reception_evidence_candidate(
                 connection,
                 device_id=device_id,
@@ -201,6 +212,8 @@ def check_recovery_freshness_candidate(
                 .mappings()
                 .all()
             }
+            for row in rows.values():
+                _sample_from_saved(row, batch_id=progress["batch_id"])
             rule = RecoveryRuleCandidate(
                 progress["comparison"],
                 progress["threshold_c"],

@@ -1,5 +1,69 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 恢复发前原始观测复核与同头完整 PG 回归
+
+在已同步共同 main `7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e` 的
+C 分支 `be22199637aa6010b1cfe82940a106397c44e122` 上增加本次变更：
+恢复发前只读检查重新由保存的原始 JSON 计算原高温及窗口样本的归一化值和
+质量标记，并核原异常温度/采样时刻。既有测试夹具改为符合实际保存格式，
+新增原高温与恢复窗口各一次篡改 `raw_payload`、而正文/前沿不变时应保守
+`held/invalid_stored_evidence`，还原后仍 `ready_at_check` 的真实 PG 回归。
+
+本人 Windows 上运行仓库 `scripts/windows/check-a01-acceptance.ps1`：使用已
+缓存 `freshlink-app:p0`（Python 3.14.8）及 `postgres:18`，本轮唯一项目
+`a01-tests-20261025200503-30336` 的内部网络、tmpfs 测试库，执行唯一
+Alembic 链至 C01、`alembic check`、初始化测试数据、整仓 pytest 与 90% 覆盖率
+门禁。结果 **1353 passed / 0 failed / 0 skipped / 2 warnings / 92%**，
+运行 268.26 秒；JUnit `pytest.xml` SHA256
+`2c0cacb3c83a9038cf28dc6fc04ae72176ef8eb0bd914ee13352630f3c093c27`
+（原件保存在忽略的本机 `work/a01-tests-20261025200503-30336`）。脚本退出码
+0，独立按本项目标签回读容器/网络均为空。只读镜像内 Ruff lint/format 两文件
+通过，mypy 单生产文件通过；首次 Ruff 因只读源码挂载下默认缓存无法创建
+而未执行，设置临时缓存目录后成功，不改源码挂载或降低检查。
+
+这是本机同头隔离 PG 的模块和整仓回归；没有启用恢复发送、B 关联更正
+HTTP、通知实收，也没有把本候选放进最终同版第二机包或签收 E1。
+
+## 2026-10-25 跨冷库归属冲突的 PostgreSQL 定向复测
+
+在已同步共同 main `7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e`
+的 C 分支上，新增严格 opt-in 用例
+`test_reassigned_warehouse_conflict_holds_original_pg_alarm`。本机使用已缓存
+`freshlink-app:p0`（项目 Python 3.14）与 `postgres:18`，每次以随机 Compose
+项目名启动只在内部网络的临时测试库；PG 数据在 tmpfs，C 用例再建独立随机
+schema。实跑 `unittest` 目标用例 **1 passed / 0 failed / 0 skipped**，
+验证新冷库冲突回执、旧冷库已投递异常的 held 更正、旧冷库恢复阻断、
+不可 claim 和重放不增行。项目容器/网络清理退出码 0。
+
+首次用 `pytest` 直接选目标时，仓库全局 fixture 因该临时库尚未运行应用
+Alembic，查询 `user` 表报 `UndefinedTable`；目标用例**未进入执行**。
+随后改用本文件原生 `unittest` 入口运行成功，没有改造或跳过全局测试门禁。
+这只证明上述 C SQL 边界在隔离 PostgreSQL 上成立，不是完整 PG 并发/重启、
+A 自动恢复接线、B F03 更正接收、真实通知或 E1。
+
+## 2026-10-25 跨冷库归属冲突回归
+
+C [PR #11 源码提交 `894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993`](https://github.com/Cynthia060913/freshlink-zhikong-public/commit/894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993)
+对同设备/同消息 ID 在冷库重新归属后冲突的边界增加保守处理：保留新冷库回执，
+并按旧观测关联旧冷库的已投递异常，生成不可领取的 held 更正；恢复证据查询也
+阻断旧冷库，重放不重复生成更正。本机 Windows 隔离 Python 3.13.9/SQLite 分别
+运行更正、恢复 outbox、存储和恢复进度四组 unittest，**4+25+13+5＝47/47
+通过**；Ruff lint/format、差异及暂存文本安全检查通过。
+[本头 Test Backend run 40187429556](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40187429556)
+在 GitHub 项目 Python 3.14 执行整仓 **1225 passed/15 skipped/165 warnings、92%**，
+另五项适用检查成功。15 skipped 不计作通过；本人本机没有对本头重跑严格 PG、
+主程序、浏览器或最终第二机同版。A 接线、B F03 更正接收、通知实收和完整 E1
+仍待独立证据；该结果不改写下节旧版本 31 项 Python 3.14/临时 PG 的归属。
+
+同日共同 main 发布 PR #76 后，C 分支普通合入 main
+`7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e`，合并提交
+`a620761795f0c04096ce0c826fbe0e3ff5c8a9a0`，无冲突、未强推；
+相对 main 仅 11 个 C 角色文件。本人在新合并头重新运行上述四组 SQLite
+unittest，**47/47 通过**。[该精确头 Backend run 40189299528](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40189299528)
+于云端项目 Python 3.14 执行整仓 **1337 passed/15 skipped/174 warnings、
+92% 覆盖率**，另五项适用检查成功。此次没有重新跑 5c41 的受控 PG
+31 项或最终同版 E1，不能把不同运行批次相加。
+
 ## 2026-10-25 同连接恢复端口与晚到更正持久化
 
 在 C 分支 `feature/c-data-quality-bootstrap` 的 `09823df9b7ab5c884813aa46fa7dc1a05bc3cc7f`

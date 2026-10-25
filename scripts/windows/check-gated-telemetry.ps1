@@ -19,9 +19,9 @@ try {
         & $docker image inspect $image --format '{{.Id}}'
         if($LASTEXITCODE){throw 'Required cached image missing; no automatic pulls'}
     }
-    # A56 actually reviewed/preserved C's same-Connection recovery and
-    # cross-warehouse conflict fix; retain the exact subtree identity gate.
-    & git diff --quiet 894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993 -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    # A57 reviewed C's raw-evidence preflight extension; retain the exact
+    # subtree identity gate, including the unchanged C01 proposal.
+    & git diff --quiet cd3707ad1ab3f88ee62a15d5c82e55d076255efe -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
     if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
     $revision=(& git rev-parse HEAD).Trim()
     if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}

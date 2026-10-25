@@ -467,22 +467,39 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
                     )
                 ],
             ]:
+                message_id = uuid4()
+                raw = {
+                    "schema_version": "1.0",
+                    "device_id": str(store.device_id),
+                    "message_id": str(message_id),
+                    "sampled_at": sampled(moment),
+                    "metrics": [
+                        {"key": "temperature", "value": temperature, "unit": "°C"},
+                        {"key": "humidity", "value": 75, "unit": "%RH"},
+                    ],
+                }
+                processed = process_batch(
+                    [
+                        {
+                            **raw,
+                            "warehouse_id": str(store.warehouse_id),
+                            "received_at": sampled(moment),
+                        }
+                    ]
+                )[0]
                 connection.execute(
                     observations.insert().values(
                         id=observation_id,
                         device_id=store.device_id,
-                        message_id=uuid4(),
+                        message_id=message_id,
                         warehouse_id=store.warehouse_id,
                         content_sha256="0" * 64,
-                        raw_text="{}",
-                        raw_payload={},
+                        raw_text=json.dumps(raw, ensure_ascii=False),
+                        raw_payload=raw,
                         sampled_at_utc=moment,
                         first_received_at_utc=moment,
-                        normalized={
-                            "sampled_at": sampled(moment),
-                            "metrics": {"temperature": temperature},
-                        },
-                        quality=["ok"],
+                        normalized=processed["normalized"],
+                        quality=processed["quality"],
                         risk={"state": "unknown"},
                     )
                 )
@@ -565,6 +582,40 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
         }
         ready = check_recovery_freshness_candidate(store.engine, **ready_args)
         assert ready.status == "ready_at_check"
+        # A stored source can become inconsistent with its preserved raw
+        # sample without changing the immutable F03 body or frozen frontier.
+        # Both the high observation and the recovery window must fail closed.
+        for observation_id in (anomaly_id, recovered_ids[1]):
+            with store.engine.begin() as connection:
+                saved_raw = connection.scalar(
+                    select(observations.c.raw_payload).where(
+                        observations.c.id == observation_id
+                    )
+                )
+                altered_raw = {
+                    **saved_raw,
+                    "metrics": [
+                        {**saved_raw["metrics"][0], "value": 99},
+                        *saved_raw["metrics"][1:],
+                    ],
+                }
+                connection.execute(
+                    update(observations)
+                    .where(observations.c.id == observation_id)
+                    .values(raw_payload=altered_raw)
+                )
+            assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+                RecoveryFreshnessCandidate("held", "invalid_stored_evidence")
+            )
+            with store.engine.begin() as connection:
+                connection.execute(
+                    update(observations)
+                    .where(observations.c.id == observation_id)
+                    .values(raw_payload=saved_raw)
+                )
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("ready_at_check")
+        )
         # A well-formed but altered body must not pass the pre-send gate merely
         # because its IDs and temperature still match the frozen evidence.
         for source_event_id in (staged.source_event_id, original_id):

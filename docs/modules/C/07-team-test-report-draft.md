@@ -1,5 +1,98 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-25 收口证据核对（本节最新，M03/E1 未签收）
+
+| 来源与精确版本 | 实际证据 | 边界与下一步 |
+| --- | --- | --- |
+| C 恢复发前原始证据复核，基于 `be22199637aa6010b1cfe82940a106397c44e122` 的本轮 C 候选 | 本人 Windows 上以项目 Python 3.14.8、隔离 PostgreSQL 18 和唯一 C01 迁移链完整运行仓库测试脚本：**1353 passed/0 failed/0 skipped/2 warnings/92%**，JUnit SHA256 `2c0cacb3c83a9038cf28dc6fc04ae72176ef8eb0bd914ee13352630f3c093c27`；原高温及恢复样本原始值与归一化/质量不一致均保守 held；Ruff/mypy 通过，临时容器和网络清理后回读均 0。操作与失败前置见 [C 测试证据](03-test-evidence.md)。 | 仅是发前只读门禁与隔离测试；锁释放后仍有新接纳竞态，B F03 更正/恢复真实 HTTP、两通知终端及完整 E1 未通过。测试是在本次待提交工作树运行，不能归属此前 be221 已推头或 A PR #78。 |
+| C `feature/c-data-quality-bootstrap` 业务提交 `5c41ae657f01504af35228a811bf382b1d3d1bae` | Windows Docker Desktop 29.9.2 中以项目 Python 3.14 镜像、隔离 PostgreSQL 18 临时库执行两个 C SQLite 模块与三个严格 PG 用例，共 **31 passed / 0 failed / 0 skipped**；同连接外层回滚、重放、坏证据、晚到 invalid/conflict 更正稳定 ID 均纳入。Ruff lint/format、三个生产模块 mypy 与差异检查通过。测试容器/网络已清理。C 本人 [#9 状态](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6395970009) 留有环境与命令边界。 | 此提交是 PR #11 已上传头 `a620761795f0c04096ce0c826fbe0e3ff5c8a9a0` 的业务祖先；31 项结果仍只对应 5c41。更正 outbox 为 `held_contract`，没有 B F03 接收、A 门内调用或自动恢复。宿主 Python 3.13 缺业务依赖，不能记作宿主测试通过。 |
+| C 跨冷库归属冲突修复 [`894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993`](https://github.com/Cynthia060913/freshlink-zhikong-public/commit/894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993) | 本人 Windows 隔离 Python 3.13.9/SQLite 四组相关 unittest **4+25+13+5＝47/47 通过**；Ruff、差异与暂存文本安全检查通过。同头 [Backend run 40187429556](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40187429556) 在 GitHub 项目 Python 3.14 执行 **1225 passed/15 skipped/165 warnings/92%**；另五项适用检查 completed/success，见 [#9 记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6396856321)。 | 新冷库冲突回执、旧冷库原异常 held 更正及恢复阻断已覆盖；不把通用 Playwright/Compose 成功当成本机正式 PG、主程序页面或 E1。此头本人未重跑严格 PG，15 skipped 不计通过。 |
+| C 分支普通合入新共同 main 的提交 `a620761795f0c04096ce0c826fbe0e3ff5c8a9a0` | main `7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e`（已合并 PR #76），C 差异剩 11 个本角色文件、合并无冲突。本人同一 Windows 隔离环境重跑上述四组 **47/47 通过**；Ruff/差异/有限文本安全检查通过。同头 [Backend run 40189299528](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40189299528) 在云端项目 Python 3.14 执行 **1337 passed/15 skipped/174 warnings/92%**，其余五项适用检查成功。 | 该 47 项是新合并头的 SQLite 回归；它没有重做 5c41 的 Python 3.14/PG 专项 31 项，也不证明自动恢复、B F03 更正接收、真实通知或完整 E1。 |
+| C 跨冷库归属冲突 PostgreSQL 定向回归（本分支 opt-in 用例） | 本人第二机 Docker Desktop/项目 Python 3.14/临时 PostgreSQL 18 用 `unittest` 实跑 **1/1 通过、0 跳过**，验证新仓回执、旧仓关联更正、恢复阻断、不可 claim 与重放。先前直接选 `pytest` 时因未建应用 `user` 表在全局夹具失败，目标用例未执行；随后使用该 C 文件原生 `unittest` 入口成功。每次随机 Compose 项目与 tmpfs 测试库，容器/网络清理退出码 0；细节见 [C 测试证据](03-test-evidence.md)。 | 此项不是完整 PG 并发/重启、正式迁移或 E1；未将第一次夹具错误隐作通过，也未修改正式测试门禁。 |
+| C 共同基线同步 `9420c5c9c818b3892c687718061b5f1f4656a658`，报告头 `ecfc07bc6a7cbf31ab4c7066836a58fa17d84f5b` | 干净工作区将 5c41 普通合入共同 main `e20f553bb85a67ac0ec74579a9fcc238b5d427a8`；本次无冲突、未向 main 写入，已用 im1yt 凭据正常快进推送。后续 C 修复另在 894c76b。 | **合入后没有重跑原 31 项组合**；894c76b 的 47 项 SQLite 和远端整仓结果是另一次运行，不能写成 5c41 的重跑或同一组严格 PG。 |
+| A main-facing [已合并 PR #76](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/76) 原精确头 `4dbf136bef902df3018ec322a0eeb18b9909a157`，main 合并提交 `7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e` | A 在 [#6 分段记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6395119311) 报告真实 MQTT、四 CLI、C PG、TCP B、raw/CSV 和合成通知重启。C 曾错误地用不受支持的宿主 Python 3.13 判两个无括号多异常 `except` 为语法阻断；[Python 3.14 PEP 758](https://docs.python.org/3.14/whatsnew/3.14.html#pep-758-allow-except-and-except-expressions-without-brackets) 允许该写法，项目 `requires-python >=3.14`。A 在[项目 3.14.8 的两入口编译/合成回归](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/76#issuecomment-6395644724)实测 16 项通过；C 已撤回错误意见，并[对该精确 46 文件范围正式 APPROVE](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/76#pullrequestreview-5642525007)。 | A 的分段实跑源码 `ecf19d0…`、入口回归、PR 头和 main 合并提交分别记账；main 本次发布仍不含 C 5c41/894c76b 的新恢复端口/更正，不能因此宣称自动恢复或完整 E1。 |
+| C 第二台 Windows 候选包应用 `96afaab8ef5a26725a0fa31ff4ff3fc4983698bf`、工具 `812eea511c2ef307a8378e30b1e85e792c4fc3b2` | 本人独立核对私下收到的 ZIP 与 manifest 摘要；在隔离 `-RunFleet` 实跑 14 设备、7 采集/7 执行 ACK、控制后仿真降温、两库历史/CSV 76/56 行。完整摘要、清理和警告见 [#6 原始记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6394870061)。 | 这是旧候选分段证明，`notifications_sent=0`、`complete_e1=false`；不含新 runner 与自动恢复，不能拼成 PR #76 最终同版第二机或 M02/M05 签收。 |
+
+B 最终恢复更正接口、两种独立渠道的授权与终端实收，A 同连接门禁接线、最终同版复验及可移交运行包仍待各负责人提供精确版本和实际证据。C 汇编只引用各自记录，不将不同 SHA、机器和测试批次求和成一套完整 E1。
+
+## 2026-10-25 同版范围更新（M03/E1 仍未签收）
+
+本轮 C [PR #11 精确 `6474de86a30da1ebe1c36716583d198bc94b5a01`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+新增详情接收证据的 UTC 混合精度排序回归，保留原始观测和重复/冲突结果。
+[对应 Backend run 40166876095](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40166876095)
+在云端 Python3.14.8/受控服务跑整仓 **1219通过、12跳过、165 warnings、
+92%**；该测试文件 8 项实际列入执行，另五项适用 Actions 成功。
+本人初次保存时 Codex 隔离 Python3.13 缺业务依赖，只完成 AST、Ruff、
+差异和有限安全检查；随后在本人 Windows 用户会话以项目 Python3.14.3、
+uv0.9.26 与原锁文件 `--frozen` 同步到工作区旁独立虚拟环境，以
+`python -m unittest -q` 实跑 C HTTP/存储/历史/快照/质量 **64项通过、
+0失败**，其中 HTTP 8项，均为临时 SQLite。**本机仍没有运行 PostgreSQL、
+主程序或浏览器业务实测**。详情排序修复不是新增数据入库、
+正式导出或 E1 闭环。
+
+同一隔离环境又运行 B 历史 F02 与 C 多批/恢复规则、C 评价/恢复窗口/
+恢复 outbox 五个模块，**51项通过、0失败/跳过**；两项 B/C 用例直接调用
+B 规则服务，但 A 门禁为 SQLite 合成替身。两个本机分组共 **115个不同
+单测**，不能当真实 PG 门禁、自动恢复或完整 E1。
+
+C 辅助 B 的 [Draft PR #72 精确 `b4027b0cba293d3fb05262524397a3d7fd87ad35`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/72)
+仅用合成传输复现单渠道通知扫描饥饿；[独立 Backend run 40115858437](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40115858437)
+为 687通过/80 warnings/93%。这是**另一分支、另一基线**，不得与 C 的
+1219 项相加，不代表 B 主 PR #10 已整合、实际 SMTP/飞书收件或恢复自动投递。
+A 在 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6)
+记录的真实 PG/MQTT/HTTP 分段证据按 A 精确组合来源保留，也不能与上述
+独立结果拼成同版完整 E1。当前仍缺 B 最终头复审、两渠道终端实收、恢复
+更正契约/自动发送、第二机同版业务及最终 M01—M05 材料签收。
+
+2026-10-24 已核验过 Docker Linux 引擎；本轮 Codex 隔离身份的 PATH 仍无
+Docker CLI，但在本人 Windows 用户会话通过 per-user 安装目录绝对路径只读核验
+Client/Server 29.9.2 和 Compose 5.6.1，镜像及运行容器清单为空。没有收到
+可独立核哈希的最终同版包，因此未在此机拉镜像、启动或登录应用；该信息已
+回报 A [PR #61](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/61#issuecomment-6394180967)。
+
+## 2026-10-24 C 恢复保守核对与第二机环境（M02/M03/E1 未签收）
+
+C [PR #11 精确 `a30e8b608e5c8bfd4e8e579984a493665647d7cf`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+增加只读恢复新鲜度端口和严格 PG 测试：冻结版本与原异常/当前证据相符时仅
+返回 `ready_at_check`，晚到非法接收或版本变化时保守 hold。端口没有自动发送，
+没有在锁外消除新接纳竞态；B/A 的更正事件契约仍待确认。
+
+[本头 Backend Actions 40096723151](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40096723151)
+在 Python3.14.8/受控 PostgreSQL 执行 **1217 passed/12 skipped/161 warnings，
+覆盖率92%**，同头其余五项适用检查 success。本人 Windows 仅 AST/差异检查；
+Python3.13 环境未跑 PG 专项。第二台 Windows 已安装并实际验证 Docker Desktop
+Linux amd64 引擎 29.9.2、Compose 5.6.1；没有收到最终同版离线包或在此机
+运行/登录系统。A 的 PR #63/#64/#66 的正式审查与其分段实测分别按对应 PR/
+[#6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6)
+来源记录，不把 A 的 PG/MQTT 分段拼成 C 本机 E1。B 真实两渠道发送与收件、
+恢复闭环、第二机业务复现和 M01—M05 成品仍未签收。
+
+## 2026-10-24 C 多批同事务、真实 F02 与第二机预检（M03/E1 未签收）
+
+C [PR #11 精确 `45c22e3ad7ede0d4fd02206b7b244285c284d3e8`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+以普通 merge 跟上共同 main `df3b3eda409924d05bb0b45c392d9041cd2611a9`，
+本轮相对 main 仅 C 模块/测试/说明 8 文件。新增一条已存观测对应全部有效批次的
+原子评估端口：先取 B 的历史 F02，随后在 A 同设备门禁/单事务内按批冻结高温
+候选、风险与同一个评估任务。测试覆盖混合高温/正常、两个高温不同稳定来源 ID、
+缺规则/错单位/缺湿度保守未知，以及第二个 outbox 写失败时全部回滚。修复一处
+恢复集成测试夹具：F02 规则种类应为 `threshold_high`，F03 事件种类仍为
+`temperature_high`；前一头的红灯不写成通过。
+
+本人 Windows 项目隔离 Python3.13/SQLite 相关 unittest **37项、35通过/2跳过**
+（实际 B 服务测试需要项目 Python3.14），Ruff、单文件 mypy、差异检查通过。
+同一精确头 [Backend run 40074918444](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40074918444)
+在云端项目 Python3.14/受控 PG 执行 **1214 passed/12 skipped/161 warnings、
+92% 覆盖率**，日志中 B 实际 F02 多批与恢复各 1 项、严格 PG 门禁文件
+5 项均执行通过。Compose、archive、Playwright、pre-commit、Zizmor 同头适用
+检查也 completed/success；通用 Playwright 不等于 C 页面实际操作。
+
+第二机只读准备：这台电脑 PowerShell 7.6.5 运行项目环境检查，Docker CLI
+`NOT FOUND`；Windows PowerShell 5.1 直接运行脚本受执行策略阻止，未改策略。
+WSL 版本可读、状态及固件虚拟化/SLAT 未能核验。没有安装 Docker、收到 A 的
+离线包或在第二电脑运行，**云端 PG 不能代本机 PG，更不能代第二机**。A
+多批 caller、自动恢复/B 投递与双终端实收、完整 E1 仍待；本项是测试证据，
+不是 M03、E1 或材料签收。
+
 ## 2026-10-23 C 真实 B 规则到高温门禁组合（M03 仍未签收）
 
 C [PR #11 精确 `5ddca2a46bbea8ece72a777ef044fe31915d6a8f`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)

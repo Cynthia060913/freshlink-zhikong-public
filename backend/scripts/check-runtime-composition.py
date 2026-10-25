@@ -400,6 +400,33 @@ def run():
                 assert child[0]["state"] == "pending" and child[0]["attempt_count"] == 0
                 assert child[0]["frozen_stream_epoch"] == epoch
                 assert len(rows(AlertEvent.__table__)) == 1
+                check_cli = start(
+                    "check-recovery",
+                    [
+                        "-m",
+                        "app.modules.iot.recovery_observation_service",
+                        "--config",
+                        str(config_file),
+                        "--check-recovery-id",
+                        str(child[0]["source_event_id"]),
+                    ],
+                )
+                assert check_cli.wait(timeout=20) == 0
+                checked = json.loads(
+                    Path("/results/runtime-check-recovery.log").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                assert checked["results"] == {"ready_at_check": 1}
+                assert (
+                    checked["scope"] == "readiness_at_check_only_not_send_authorization"
+                )
+                assert len(rows(AlertEvent.__table__)) == 1
+                assert [
+                    row
+                    for row in rows(outbox)
+                    if row["related_source_event_id"] == original_id
+                ][0]["attempt_count"] == 0
                 prepared = True
             result = {
                 "phase": "actual_runtime_processes_tcp_b_csv_passed",
