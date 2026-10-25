@@ -14,6 +14,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.engine import Connection
 
 from app.modules.telemetry.storage_candidate import (
+    observations,
     reception_reuse_conflicts,
     receptions,
 )
@@ -51,10 +52,21 @@ def has_unresolved_reception_evidence_candidate(
     """
     boundary = _utc(original_received_at, stored_observation=True)
     bad_receipts = connection.execute(
-        select(receptions.c.received_at_utc).where(
-            receptions.c.device_id == device_id,
-            receptions.c.warehouse_id == warehouse_id,
+        select(receptions.c.received_at_utc)
+        .outerjoin(observations, receptions.c.observation_id == observations.c.id)
+        .where(
             receptions.c.outcome.in_(("invalid", "conflict")),
+            or_(
+                and_(
+                    receptions.c.device_id == device_id,
+                    receptions.c.warehouse_id == warehouse_id,
+                ),
+                and_(
+                    receptions.c.outcome == "conflict",
+                    observations.c.device_id == device_id,
+                    observations.c.warehouse_id == warehouse_id,
+                ),
+            ),
         )
     ).scalars()
     if any(_utc(value) >= boundary for value in bad_receipts):

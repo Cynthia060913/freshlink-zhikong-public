@@ -22,6 +22,9 @@ UUID和按原异常采样时刻选出的 B 历史规则。函数复核原 F03 �
 只处理同一已认证设备/冷库下、原异常已由 C 标为 `delivered` 且坏证据
 `received_at_utc >=` 原始观测 `first_received_at_utc` 的温度高/低事件。原异常
 行和历史不改写；原始坏输入仍只留在受限 reception audit 表。
+若同一设备消息 ID 在冷库重新归属后以新冷库身份冲突，冲突回执保留新冷库，
+更正检索同时覆盖原观测所属旧冷库；旧冷库的恢复检查也沿冲突回执所关联的
+原观测阻断，避免只检查当前归属而误判旧告警已恢复。重放不新增更正。
 
 更正来源 ID 使用 UUIDv5：namespace 是原异常 `source_event_id`，名称为
 `c-data-quality-correction/v0:{evidence_kind}:{reception_id}:{receipt_sha256}`。
