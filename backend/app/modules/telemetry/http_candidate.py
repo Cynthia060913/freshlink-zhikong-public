@@ -208,8 +208,9 @@ def read_observation(
                 raise HTTPException(404, detail={"reason_code": "observation_unknown"})
             attempts = (
                 connection.execute(
-                    select(receptions)
-                    .where(receptions.c.observation_id == observation_id)
+                    select(receptions).where(
+                        receptions.c.observation_id == observation_id
+                    )
                 )
                 .mappings()
                 .all()
