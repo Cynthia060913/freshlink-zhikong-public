@@ -3,10 +3,15 @@
 Private per-test schemas, not migration evidence or recovery HTTP/real receipts.
 """
 
+import io
+import json
 import os
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 from dataclasses import replace
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -27,6 +32,7 @@ from app.modules.alerts.services.events import (
     receive_candidate,
 )
 from app.modules.alerts.services.rules import create_snapshot
+from app.modules.iot import recovery_observation_service as service
 from app.modules.iot import recovery_observation_worker as caller
 from app.modules.iot.models import Device
 from app.modules.iot.telemetry_inbox import claim_next, deliver_claim, enqueue
@@ -41,6 +47,7 @@ from app.modules.telemetry.recovery_progress_candidate import (
 from app.modules.telemetry.recovery_progress_candidate import recovery_progress
 from tests.api.routes import test_stream_frontier as checks
 from tests.modules import test_gated_high_business as high_checks
+from tests.modules.test_telemetry_service import settings_for
 
 
 class LocalBPort:
@@ -291,3 +298,53 @@ class GatedRecoveryObservationTests(unittest.TestCase):
             ),
             (),
         )
+
+    def test_explicit_cli_resumes_saved_pg_window_without_delivery(self):
+        for second in (10, 20, 30):
+            self.save(6, second)
+        settings = settings_for(self.store.device_id, self.store.epoch)
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "scope.json"
+            config.write_text(settings.model_dump_json(), encoding="utf-8")
+            args = [
+                "recovery-prepare",
+                "--config",
+                str(config),
+                "--original-source-event-id",
+                str(self.original),
+                "--limit",
+                "1",
+            ]
+            for expected in ("progress", "progress", "staged"):
+                captured = io.StringIO()
+                with (
+                    patch("sys.argv", args),
+                    patch.object(
+                        service, "create_engine", return_value=self.store.engine
+                    ),
+                    redirect_stdout(captured),
+                ):
+                    service.main()
+                report = json.loads(captured.getvalue())
+                self.assertEqual(report["results"], {expected: 1})
+                self.assertIn("not_B_delivery", report["scope"])
+        child = [
+            row
+            for row in self.rows()
+            if row["related_source_event_id"] == self.original
+        ]
+        self.assertEqual(len(child), 1)
+        self.assertEqual((child[0]["state"], child[0]["attempt_count"]), ("pending", 0))
+
+    def test_explicit_prepare_rejects_duplicate_originals_before_mutation(self):
+        settings = settings_for(self.store.device_id, self.store.epoch)
+        before = checks.state(self.store)["evidence_revision"]
+        with self.assertRaises(ValueError):
+            service.prepare_once(
+                self.store.engine,
+                settings,
+                (self.original, self.original),
+                now=checks.T0,
+            )
+        self.assertEqual(checks.state(self.store)["evidence_revision"], before)
+        self.assertIsNone(self.progress())
