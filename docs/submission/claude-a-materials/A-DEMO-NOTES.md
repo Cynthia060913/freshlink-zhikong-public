@@ -9,15 +9,19 @@
 - 用 bundled Node（v24）+ `@oai/artifact-tool`（2.8.103）写成 ES module，
   未安装任何 npm/pip 包，未使用 python-pptx，未改全局环境。
 - 字体统一 `Microsoft YaHei`（bundled 运行时的 204 个字体之一，含 CJK）。
-- 再生成命令（在本仓库根，先设 `RUNTIME_NODE_MODULES` 指向 bundled node_modules）：
+- 再生成命令：在本仓库根，先由本机运行时清单确认并在当前进程设置
+  `RUNTIME_NODE`、`RUNTIME_NODE_MODULES`、`RUNTIME_PYTHON`、`SKILL_DIR`。
+  不在源码写入某台电脑的用户名或固定安装目录；不安装替代依赖。
 
 ```powershell
-$env:RUNTIME_NODE_MODULES = "C:\Users\LXX CC\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules"
-& "C:\Users\LXX CC\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" `
+# 以上四项必须指向本人已存在的 bundled 运行时和演示技能目录。
+# 已有成品保留，使用新文件名；finalizer 不覆盖既有 PPTX。
+$env:A_DEMO_OUTPUT_NAME = "A-DEMO-COMPONENT-r2.pptx"
+& $env:RUNTIME_NODE `
   docs/submission/claude-a-materials/build-a-demo.mjs
 ```
 
-产物：最终 PPTX 写回本目录，逐页 PNG 与 finalizer 报告写 `work/claude-a-materials/`。
+产物：新 PPTX 写入本目录，逐页 PNG 与 finalizer 报告写 `work/claude-a-materials/`。
 
 ## 五页内容与来源
 
@@ -42,12 +46,13 @@ $env:RUNTIME_NODE_MODULES = "C:\Users\LXX CC\.cache\codex-runtimes\codex-primary
 - 逐页 PNG 已渲染（1280×720），像素覆盖 6.6%–19.2%，边缘无深色像素（无裁切）。
 - 最终 PPTX SHA256：`3044ffdfc9b9f7036babd784bbf1ff763773f2be65686c86f9e5095ed6c0158f`。
 
-## 待 A 逐页视觉复核
+## A 逐页视觉复核
 
-本 CLI 无法查看 PNG 图片（Read 返回“Unsupported Image”），因此**视觉未验收**：
-请 A 逐页打开 `work/claude-a-materials/png/slide-01..05.png`（或整组
-`deck-montage.webp`）核对无文字重叠、拥挤、乱码或图文错误，再据此判断是否
-调整字号/换行。自动检查通过不证明版面观感良好。
+Claude CLI 无法查看 PNG，曾如实交由 A 复核。2026-10-25 A 已实际逐页查看五张
+1280×720 渲染图：正文、架构图和表格可读，未发现明显裁切、乱码或重叠；
+可作为汇编素材。第4页表格信息较密，最终总PPT汇编时可按演示场景简化或拆页，
+不为排版改写测试事实。本次未修改 PPTX 字节，以上 SHA256 保持有效。
+这不是 PowerPoint 原生打开验收，也不是最终 M04 签收。
 
 ## 未测与限制
 

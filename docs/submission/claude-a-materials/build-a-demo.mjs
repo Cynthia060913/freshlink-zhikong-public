@@ -13,12 +13,10 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs/promises";
 
-const RUNTIME_NODE_MODULES =
-  "C:/Users/LXX CC/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules";
-const RUNTIME_PYTHON =
-  "C:/Users/LXX CC/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe";
-const SKILL_DIR =
-  "C:/Users/LXX CC/.codex/plugins/cache/openai-primary-runtime/presentations/26.1022.11436/skills/presentations";
+const { RUNTIME_NODE_MODULES, RUNTIME_PYTHON, SKILL_DIR } = process.env;
+if (!RUNTIME_NODE_MODULES || !RUNTIME_PYTHON || !SKILL_DIR) {
+  throw new Error("Set explicit bundled RUNTIME_NODE_MODULES, RUNTIME_PYTHON and SKILL_DIR paths; no dependency installation is performed.");
+}
 
 const requireFromRuntime = createRequire(
   path.join(RUNTIME_NODE_MODULES, "__runtime__.cjs"),
@@ -44,7 +42,11 @@ const ARCH_IMAGE = path.join(
   "design",
   "tikz_architecture.png",
 );
-const FINAL_PPTX = path.join(OUT_DIR, "A-DEMO-COMPONENT.pptx");
+const outputName = process.env.A_DEMO_OUTPUT_NAME || "A-DEMO-COMPONENT.pptx";
+if (path.basename(outputName) !== outputName || !outputName.endsWith(".pptx")) {
+  throw new Error("A_DEMO_OUTPUT_NAME must be a PPTX filename, not a path.");
+}
+const FINAL_PPTX = path.join(OUT_DIR, outputName);
 
 const FONT = "Microsoft YaHei";
 const C = {

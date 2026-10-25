@@ -43,7 +43,7 @@ B 摄取接口接受、来源摘要回读与追溯 → 已提交事件通知派�
 
 ## 四、事务、权限与故障追溯
 
-C 的 `begin_evidence_write` 要求同一调用方 Connection 在写前取得同设备门禁、写后
+A 提供的 `begin_evidence_write` 要求 C 使用同一调用方 Connection 在写前取得同设备门禁、写后
 保存冻结戳；没有覆盖所有写入口就不能启用自动恢复。通知派发不放在持数据库锁的事务内。
 A 保留原异常行锁、锁后重读、单调状态时间、事务失败回滚与 HTTP 503+Retry-After。
 设备采用逐设备账户/ACL，生产默认 TLS。登录权限、摄取权限、设备身份与通知收件授权
@@ -56,8 +56,9 @@ A 保留原异常行锁、锁后重读、单调状态时间、事务失败回滚
 空库实际升级并通过 model check 后，只读反射得到 33 张表；三张 ER 图仅展示 19 个核心
 实体与 17 条已逐项核对真实外键的边，完整字段见数据字典
 `docs/submission/design/DATA-DICTIONARY.md`，边见 `docs/submission/design/er-edges.json`。
-关键关系：`iot_device` 外键到心跳/冲突/在线事件与 `iot_command`（RESTRICT）；
-`iot_command` 外键到 `iot_command_attempt`/`iot_command_receipt`（CASCADE）；
+关键关系：心跳/冲突/在线事件和 `iot_command` 通过外键引用 `iot_device`，其中命令
+设备外键删除策略为 RESTRICT；`iot_command_attempt`/`iot_command_receipt` 引用
+`iot_command`，删除策略为 CASCADE；
 `alerts_warehouse → alerts_batch → alerts_batch_rule_snapshot`；
 `alerts_event → alerts_status_transition`/`alerts_notification_attempt`；
 C 观测外键到质量/接纳/评价/outbox/快照成员，`reception → reception_reuse`。
@@ -89,7 +90,8 @@ C 观测外键到质量/接纳/评价/outbox/快照成员，`reception → recep
 ## 七、测试环境与复现入口
 
 隔离验证在 Windows 上 Docker 容器内进行：Python 3.14.8、PostgreSQL 18、固定摘要
-Mosquitto，随机专属内部网络与 tmpfs 数据库，不发布宿主端口、不修改宿主 Python。
+Mosquitto，随机专属内部网络与 tmpfs 数据库；PG/MQTT 不发布宿主端口，浏览器专项
+仅开放随机的 127.0.0.1 HTTP 入口。不修改宿主 Python。
 分段入口见 `scripts/windows/` 下 `check-gated-telemetry.ps1` 等脚本，均只清理本轮
 专属资源，无真实通知外发。原始日志保留在执行者本机私有 `work/`，不随公开仓库上传
 数据库、配置或日志；供最终材料使用的证据副本须先审查、脱敏并和最终发布 SHA 重新
