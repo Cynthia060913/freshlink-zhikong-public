@@ -2,3 +2,8 @@
 *.sh text eol=lf
 # Keep frontend formatter checks consistent across Windows and Linux clones.
 frontend/** text=auto eol=lf
+# Schema evidence hashes and editable figure sources must survive Windows clones.
+docs/submission/design/*.json text eol=lf
+docs/submission/design/*.tex text eol=lf
+docs/submission/design/*.pdf binary
+docs/submission/design/*.png binary
