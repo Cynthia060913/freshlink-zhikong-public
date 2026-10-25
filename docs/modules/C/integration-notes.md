@@ -952,3 +952,48 @@ device_id, warehouse_id, stream_epoch, observation_id, batch_id, selected_rule)`
 端口。多批次不能逐批调用此端口，因为第一批会终结 observation 的唯一任务；
 需 C 另提供全批次原子评估或逐批任务模型，A 不得先循环并取第一批结果当全局
 正常。恢复窗口与发送前前沿复核仍独立待验。
+
+## 2026-10-24：已持久恢复窗口的门禁分页入口
+
+`recovery_tick_candidate.py::LocalBHistoricalRecoveryRuleCandidate(engine)` 从 C
+原异常冻结正文取可信仓/批次与原采样时刻，再经 B 真实 F02 历史服务选规则；
+`stage_gated_recovery_page_candidate(engine, *, historical_rules,
+frontier_epochs, now, after=None, limit=50)` 只扫描已合格的持久窗口，先核
+原异常已投递和可信 A epoch，再在门禁**外**读取 B 历史规则，最终调用现有
+`stage_gated_recovery_candidate` 在 A 设备锁同一事务冻结恢复 F03 与完整前沿。
+无 epoch/缺规则/原异常未交付/读故障分别保持 held/wait/retry，不回退到旧
+`stage_recovery_page_candidate` 无门禁写入口。分页游标只用于本次扫描，未来
+重试必须从头扫描等待项；不会自行安装后台任务。
+
+本轮 SQLite 回归用 Mock A gate/stamp 核选规则先于门禁、冻结/重复及缺 epoch
+不写；另有项目 Python3.14 专用测试读取 B 实际 F02 服务并核原快照/恢复条件。
+Mock/SQLite 不证明 PG 行锁，且**队列完整戳仅为发送的必要条件**；A 当前
+PR57 尚未调用此恢复页，C 也未实现发送瞬间当前戳和晚到坏证据复核、B 已接
+受后重开，因此自动恢复外发继续关闭、完整 E1 未验收。
+
+## 2026-10-24：一个观测的全部有效批次原子评价端口
+
+`multi_batch_candidate.py::select_and_stage_gated_multi_batch_candidate(engine, *,
+device_id, warehouse_id, stream_epoch, observation_id, now)` 是供 A 明确调用的
+组合入口。它在**门禁外**读已存观测的 UTC `sampled_at`、设备当前可信绑定、
+B 的全部有效批次及同一时刻的 F02 温度规则；没有有效批次、任一批缺规则、
+规则错单位/身份/时间时返回 `held_unknown`，不把首批当全部完成。
+`stage_gated_multi_batch_candidate(engine, *, device_id, warehouse_id,
+stream_epoch, observation_id, batch_ids, selected_rules, now)` 是不访问 B 的写端口。
+调用方预选的 `batch_ids` 必须是**完整有效集合**，每批恰好一条 F02 规则。
+
+写端口自行持有外层 `Engine` 事务：`begin_evidence_write` → 锁定唯一观测任务 →
+逐批核原文/质量/规则并构造确定性 `source_event_id` → 同一 Connection 写所有
+高温 F03 outbox → 一次更新全局任务及含各批结果的风险 JSON → 一次提交。
+混合高温与正常分别记录；缺湿度时高温仍可形成候选，低于阈值的批次明确
+`unknown`，不显示正常。任何必要写入异常都会回滚所有本轮候选、任务与 A
+revision；重放已提交任务返回 `not_due`，不再遗漏第二批或生成第二套来源 ID。
+DB 异常从写端口抛出交 A 调用方重试；组合入口把规则库/存储异常归为
+`retryable_failure`。没有正式调度、根路由或通知外发。
+
+A 最小接线位置是现有 `GatedHighWorker.evaluate` 的 `len(active) != 1` 分支：
+在 PR58 发布并同步 C 端口后，改为将**全部**有效批次一次传入上述组合入口，
+不能循环单批 `stage_gated_high_candidate`/`stage_gated_within_rule_candidate`。
+返回的 `source_event_ids` 仅表示已提交的高温候选，不是 B 已接收、投递或实收。
+当前 SQLite 单测 Mock A 写门禁，真实 PG 同头锁/事务、A caller 和 B F02 多批
+组合仍需项目 Python3.14/受控 PG 复测；在此之前端口是可审核候选，不是 E1。

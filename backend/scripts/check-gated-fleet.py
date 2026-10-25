@@ -365,19 +365,21 @@ def run():
                     key=lambda item: item["first_received_at_utc"],
                 )[-1]
                 outcome = evaluation.evaluate(row["id"], now=datetime.now(UTC))
-                expected = (
-                    "held_unknown"
-                    if bindings[sensor] == warehouses[0]
-                    else "within_rule"
-                )
                 require(
-                    outcome.status == expected,
-                    "multi-batch held; one-batch normal only",
+                    outcome.status == "within_rule",
+                    "every active batch evaluated under the real gate",
                 )
-                if expected == "held_unknown":
+                if bindings[sensor] == warehouses[0]:
+                    with engine.connect() as connection:
+                        risk = connection.scalar(
+                            select(observations.c.risk).where(
+                                observations.c.id == row["id"]
+                            )
+                        )
                     require(
-                        outcome.reason == "one_active_batch_required",
-                        "no silent first-batch evaluation",
+                        {item["batch_id"]: item["state"] for item in risk["batches"]}
+                        == {str(batch): "normal" for batch in batches[:2]},
+                        "both active apple batches have explicit normal verdicts",
                     )
                 outcomes[str(sensor)] = outcome.status
             fleet.stop_requested.set()
@@ -518,11 +520,11 @@ def run():
                 "same_sqlite_runtime_restart_retained_execution_count": 1,
                 "restart_retained_c_history_and_resumed_7_streams": True,
                 "warehouse_snapshot_csv_counts": counts,
-                "actual_multi_batch_hold_and_single_batch_normal": outcomes,
+                "actual_all_active_batch_normal_outcomes": outcomes,
                 "notifications_sent": 0,
                 "complete_e1": False,
                 "not_tested": [
-                    "multi-batch alert evaluation",
+                    "multi-batch high-temperature alert delivery",
                     "C recovery",
                     "two terminal receipts",
                     "second machine",

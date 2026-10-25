@@ -36,6 +36,7 @@ services:
       FRESHLINK_GATED_PROOF: "1"
       GATED_SOURCE_REVISION: ${GATED_SOURCE_REVISION:?Missing source identity}
       GATED_SOURCE_DIRTY: ${GATED_SOURCE_DIRTY:?Missing worktree state}
+      GATED_CONTROL_ENTRY: ${GATED_CONTROL_ENTRY:-0}
     volumes:
       - ./backend:/source/backend:ro
       - ${GATED_RESULT_DIR:?Missing private result directory}:/results
