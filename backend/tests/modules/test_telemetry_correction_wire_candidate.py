@@ -6,9 +6,9 @@ import json
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, update
 
 from app.modules.telemetry.correction_wire_candidate import (
     prepare_held_correction_wire_on_connection_candidate,
@@ -22,6 +22,7 @@ from app.modules.telemetry.f03_body_candidate import (
     normalize_f03_body_candidate,
 )
 from app.modules.telemetry.outbox_candidate import outbox
+from app.modules.telemetry.quality import process_batch
 from app.modules.telemetry.storage_candidate import metadata, observations
 
 ORIGINAL_ID = "11111111-1111-4111-8111-111111111111"
@@ -33,6 +34,8 @@ SNAPSHOT_ID = "77777777-7777-4777-8777-777777777777"
 CORRECTION_ID = str(
     _correction_source_id(UUID(ORIGINAL_ID), f"reception:{EVIDENCE_ID}:{'a' * 64}")
 )
+DEVICE_ID = "88888888-8888-4888-8888-888888888888"
+MESSAGE_ID = "99999999-9999-4999-8999-999999999999"
 
 
 def _digest(body: dict) -> str:
@@ -83,6 +86,20 @@ def _internal() -> dict:
             "raw_sha256": "a" * 64,
             "send_state": "held_until_f03_contract_acceptance",
         },
+    }
+
+
+def _raw_observation() -> dict:
+    return {
+        "schema_version": "1.0",
+        "device_id": DEVICE_ID,
+        "warehouse_id": WAREHOUSE_ID,
+        "message_id": MESSAGE_ID,
+        "sampled_at": "2026-10-25T08:00:00Z",
+        "metrics": [
+            {"key": "temperature", "value": 11.0, "unit": "°C"},
+            {"key": "humidity", "value": 70.0, "unit": "%RH"},
+        ],
     }
 
 
@@ -174,22 +191,26 @@ class CorrectionWireCandidateTests(unittest.TestCase):
         metadata.create_all(engine)
         now = datetime(2026, 10, 25, 8, 3, tzinfo=UTC)
         internal, original = _internal(), _original()
+        raw = _raw_observation()
+        quality_view = process_batch([{**raw, "received_at": "2026-10-25T08:03:00Z"}])[
+            0
+        ]
         try:
             with engine.begin() as connection:
                 connection.execute(
                     observations.insert().values(
                         id=UUID(OBSERVATION_ID),
-                        device_id=uuid4(),
-                        message_id=uuid4(),
+                        device_id=UUID(DEVICE_ID),
+                        message_id=UUID(MESSAGE_ID),
                         warehouse_id=UUID(WAREHOUSE_ID),
                         content_sha256="b" * 64,
-                        raw_text="{}",
-                        raw_payload={},
-                        sampled_at_utc=now,
+                        raw_text=json.dumps(raw),
+                        raw_payload=raw,
+                        sampled_at_utc=datetime(2026, 10, 25, 8, tzinfo=UTC),
                         first_received_at_utc=now,
-                        normalized={},
-                        quality=["ok"],
-                        risk={"state": "high"},
+                        normalized=quality_view["normalized"],
+                        quality=quality_view["quality"],
+                        risk=quality_view["risk"],
                     )
                 )
                 connection.execute(
@@ -238,6 +259,35 @@ class CorrectionWireCandidateTests(unittest.TestCase):
                 self.assertEqual(saved["attempt_count"], 0)
                 self.assertEqual(saved["body"], internal)
                 self.assertEqual(saved["body_sha256"], _digest(internal))
+            changed_raw = copy.deepcopy(raw)
+            changed_raw["metrics"][0]["value"] = 5.0
+            with engine.begin() as connection:
+                connection.execute(
+                    update(observations)
+                    .where(observations.c.id == UUID(OBSERVATION_ID))
+                    .values(raw_payload=changed_raw)
+                )
+                with self.assertRaisesRegex(ValueError, "stored quality differs"):
+                    prepare_held_correction_wire_on_connection_candidate(
+                        connection, source_event_id=UUID(CORRECTION_ID)
+                    )
+            with engine.begin() as connection:
+                connection.execute(
+                    update(observations)
+                    .where(observations.c.id == UUID(OBSERVATION_ID))
+                    .values(raw_payload=raw, quality=["missing_metric:humidity"])
+                )
+                with self.assertRaisesRegex(ValueError, "stored quality differs"):
+                    prepare_held_correction_wire_on_connection_candidate(
+                        connection, source_event_id=UUID(CORRECTION_ID)
+                    )
+            with engine.connect() as connection:
+                saved = connection.execute(
+                    select(outbox.c.state, outbox.c.attempt_count).where(
+                        outbox.c.source_event_id == UUID(CORRECTION_ID)
+                    )
+                ).one()
+                self.assertEqual(saved, ("held_contract", 0))
         finally:
             engine.dispose()
 

@@ -1,5 +1,15 @@
 # C 共享接线请求
 
+## 2026-10-25 更正 wire 准备时复核原高温证据
+
+`prepare_held_correction_wire_on_connection_candidate` 在已交付的内部摘要、
+F03 原事件摘要和稳定 UUIDv5 校验之后，还读原异常的 C 持久观测，按保存的
+raw JSON 重新计算规范值与质量。只有原事件的观测 ID、冷库、采样时刻、
+温度与有效原始观测相同才返回拟投递 wire。篡改 raw/质量即抛 `ValueError`，
+调用方不得释放更正或发送；数据库故障由调用方回滚。该检查只核原异常，
+不等于坏接收审计已完成独立发前复核。原内部 body/hash、wire DTO/digest、
+`held_contract/attempt0` 均未改变。B PR #80 小修及 A 审定前仍不开自动发送。
+
 ## 2026-10-25 持续接纳后的恢复前沿续验候选
 
 `recovery_refreeze_candidate.py::refresh_pending_recovery_frontier_on_connection_candidate`

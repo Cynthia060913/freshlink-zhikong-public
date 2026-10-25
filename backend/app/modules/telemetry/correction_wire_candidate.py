@@ -24,6 +24,9 @@ from app.modules.telemetry.f03_body_candidate import (
     normalize_f03_body_candidate,
 )
 from app.modules.telemetry.outbox_candidate import outbox
+from app.modules.telemetry.recovery_observation_candidate import _sample_from_saved
+from app.modules.telemetry.recovery_outbox_candidate import _instant
+from app.modules.telemetry.storage_candidate import observations
 
 _INTERNAL_VERSION = "c-data-quality-correction/v0"
 _EVIDENCE_KINDS = frozenset({"reception", "reception_id_reuse"})
@@ -241,9 +244,30 @@ def prepare_held_correction_wire_on_connection_candidate(
         or correction["body"].get("related_source_event_id") != str(original_id)
     ):
         raise ValueError("held correction does not match original outbox row")
-    return project_held_correction_wire_candidate(
+    projection = project_held_correction_wire_candidate(
         internal_body=correction["body"],
         internal_body_sha256=correction["body_sha256"],
         original_body=original["body"],
         original_body_sha256=original["body_sha256"],
     )
+    saved = (
+        connection.execute(
+            select(observations).where(observations.c.id == original["observation_id"])
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if saved is None:
+        raise ValueError("original anomaly observation is missing")
+    sample = _sample_from_saved(saved, batch_id=UUID(projection.body["batch_id"]))
+    original_body = original["body"]
+    if (
+        sample.observation_id != original["observation_id"]
+        or sample.warehouse_id != UUID(projection.body["warehouse_id"])
+        or sample.quality != ("ok",)
+        or sample.sampled_at != _instant(original_body["sampled_at"])
+        or sample.temperature_c != original_body["value"]
+        or original_body["observation_ids"] != [str(sample.observation_id)]
+    ):
+        raise ValueError("original anomaly differs from preserved raw observation")
+    return projection
