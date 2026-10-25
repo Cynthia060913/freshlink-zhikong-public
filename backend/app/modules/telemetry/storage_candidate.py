@@ -344,6 +344,7 @@ def _ingest_once(connection: Connection, view: dict[str, Any]) -> IngestResult:
                 outcome="conflict",
                 reason=reason,
                 receipt_sha256=_receipt_digest(view),
+                additional_targets=((previous["device_id"], previous["warehouse_id"]),),
             )
         return IngestResult(status, reception_id, previous["id"], reason)
 

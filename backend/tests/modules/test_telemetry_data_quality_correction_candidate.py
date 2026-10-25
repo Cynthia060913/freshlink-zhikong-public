@@ -31,6 +31,7 @@ from app.modules.telemetry.storage_candidate import (
 
 DEVICE = UUID("11111111-1111-4111-8111-111111111111")
 WAREHOUSE = UUID("22222222-2222-4222-8222-222222222222")
+OTHER_WAREHOUSE = UUID("33333333-3333-4333-8333-333333333333")
 MESSAGE = UUID("44444444-4444-4444-8444-444444444444")
 TIME = datetime(2026, 10, 15, 0, 0, tzinfo=UTC)
 
@@ -305,6 +306,39 @@ class DataQualityCorrectionCandidateTests(unittest.TestCase):
         self.assertEqual(
             self._corrections(original_id)[0]["source_event_id"], correction_id
         )
+
+    def test_reassigned_warehouse_conflict_holds_original_warehouse(self):
+        initial = _reception(_raw())
+        accepted = ingest_observation(self.engine, initial)
+        self.assertEqual(accepted.status, "accepted_new")
+        original_id = self._seed_delivered_anomaly(
+            accepted.observation_id, existing_observation=True
+        )
+        reassigned = _reception(
+            _raw(),
+            warehouse_id=OTHER_WAREHOUSE,
+            received_at=TIME + timedelta(seconds=3),
+        )
+
+        first = ingest_observation(self.engine, reassigned)
+        self.assertEqual(first.status, "conflict")
+        self.assertEqual(first.observation_id, accepted.observation_id)
+        rows = self._corrections(original_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["body"]["warehouse_id"], str(WAREHOUSE))
+        self.assertEqual(rows[0]["state"], "held_contract")
+        with self.engine.connect() as connection:
+            self.assertTrue(
+                has_unresolved_reception_evidence_candidate(
+                    connection,
+                    device_id=DEVICE,
+                    warehouse_id=WAREHOUSE,
+                    original_received_at=TIME,
+                )
+            )
+        replay = ingest_observation(self.engine, reassigned)
+        self.assertEqual(replay.status, "conflict")
+        self.assertEqual(len(self._corrections(original_id)), 1)
 
 
 if __name__ == "__main__":
