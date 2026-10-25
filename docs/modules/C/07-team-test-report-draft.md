@@ -1,5 +1,16 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-25 收口证据核对（本节最新，M03/E1 未签收）
+
+| 来源与精确版本 | 实际证据 | 边界与下一步 |
+| --- | --- | --- |
+| C 本机 `feature/c-data-quality-bootstrap` 业务提交 `5c41ae657f01504af35228a811bf382b1d3d1bae` | Windows Docker Desktop 29.9.2 中以项目 Python 3.14 镜像、隔离 PostgreSQL 18 临时库执行两个 C SQLite 模块与三个严格 PG 用例，共 **31 passed / 0 failed / 0 skipped**；同连接外层回滚、重放、坏证据、晚到 invalid/conflict 更正稳定 ID 均纳入。Ruff lint/format、三个生产模块 mypy 与差异检查通过。测试容器/网络已清理。C 本人 [#9 状态](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6395479176) 留有环境与命令边界。 | 此提交尚未上传，PR #11 远端仍为 `09823df9b7ab5c884813aa46fa7dc1a05bc3cc7f`，无本提交的远端 CI；更正 outbox 为 `held_contract`，没有 B F03 接收、A 门内调用或自动恢复。宿主 Python 3.13 缺业务依赖，不能记作宿主测试通过。 |
+| C 本地共同基线同步 `9420c5c9c818b3892c687718061b5f1f4656a658` | 干净工作区将已测 C 提交普通合入共同 main `e20f553bb85a67ac0ec74579a9fcc238b5d427a8`；新 main 仅带设计/材料增量，本次无冲突，未向 main 写入。 | **合入后未重跑 31 项**；本地 Git 凭据存储与交互提示不可用，普通 push 失败，不能写成队友可获取或 PR 检查通过。 |
+| A main-facing [Draft PR #76](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/76) 精确 `4dbf136bef902df3018ec322a0eeb18b9909a157` | A 在 [#6 分段记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6395119311) 报告真实 MQTT、四 CLI、C PG、TCP B、raw/CSV 和合成通知重启；C 对当前 46 文件差异发现通知与遥测两个进程入口的 Python 多异常 `except` 语法阻断，已给 [REQUEST_CHANGES](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/76#pullrequestreview-5642327243) 及 [补充审查](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/76#pullrequestreview-5642329320)。本机 Python 3.13 解析同形语句实际抛 `SyntaxError`。 | A 的实跑源码版本 `ecf19d0…` 与 PR 最终头、范围及实际执行入口分别记账；绿色 CI 未覆盖两个入口解析，不能批准 PR #76 或宣称同版发布。等待 A 修复并在项目 Python 3.14 加入入口解析/导入回归后，C 对新头继续完整范围复审。 |
+| C 第二台 Windows 候选包应用 `96afaab8ef5a26725a0fa31ff4ff3fc4983698bf`、工具 `812eea511c2ef307a8378e30b1e85e792c4fc3b2` | 本人独立核对私下收到的 ZIP 与 manifest 摘要；在隔离 `-RunFleet` 实跑 14 设备、7 采集/7 执行 ACK、控制后仿真降温、两库历史/CSV 76/56 行。完整摘要、清理和警告见 [#6 原始记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6394870061)。 | 这是旧候选分段证明，`notifications_sent=0`、`complete_e1=false`；不含新 runner 与自动恢复，不能拼成 PR #76 最终同版第二机或 M02/M05 签收。 |
+
+B 最终恢复更正接口、两种独立渠道的授权与终端实收，A 同连接门禁接线、入口返修、最终同版复验及可移交运行包仍待各负责人提供精确版本和实际证据。C 汇编只引用各自记录，不将不同 SHA、机器和测试批次求和成一套完整 E1。
+
 ## 2026-10-25 同版范围更新（M03/E1 仍未签收）
 
 本轮 C [PR #11 精确 `6474de86a30da1ebe1c36716583d198bc94b5a01`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
