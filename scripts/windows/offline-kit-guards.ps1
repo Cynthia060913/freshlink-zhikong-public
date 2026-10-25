@@ -77,7 +77,16 @@ function Assert-OfflineKit([string]$Directory,[string]$ExpectedManifestSha256) {
 
 function Get-OfflineLocalDocker {
     if($env:DOCKER_HOST -or $env:DOCKER_CONTEXT){throw 'Unset explicit Docker host/context overrides before local proof'}
-    $docker=(Get-Command docker -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
+    $command=Get-Command docker -CommandType Application -ErrorAction SilentlyContinue|Select-Object -First 1
+    if($command){$docker=$command.Source}
+    else {
+        # Docker Desktop's official per-user install need not add its CLI to PATH.
+        $docker=Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\resources\bin\docker.exe'
+        $item=Get-Item -LiteralPath $docker -Force -ErrorAction SilentlyContinue
+        if(-not $item -or $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+            throw 'Local Docker Desktop CLI unavailable'
+        }
+    }
     $endpoint=(& $docker context inspect --format '{{.Endpoints.docker.Host}}'|Out-String).Trim()
     if($LASTEXITCODE -or $endpoint -notmatch '^npipe://'){throw 'Only a local Windows named-pipe Docker Desktop engine is allowed'}
     $platform=(& $docker info --format '{{.OSType}}/{{.Architecture}}'|Out-String).Trim()
