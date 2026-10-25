@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 网页应用启动（P0 模板） | `scripts/windows/start-local.ps1` + `compose.freshlink.yml` | 容器、登录、健康检查能跑 | 冷库业务没验收 |
 | 一段隔离验证脚本 | `scripts/windows/check-*.ps1`（设备/遥测/MQTT/告警等） | 该脚本限定的合成场景 | 不等于完整实链 |
-| 离线 fleet 验证包 | `claude/package-safety-fix` 分支的 `export/run-offline-fleet.ps1`（**不在本提交**） | 内容寻址包的传输/一次性隔离证明 | 不等于 E1 或第二机 |
+| 离线 fleet 验证包 | PR #61（`feature/a-offline-fleet-kit`，工具 SHA `211e967…`）的 `export/run-offline-fleet.ps1`（**不在本提交**） | 内容寻址包的传输/一次性隔离证明 | 不等于 E1 或第二机 |
 | 完整业务系统 | A/B/C 各候选，尚未全部接线 | 两库三批十四设备的端到端 | 当前未签收 |
 
 ## 2. 必需环境
@@ -19,22 +19,26 @@
 |---|---|---|
 | Docker CLI + Compose | `check-environment.ps1` 检查 | 需要 **Linux 容器**（WSL2）；仅装 CLI 不够 |
 | Docker 引擎 | 同上，要求 `OSType=linux` | 引擎未跑或不是 linux 会直接退出 |
-| PowerShell | 脚本用兼容语法；源码导出回归在 PS 7.6.5 实际通过 | PS 5.1 被本机执行策略阻止过，未宣称兼容 |
+| PowerShell | 兼容性**按具体脚本**：源码导出回归在 PS 7.6.5 实际通过，Claude 通知测试在 PS 5.1 实测 | 单个脚本在 5.1/7 通过不等于全部工具兼容 |
 | git | `check-environment.ps1` 检查 | 团队开发需要 |
 | 宿主 Python | 容器模式**不需要**宿主 Python | Python 3.14 / Bun / PostgreSQL 18 都在容器内 |
 
-未知/未验证：B、C 两台电脑的复现结果；PowerShell 5.1 兼容性。
+未知/未验证：B、C 两台电脑的复现结果；PowerShell 兼容性按具体脚本，未做全工具跨版本验证。
 
 ## 3. 目录、候选版本与私有配置
 
 - 项目根目录 = 本仓库检出目录；候选版本用完整 40 位 Git SHA 唯一标识。
 - `compose.freshlink.yml`：本机 P0 开发入口（`db`=postgres:18，`app`=从 `backend/Dockerfile`
   构建的 `freshlink-app:p0`），只绑定 `127.0.0.1:18000`。
+- `start-local.ps1`/`stop-local.ps1` 固定 Compose 项目名 `freshlink`；本机已有该项目时会触及
+  **同一个实例**——先只读核对，不要照抄在 A 原实例旁再跑一套；P0 不是隔离成品。
 - `.env.freshlink`：**私有配置**，由 `start-local.ps1` 首次生成（`POSTGRES_PASSWORD`、
   `SECRET_KEY`、`FIRST_SUPERUSER_PASSWORD`），不进 Git、不发给队友。
 - `work/`：运行日志与验证证据目录，私有，不进源码包。
 
 ## 4. 最短真实路径（按顺序）
+
+以下在**项目根目录**执行；`start-local`/`stop-local` 固定 Compose 项目名 `freshlink`。
 
 ```powershell
 powershell -File scripts/windows/check-environment.ps1   # 只读检查环境
@@ -82,6 +86,8 @@ powershell -File scripts/windows/start-and-verify.ps1     # 结果写到 work/p0
 ## 8. 还没接好的接点（不瞎补命令）
 
 - 完整业务链（设备→A 接纳→C 存储→B 告警→两通知实收）尚未全部接线，责任在 A/B/C 各自主任务。
-- 离线 fleet 验证包在另一分支 `claude/package-safety-fix`（`79de20b` 起），本提交不含，
-  引用前需单独核对该分支说明 `docs/submission/OFFLINE-FLEET-KIT.md`。
+- 离线 fleet 验证包在 PR #61（`feature/a-offline-fleet-kit`，精确工具 SHA
+  `211e9670382dbd2b60730c550c17a08f28570441`），本提交不含；C 的“无 PATH”阻断已由 A 的
+  PR #73（`812eea511c2ef307a8378e30b1e85e792c4fc3b2`）修复待审。引用时读
+  `docs/submission/OFFLINE-FLEET-KIT.md`，不以可变分支 `claude/package-safety-fix` 当唯一入口。
 - 第二机从交付包复现、两通知终端实收、PPT/视频与最终投递：均未签收，见 `docs/submission/README.md`。

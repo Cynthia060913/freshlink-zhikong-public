@@ -1,23 +1,27 @@
 # 第二机验收准备（可执行步骤 + 待填写记录）
 
 依据固定提交 `96afaab8ef5a26725a0fa31ff4ff3fc4983698bf`。**本页是 A 准备的方案和空白记录，
-不能代替 C 在第二台电脑实际运行，也不能勾选“通过”。** 所有“通过”只能由 C 在另一台电脑
-按同版交付物实测后填写。命令与页面依据见 `A-SYSTEM-DESIGN.md` 与对应 `check-*.ps1`。
+不能代替实际执行者本人在第二台电脑实际运行，也不能勾选“通过”。** “通过”由实际执行者
+在另一台电脑按同版交付物实测后本人填写（C 是主责，但不是唯一有资格实测的人）。
+命令与页面依据见 `A-SYSTEM-DESIGN.md` 与对应 `check-*.ps1`。
 
 ## 1. 另一台电脑准备清单（安装/改系统需本人同意）
 
 - [ ] Windows，Docker Desktop 用 **Linux 容器（WSL2）**；Docker CLI + Compose 可用。
-- [ ] PowerShell（源码导出回归在 PS 7.6.5 实际通过；PS 5.1 兼容未验证）。
+- [ ] PowerShell（兼容性按具体脚本：源码导出回归在 PS 7.6.5 实际通过；单个脚本通过不等于全部工具）。
 - [ ] git（核对版本用）。以上用 `scripts/windows/check-environment.ps1` 一次查齐。
 - [ ] 安装 WSL/重启/改防火墙均需本人同意；不关闭证书校验、不装来源不明的修复包。
 
 ## 2. 获取同版交付物并核对版本/哈希
 
 - [ ] 与 A 确认同一冻结版本完整 40 位 SHA，**不以旧 main 或“最新”代替**。
-- [ ] 从该版本导出源码候选：`.\scripts\windows\export-source-candidate.ps1 -Revision <SHA>`
-      （输出到 `work/source-candidates/`，含源码 ZIP、`manifest.json`、逐字节核对）。
+- [ ] **导出方**（有完整 Git 检出目录）：`.\scripts\windows\export-source-candidate.ps1 -Revision <SHA>`
+      生成源码 ZIP + `manifest.json`（依赖 git，需完整检出）。
+- [ ] **接收方**（拿到已解压的交付包）：直接核对现成包的 `manifest.json` 与 SHA256 和 A 给的一致；
+      **不一定能重新导出**（没有 .git 或完整检出时）。
 - [ ] 记录源码 ZIP 的 SHA256 与 `manifest.json`，与 A 给的核对一致。
-- [ ] 离线 fleet 包（若使用）在另一分支 `claude/package-safety-fix`，用其
+- [ ] 离线 fleet 包（若使用）在 PR #61（`feature/a-offline-fleet-kit`，精确工具 SHA
+      `211e9670382dbd2b60730c550c17a08f28570441`），用其
       `run-offline-fleet.ps1 -ExpectedManifestSha256 <哈希>` 先做只读传输完整性核对；
       其状态仅是 `transport_candidate_...`，**不是 E1 或第二机验收**。
 
@@ -48,7 +52,7 @@
 - [ ] 实收证据（脱敏：隐藏邮箱前缀、手机号、授权码、机器人地址、二维码）记录相对证据位置，
       不外发原件。
 
-## 6. 结果填写（每项都记，缺一不可）
+## 6. 结果填写（由实际执行者本人填，每项都记，缺一不可）
 
 | 字段 | 示例/要求 |
 |---|---|
