@@ -360,11 +360,13 @@ class CandidateCreate(SQLModel):
             raise ValueError(
                 "temperature_recovered candidates must carry related_source_event_id"
             )
-        if self.related_source_event_id and self.kind is not (
-            CandidateKind.TEMPERATURE_RECOVERED
+        if self.related_source_event_id and self.kind not in (
+            CandidateKind.TEMPERATURE_RECOVERED,
+            CandidateKind.DATA_QUALITY,
         ):
             raise ValueError(
-                "related_source_event_id is only valid on temperature_recovered"
+                "related_source_event_id is only valid on temperature_recovered "
+                "and on data_quality correction events"
             )
         return self
 

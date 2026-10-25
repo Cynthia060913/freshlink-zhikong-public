@@ -465,6 +465,39 @@ def _recovery_transition(
     )
 
 
+def _correction_related_check(session: Session, payload: CandidateCreate) -> str | None:
+    """Validate a ``data_quality`` correction's original-anomaly link.
+
+    Late bad evidence for an already-accepted anomaly/recovery arrives
+    as a data_quality candidate whose ``related_source_event_id`` names
+    the original anomaly (F03 contract, #5 6394581672). The referenced
+    original must exist and belong to the SAME warehouse and batch —
+    the correction is about THAT anomaly's evidence, not another cold
+    store's. The correction NEVER writes a transition row: a resolved
+    alert stays resolved (history is never rewritten or reopened), an
+    open one stays open; the notification and the disposition list
+    carry both ids. Returns a permanent reason code, the literal
+    ``"retryable"`` on a transient read failure, or None when valid.
+    """
+
+    related = payload.related_source_event_id
+    if not related:
+        return None
+    try:
+        original = _get_by_source(session, related)
+    except OperationalError:
+        session.rollback()
+        return "retryable"
+    if original is None:
+        return "unknown_related_event"
+    if (
+        original.warehouse_id != payload.warehouse_id
+        or original.batch_id != payload.batch_id
+    ):
+        return "related_event_mismatch"
+    return None
+
+
 def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateReceipt:
     """Ingest one C-side alert candidate, five-way receipt envelope.
 
@@ -521,6 +554,14 @@ def receive_candidate(session: Session, payload: CandidateCreate) -> CandidateRe
         except SQLAlchemyError:
             session.rollback()
             return _retryable_receipt(source_event_id)
+    elif payload.kind is CandidateKind.DATA_QUALITY and (
+        payload.related_source_event_id
+    ):
+        outcome = _correction_related_check(session, payload)
+        if isinstance(outcome, str):
+            if outcome == "retryable":
+                return _retryable_receipt(source_event_id)
+            return _invalid_receipt(source_event_id, outcome)
 
     row = _candidate_row(payload, digest)
     failure = _insert_event(session, row, *([transition] if transition else ()))
