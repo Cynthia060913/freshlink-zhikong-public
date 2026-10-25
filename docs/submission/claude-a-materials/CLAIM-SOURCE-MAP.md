@@ -15,7 +15,7 @@ C2=候选第二机，X=未完成/待实测。
 | 4 | 控制命令不重复执行（重放原 ACK 一致，execution_count=1） | 同上（A35，`8cd5f2d`） | M | A |
 | 5 | 停发离线 + 同状态重启恢复，并关联原离线事件 | `docs/modules/A/46-gated-fleet-storage-control.md`（`62bb2ef`） | P/M | A |
 | 6 | 设备执行 ACK 之后才有新温度数据（执行闭环定义） | A35（`8cd5f2d`）、A46（`62bb2ef`）、A44 `9c0a2956` | M | A |
-| 7 | 本地恢复准备已发布；真正恢复/更正投递仍未完成 | main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546` / `docs/modules/A/56-saved-recovery-caller.md`；PR79纯检查仅候选 | S/P；完整投递仍X | A + B + C |
+| 7 | 本地准备已发布；候选停采样后真实HTTP恢复/回读/幂等已过，持续恢复与更正仍未完成 | main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546`；PR79 c2a9a67＋私有HTTP驱动，报告hash `1377b1d1fdd1089ea695c90f9670907026aff7541d4136bb048f4281d09fdb92` | S/P；持续完整投递仍X | A + B + C |
 | 8 | 通知被服务接受（合成 SMTP/APP，attempt 0/2/3/3） | `docs/modules/A/54-notification-runner-composition.md`（`1b7a9d91e6a8a426eb4995e7f9114bff1a399ba7`） | N | A（标注合成） |
 | 9 | SMTP 与飞书手机端两渠道终端实收 | 无——`complete_e1=false`、`notifications_sent=0` | X | B 本人 + 收件人 |
 | 10 | 候选第二机已跑过候选 14 设备包（应用 `96afaab`+工具 `812eea`） | [C本人第二机原始记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6394870061)；不是最终同版签收 | C2 | C 本人 |
