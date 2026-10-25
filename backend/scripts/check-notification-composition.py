@@ -133,6 +133,28 @@ def run():
         events = list(connection.execute(select(AlertEvent.__table__)).mappings())
     assert len(events) == 1 and not attempts()
     event_id = events[0]["id"]
+    # Actual A startup module, default dry-run, no configured real channel.
+    profile = Path("/results/notification-empty-profile.json")
+    with profile.open("x", encoding="utf-8") as output:
+        json.dump({"recipients": []}, output)
+    preview = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-m",
+            "app.modules.iot.notification_service",
+            "--config",
+            str(profile),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert preview.returncode == 0
+    startup = json.loads(preview.stdout)
+    assert startup["dry_run"] is True and startup["configured_channels"] == []
+    assert startup["pending_count"] == 0 and not attempts()
     children = []
     for mode in ("dry", "partial", "resume", "repeat"):
         with Path(f"/results/notification-{mode}.log").open(
@@ -182,6 +204,7 @@ def run():
         "source_event_id": events[0]["source_event_id"],
         "notification_child_pids": [child["pid"] for child in children],
         "actual_pg_dispatch_lease": True,
+        "actual_a_entry_default_dry_run": True,
         "dry_run_zero_attempts": True,
         "restart_sends_only_missing_channel": True,
         "third_delivery_process_no_resend": True,

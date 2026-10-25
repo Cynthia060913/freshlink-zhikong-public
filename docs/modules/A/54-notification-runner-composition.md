@@ -19,6 +19,15 @@
 
 ## 隔离验证入口
 
+共享运行入口为 `python -m app.modules.iot.notification_service --config <私密JSON>`。
+默认只预览一个周期，配置字段为 recipients、max_events_per_cycle（默认1）、
+max_attempts_per_channel（默认1）、poll_seconds（默认60）。配置不能启用发送；
+缺 SMTP 收件人时预览/发送均在连接数据库前拒绝，错误不打印邮箱/配置值。
+这是对 B 公共 `run_dispatch_worker(..., recipients=...)` 的 A 启动适配，
+不改 B 原模块：B 当前默认 main 没传 recipients，不能作为本应用 SMTP 启动说明。
+`--send` 必须由已有具体人类许可的操作员显式选择；不能以开关本身当作许可。
+`--continuous` 另需显式选择，默认不常驻；不在本轮执行任何真实发送命令。
+
 ```powershell
 pwsh -NoProfile -File scripts/windows/check-gated-telemetry.ps1 -NotificationRunner -AppImage <已有兼容依赖镜像>
 ```
