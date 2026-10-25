@@ -1,5 +1,22 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 跨冷库归属冲突的 PostgreSQL 定向复测
+
+在已同步共同 main `7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e`
+的 C 分支上，新增严格 opt-in 用例
+`test_reassigned_warehouse_conflict_holds_original_pg_alarm`。本机使用已缓存
+`freshlink-app:p0`（项目 Python 3.14）与 `postgres:18`，每次以随机 Compose
+项目名启动只在内部网络的临时测试库；PG 数据在 tmpfs，C 用例再建独立随机
+schema。实跑 `unittest` 目标用例 **1 passed / 0 failed / 0 skipped**，
+验证新冷库冲突回执、旧冷库已投递异常的 held 更正、旧冷库恢复阻断、
+不可 claim 和重放不增行。项目容器/网络清理退出码 0。
+
+首次用 `pytest` 直接选目标时，仓库全局 fixture 因该临时库尚未运行应用
+Alembic，查询 `user` 表报 `UndefinedTable`；目标用例**未进入执行**。
+随后改用本文件原生 `unittest` 入口运行成功，没有改造或跳过全局测试门禁。
+这只证明上述 C SQL 边界在隔离 PostgreSQL 上成立，不是完整 PG 并发/重启、
+A 自动恢复接线、B F03 更正接收、真实通知或 E1。
+
 ## 2026-10-25 跨冷库归属冲突回归
 
 C [PR #11 源码提交 `894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993`](https://github.com/Cynthia060913/freshlink-zhikong-public/commit/894c76b87ee9ab0af1a9f3373ba9a0c8cfc7e993)
