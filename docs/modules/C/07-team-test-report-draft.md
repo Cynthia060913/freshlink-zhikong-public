@@ -20,8 +20,11 @@ A 在 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6
 独立结果拼成同版完整 E1。当前仍缺 B 最终头复审、两渠道终端实收、恢复
 更正契约/自动发送、第二机同版业务及最终 M01—M05 材料签收。
 
-2026-10-24 已核验过 Docker Linux 引擎；本轮 Codex 执行身份未找到 Docker
-CLI，且没有收到可独立核哈希的最终同版包，因此未在此机启动或登录应用。
+2026-10-24 已核验过 Docker Linux 引擎；本轮 Codex 隔离身份的 PATH 仍无
+Docker CLI，但在本人 Windows 用户会话通过 per-user 安装目录绝对路径只读核验
+Client/Server 29.9.2 和 Compose 5.6.1，镜像及运行容器清单为空。没有收到
+可独立核哈希的最终同版包，因此未在此机拉镜像、启动或登录应用；该信息已
+回报 A [PR #61](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/61#issuecomment-6394180967)。
 
 ## 2026-10-24 C 恢复保守核对与第二机环境（M02/M03/E1 未签收）
 

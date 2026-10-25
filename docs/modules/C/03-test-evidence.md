@@ -22,6 +22,12 @@ C 协助 B 的通知队列扫描修复在**另一独立分支** [Draft PR #72
 不能将辅助头检查并入 B 正式功能完成数。两渠道终端实收、自动恢复、
 第二机同版主程序及完整 E1 均未验收。
 
+本轮另用本人 Windows 用户会话只读定位 per-user Docker CLI：它不在
+`PATH`，但通过 `%LOCALAPPDATA%/Programs/DockerDesktop/resources/bin/docker.exe`
+可读取 Client/Server 29.9.2 与 Compose 5.6.1；镜像/运行容器清单为空。
+没有拉镜像、运行项目或改系统配置。此复核已补到 A [PR #61](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/61#issuecomment-6394180967)，
+不能替代同版离线包、独立哈希或第二机业务验证。
+
 ## 2026-10-24 恢复新鲜度候选与第二机 Docker 环境
 
 C 分支完整 `a30e8b608e5c8bfd4e8e579984a493665647d7cf`，已正常合入
