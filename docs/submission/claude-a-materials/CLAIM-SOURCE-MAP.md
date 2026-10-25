@@ -15,14 +15,14 @@ C2=候选第二机，X=未完成/待实测。
 | 4 | 控制命令不重复执行（重放原 ACK 一致，execution_count=1） | 同上（A35，`8cd5f2d`） | M | A |
 | 5 | 停发离线 + 同状态重启恢复，并关联原离线事件 | `docs/modules/A/46-gated-fleet-storage-control.md`（`62bb2ef`） | P/M | A |
 | 6 | 设备执行 ACK 之后才有新温度数据（执行闭环定义） | A35（`8cd5f2d`）、A46（`62bb2ef`）、A44 `9c0a2956` | M | A |
-| 7 | 正式恢复端口与 F03 更正接线已完成 | 无——仍待 B/C 契约与更正投递 | X | B + C |
+| 7 | 本地恢复准备已发布；真正恢复/更正投递仍未完成 | main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546` / `docs/modules/A/56-saved-recovery-caller.md`；PR79纯检查仅候选 | S/P；完整投递仍X | A + B + C |
 | 8 | 通知被服务接受（合成 SMTP/APP，attempt 0/2/3/3） | `docs/modules/A/54-notification-runner-composition.md`（`1b7a9d91e6a8a426eb4995e7f9114bff1a399ba7`） | N | A（标注合成） |
 | 9 | SMTP 与飞书手机端两渠道终端实收 | 无——`complete_e1=false`、`notifications_sent=0` | X | B 本人 + 收件人 |
-| 10 | 候选第二机已跑过候选 14 设备包（应用 `96afaab`+工具 `812eea`） | 任务书事实 + C 第二机记录 | C2 | C 本人 |
+| 10 | 候选第二机已跑过候选 14 设备包（应用 `96afaab`+工具 `812eea`） | [C本人第二机原始记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6394870061)；不是最终同版签收 | C2 | C 本人 |
 | 11 | 最终冻结版在第二电脑同版复现通过 | 无——仍未签收 | X | A + B + C |
 | 12 | 唯一迁移链 A03→B01→A04→A05→C01 空库升级/check 通过 | `docs/submission/design/README.md`；`A-SYSTEM-DESIGN.md` §5 | P | A |
 | 13 | 33 表、19 核心实体、17 条真实外键边（只读反射） | `docs/submission/design/schema-inventory.json`、`er-edges.json` | P | A（冻结后重反射） |
-| 14 | 后端回归 1341（A54）与 63（A55）为不同运行，不相加 | `54`（`1b7a9d9`）、`55`（`ecf19d0`） | S | A |
+| 14 | 不同头回归分别记账；PR79候选1365条/0跳过/92%，不与旧1341/1362相加 | [PR79精确c2a9a67](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/79)，[#6实际记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6397957585) | S | A |
 | 15 | 完整 E1 端到端全链通过 | 无——仍未签收 | X | A + B + C |
 
 说明：验证层级为「已做过的验证类型」，不等于该项已被签收为最终通过；X 行只说明
