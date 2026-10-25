@@ -1,5 +1,28 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 持续正常样本后的恢复前沿续验（定向 PG）
+
+在 C 新端口 `refresh_pending_recovery_frontier_on_connection_candidate` 的
+候选源码上，Windows 使用项目 Python3.14.8 镜像及独立 PostgreSQL18/tmpfs，
+随机项目 `c-refreeze-20261025232125-54324`，真实升级唯一 Alembic 链至 C01
+并初始化应用测试数据；运行现有严格 PG 场景扩展用例
+`test_recovery_freeze_and_a_revision_commit_together_on_real_pg`：**1 passed，
+0 skipped，2 warnings**，目标测试含：只改 revision 无新接纳不得续验、pending
+前沿不完整不得续验、同事务有效新温湿度接收及 A 终态后可续验且原正文/ID/
+摘要/attempt 不变、换 epoch/leased 不续验、后续新高温仍 held。临时项目容器和
+网络均已清理。首跑 `c-refreeze-20261025231838-11880` **1 failed**：测试
+新样本缺湿度，被 C 质量标记拒作恢复证据；补齐有效湿度后在全新临时库重跑
+通过，没有放宽生产质量门禁。Ruff lint/format 与 mypy 两生产文件通过。
+
+随后本机运行受控整仓脚本 `scripts/windows/check-a01-acceptance.ps1`，项目
+`a01-tests-20261025232230-46932`，唯一 Alembic 链至 C01/metadata check：
+**1370 passed / 0 failed / 0 skipped / 2 warnings / 91% coverage**，
+281.66 秒、退出码 0；JUnit SHA256
+`e5cb18bcb6e90188c2deb6f3bd9355befafacb7c29a1f161034b8b9371edd709`。
+原件在忽略的本机 `work/a01-tests-20261025232230-46932`；按本轮项目标签
+独立复查容器/网络均为空。此头尚未测远端 CI、实际 B HTTP、持续 sender、两通知
+终端或完整 E1；这些结果不能替代后续同版验证。
+
 ## 2026-10-25 关联更正 wire 准备端口（未投递）
 
 在已安全合入共同 main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546`

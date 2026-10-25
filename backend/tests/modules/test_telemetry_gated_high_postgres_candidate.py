@@ -9,7 +9,13 @@ from uuid import UUID, uuid4, uuid5
 import pytest
 from sqlalchemy import delete, func, select, update
 
-from app.modules.iot.stream_frontier import FrontierUnavailable, begin_evidence_write
+from app.modules.iot.ingress import DeviceContext, receive_telemetry
+from app.modules.iot.stream_frontier import (
+    FrontierUnavailable,
+    begin_evidence_write,
+    record_terminal,
+)
+from app.modules.iot.stream_frontier_models import entries
 from app.modules.telemetry.candidate_preview import build_candidate_preview
 from app.modules.telemetry.f03_body_candidate import f03_digest_candidate
 from app.modules.telemetry.multi_batch_candidate import (
@@ -28,6 +34,10 @@ from app.modules.telemetry.recovery_progress_candidate import (
     metadata as recovery_metadata,
 )
 from app.modules.telemetry.recovery_progress_candidate import recovery_progress
+from app.modules.telemetry.recovery_refreeze_candidate import (
+    RecoveryRefreezeCandidate,
+    refresh_pending_recovery_frontier_on_connection_candidate,
+)
 from app.modules.telemetry.recovery_tick_candidate import (
     LocalBHistoricalRecoveryRuleCandidate,
 )
@@ -39,6 +49,7 @@ from app.modules.telemetry.rule_evaluation_candidate import (
 )
 from app.modules.telemetry.storage_candidate import (
     evaluation_jobs,
+    ingest_observation_on_connection_candidate,
     metadata,
     observations,
     receptions,
@@ -714,6 +725,128 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
                 warehouse_id=store.warehouse_id,
                 epoch=store.epoch,
             )
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("held", "stale_frozen_frontier")
+        )
+        with store.engine.begin() as connection:
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **ready_args
+            ) == RecoveryRefreezeCandidate("held", "no_new_admission")
+
+        def admit_saved_sample(
+            temperature: float, seconds: int, *, check_pending: bool = False
+        ) -> None:
+            moment = NOW + timedelta(seconds=seconds)
+            raw = {
+                "schema_version": "1.0",
+                "device_id": str(store.device_id),
+                "message_id": str(uuid4()),
+                "sampled_at": sampled(moment),
+                "metrics": [
+                    {"key": "temperature", "value": temperature, "unit": "°C"},
+                    {"key": "humidity", "value": 75, "unit": "%RH"},
+                ],
+            }
+            envelope = receive_telemetry(
+                topic=f"freshlink/v1/devices/{store.device_id}/telemetry",
+                payload=json.dumps(raw, ensure_ascii=False).encode(),
+                context=DeviceContext(store.device_id, store.warehouse_id),
+                received_at=moment,
+            )
+            assert admit(store, envelope).status == "queued"
+            if check_pending:
+                with store.engine.begin() as connection:
+                    assert refresh_pending_recovery_frontier_on_connection_candidate(
+                        connection, **ready_args
+                    ) == RecoveryRefreezeCandidate("held", "frontier_incomplete")
+            with store.engine.begin() as connection:
+                begin_evidence_write(
+                    connection,
+                    device_id=store.device_id,
+                    warehouse_id=store.warehouse_id,
+                    epoch=store.epoch,
+                )
+                result = ingest_observation_on_connection_candidate(
+                    connection, envelope
+                )
+                assert result.status == "accepted_new"
+                entry = (
+                    connection.execute(
+                        select(entries).where(
+                            entries.c.reception_id == envelope.reception_id
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                record_terminal(
+                    connection,
+                    reception_id=envelope.reception_id,
+                    fingerprint=entry["fingerprint"],
+                    epoch=store.epoch,
+                    outcome="accepted_new",
+                    observation_id=result.observation_id,
+                )
+
+        with store.engine.connect() as connection:
+            frozen_before = (
+                connection.execute(
+                    select(outbox).where(
+                        outbox.c.source_event_id == staged.source_event_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        admit_saved_sample(6.0, 140, check_pending=True)
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("held", "stale_frozen_frontier")
+        )
+        with store.engine.begin() as connection:
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **ready_args
+            ) == RecoveryRefreezeCandidate("refrozen")
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("ready_at_check")
+        )
+        with store.engine.connect() as connection:
+            frozen_after = (
+                connection.execute(
+                    select(outbox).where(
+                        outbox.c.source_event_id == staged.source_event_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        for name in ("body", "body_sha256", "source_event_id", "attempt_count"):
+            assert frozen_after[name] == frozen_before[name]
+        assert (
+            frozen_after["frozen_admitted_seq"] > frozen_before["frozen_admitted_seq"]
+        )
+        with store.engine.begin() as connection:
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **{**ready_args, "stream_epoch": uuid4()}
+            ) == RecoveryRefreezeCandidate("held", "frontier_unavailable")
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == staged.source_event_id)
+                .values(state="leased", lease_token=uuid4())
+            )
+        with store.engine.begin() as connection:
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **ready_args
+            ) == RecoveryRefreezeCandidate("held", "recovery_not_unclaimed")
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == staged.source_event_id)
+                .values(state="pending", lease_token=None)
+            )
+        admit_saved_sample(11.0, 150)
+        with store.engine.begin() as connection:
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **ready_args
+            ) == RecoveryRefreezeCandidate("held", "new_evidence_not_recovered")
         assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
             RecoveryFreshnessCandidate("held", "stale_frozen_frontier")
         )
