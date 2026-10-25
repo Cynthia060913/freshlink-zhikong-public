@@ -8,6 +8,7 @@ Tests may create these tables in an isolated database to exercise transactions.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -189,6 +190,47 @@ def _write_receipt(
     )
 
 
+def _stage_reception_correction_candidate(
+    connection: Connection,
+    view: dict[str, Any],
+    *,
+    evidence_kind: Literal["reception", "reception_id_reuse"],
+    outcome: Literal["invalid", "conflict"],
+    reason: str,
+    receipt_sha256: str,
+    additional_targets: tuple[tuple[UUID, UUID], ...] = (),
+) -> None:
+    """Atomically stage held corrections without importing outbox at module load."""
+    from sqlalchemy import inspect
+
+    from app.modules.telemetry.data_quality_correction_candidate import (
+        stage_late_reception_corrections_on_connection_candidate,
+    )
+    from app.modules.telemetry.outbox_candidate import outbox
+
+    # The C storage preview can run before the candidate outbox migration is
+    # present. In that state there is nowhere safe to persist a correction;
+    # do not invent a parallel table or break raw reception retention.
+    schema_map = connection.get_execution_options().get("schema_translate_map", {})
+    outbox_schema = schema_map.get(None) if isinstance(schema_map, Mapping) else None
+    if not inspect(connection).has_table(outbox.name, schema=outbox_schema):
+        return
+
+    trusted = view["trusted"]
+    stage_late_reception_corrections_on_connection_candidate(
+        connection,
+        evidence_kind=evidence_kind,
+        evidence_id=UUID(trusted["reception_id"]),
+        receipt_sha256=receipt_sha256,
+        outcome=outcome,
+        reason_code=reason,
+        received_at_utc=trusted["received_at"],
+        device_id=UUID(trusted["authenticated_device_id"]),
+        warehouse_id=UUID(trusted["warehouse_id"]),
+        additional_targets=additional_targets,
+    )
+
+
 def _ingest_once(connection: Connection, view: dict[str, Any]) -> IngestResult:
     trusted = view["trusted"]
     reception_id = UUID(trusted["reception_id"])
@@ -220,7 +262,30 @@ def _ingest_once(connection: Connection, view: dict[str, Any]) -> IngestResult:
                         receipt_sha256=digest,
                     )
                 )
+            _stage_reception_correction_candidate(
+                connection,
+                view,
+                evidence_kind="reception_id_reuse",
+                outcome="conflict",
+                reason="reception_id_reuse",
+                receipt_sha256=digest,
+                additional_targets=(
+                    (
+                        previous_receipt["device_id"],
+                        previous_receipt["warehouse_id"],
+                    ),
+                ),
+            )
             return IngestResult("conflict", reception_id, reason="reception_id_reuse")
+        if previous_receipt["outcome"] in ("invalid", "conflict"):
+            _stage_reception_correction_candidate(
+                connection,
+                view,
+                evidence_kind="reception",
+                outcome=previous_receipt["outcome"],
+                reason=previous_receipt["reason"],
+                receipt_sha256=digest,
+            )
         return IngestResult(
             previous_receipt["outcome"],
             reception_id,
@@ -236,6 +301,14 @@ def _ingest_once(connection: Connection, view: dict[str, Any]) -> IngestResult:
             observation_id=None,
             outcome="invalid",
             reason=invalid_reason,
+        )
+        _stage_reception_correction_candidate(
+            connection,
+            view,
+            evidence_kind="reception",
+            outcome="invalid",
+            reason=invalid_reason,
+            receipt_sha256=_receipt_digest(view),
         )
         return IngestResult("invalid", reception_id, reason=invalid_reason)
 
@@ -263,6 +336,16 @@ def _ingest_once(connection: Connection, view: dict[str, Any]) -> IngestResult:
             outcome=status,
             reason=reason,
         )
+        if status == "conflict":
+            _stage_reception_correction_candidate(
+                connection,
+                view,
+                evidence_kind="reception",
+                outcome="conflict",
+                reason=reason,
+                receipt_sha256=_receipt_digest(view),
+                additional_targets=((previous["device_id"], previous["warehouse_id"]),),
+            )
         return IngestResult(status, reception_id, previous["id"], reason)
 
     observation_id = uuid4()

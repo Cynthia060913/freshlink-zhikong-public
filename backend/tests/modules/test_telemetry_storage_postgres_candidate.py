@@ -23,16 +23,23 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.modules.iot.stream_frontier import FrontierStamp
+from app.modules.telemetry.data_quality_correction_candidate import (
+    _correction_source_id,
+)
 from app.modules.telemetry.history_candidate import (
     HistoryFiltersCandidate,
     list_history_candidate,
 )
 from app.modules.telemetry.outbox_candidate import (
+    claim_candidate,
     outbox,
     outbox_conflicts,
     stage_candidate,
     stage_candidate_on_connection_candidate,
     stage_f03_candidate,
+)
+from app.modules.telemetry.recovery_observation_candidate import (
+    advance_saved_recovery_observation_on_connection_candidate,
 )
 from app.modules.telemetry.recovery_outbox_candidate import (
     freeze_recovery_frontier_on_connection_candidate,
@@ -148,6 +155,198 @@ class PostgresStorageCandidateTests(unittest.TestCase):
     def _count(self, table) -> int:
         with self.engine.connect() as connection:
             return int(connection.scalar(select(func.count()).select_from(table)))
+
+    def _stage_delivered_high_anomaly(
+        self,
+        *,
+        source_event_id: UUID,
+        observation_id: UUID,
+        batch_id: UUID,
+        snapshot_id: UUID,
+    ) -> None:
+        with self.engine.connect() as connection:
+            observation = (
+                connection.execute(
+                    select(observations).where(observations.c.id == observation_id)
+                )
+                .mappings()
+                .one()
+            )
+        normalized = observation["normalized"]
+        sampled_at = normalized["sampled_at"]
+        temperature = normalized["metrics"]["temperature"]
+        body = {
+            "schema_version": "1.0",
+            "source_event_id": str(source_event_id),
+            "kind": "temperature_high",
+            "warehouse_id": str(_WAREHOUSE_ID),
+            "batch_id": str(batch_id),
+            "observation_ids": [str(observation_id)],
+            "metric_code": "temperature",
+            "sampled_at": sampled_at,
+            "value": temperature,
+            "unit": "°C",
+            "severity": "warning",
+            "rule_snapshot_id": str(snapshot_id),
+            "rule_version": "temp-v1",
+            "algorithm_version": "threshold-rule/1",
+            "evidence": {"comparison": ">", "threshold": 8.0},
+        }
+        self.assertEqual(
+            stage_f03_candidate(
+                self.engine,
+                source_event_id=source_event_id,
+                observation_id=observation_id,
+                body=body,
+                now=_RECEIVED_AT,
+            ),
+            "staged",
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == source_event_id)
+                .values(state="delivered")
+            )
+
+    def test_late_invalid_reception_persists_held_correction_idempotently(self) -> None:
+        message_id = uuid4()
+        accepted = ingest_observation(self.engine, _reception(message_id))
+        self.assertEqual(accepted.status, "accepted_new")
+        assert accepted.observation_id is not None
+        original_id, batch_id, snapshot_id = uuid4(), uuid4(), uuid4()
+        self._stage_delivered_high_anomaly(
+            source_event_id=original_id,
+            observation_id=accepted.observation_id,
+            batch_id=batch_id,
+            snapshot_id=snapshot_id,
+        )
+        invalid = _Reception(
+            json.dumps(
+                {
+                    "schema_version": "2.0",
+                    "device_id": str(_DEVICE_ID),
+                    "message_id": str(message_id),
+                    "sampled_at": _SAMPLED_AT,
+                    "metrics": [{"key": "temperature", "value": 11, "unit": "°C"}],
+                },
+                ensure_ascii=False,
+            ),
+            uuid4(),
+            _RECEIVED_AT + timedelta(seconds=20),
+        )
+        first = ingest_observation(self.engine, invalid)
+        self.assertEqual(first.status, "invalid")
+        with self.engine.connect() as connection:
+            receipt = (
+                connection.execute(
+                    select(receptions).where(receptions.c.id == invalid.reception_id)
+                )
+                .mappings()
+                .one()
+            )
+            correction = (
+                connection.execute(
+                    select(outbox).where(
+                        outbox.c.related_source_event_id == original_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        expected_id = _correction_source_id(
+            original_id,
+            f"reception:{invalid.reception_id}:{receipt['receipt_sha256']}",
+        )
+        self.assertEqual(correction["source_event_id"], expected_id)
+        self.assertEqual(correction["state"], "held_contract")
+        self.assertEqual(correction["attempt_count"], 0)
+        self.assertEqual(correction["body"]["evidence"]["outcome"], "invalid")
+        self.assertIsNone(
+            claim_candidate(
+                self.engine, source_event_id=expected_id, now=invalid.received_at
+            )
+        )
+
+        replay = ingest_observation(self.engine, invalid)
+        self.assertEqual(replay.status, "invalid")
+        self.assertEqual(self._count(outbox), 2)
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(
+                    select(func.count())
+                    .select_from(outbox)
+                    .where(outbox.c.related_source_event_id == original_id)
+                ),
+                1,
+            )
+
+    def test_late_message_conflict_persists_held_correction_idempotently(self) -> None:
+        message_id = uuid4()
+        accepted = ingest_observation(self.engine, _reception(message_id))
+        self.assertEqual(accepted.status, "accepted_new")
+        assert accepted.observation_id is not None
+        original_id, batch_id, snapshot_id = uuid4(), uuid4(), uuid4()
+        self._stage_delivered_high_anomaly(
+            source_event_id=original_id,
+            observation_id=accepted.observation_id,
+            batch_id=batch_id,
+            snapshot_id=snapshot_id,
+        )
+        conflict = _reception(message_id, temperature=12, seconds=20)
+        first = ingest_observation(self.engine, conflict)
+        self.assertEqual(first.status, "conflict")
+        with self.engine.connect() as connection:
+            receipt = (
+                connection.execute(
+                    select(receptions).where(receptions.c.id == conflict.reception_id)
+                )
+                .mappings()
+                .one()
+            )
+            original = (
+                connection.execute(
+                    select(outbox).where(outbox.c.source_event_id == original_id)
+                )
+                .mappings()
+                .one()
+            )
+            correction = (
+                connection.execute(
+                    select(outbox).where(
+                        outbox.c.related_source_event_id == original_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        expected_id = _correction_source_id(
+            original_id,
+            f"reception:{conflict.reception_id}:{receipt['receipt_sha256']}",
+        )
+        self.assertEqual(original["state"], "delivered")
+        self.assertEqual(correction["source_event_id"], expected_id)
+        self.assertEqual(correction["state"], "held_contract")
+        self.assertEqual(correction["attempt_count"], 0)
+        self.assertEqual(correction["body"]["evidence"]["outcome"], "conflict")
+        self.assertIsNone(
+            claim_candidate(
+                self.engine, source_event_id=expected_id, now=conflict.received_at
+            )
+        )
+
+        replay = ingest_observation(self.engine, conflict)
+        self.assertEqual(replay.status, "conflict")
+        self.assertEqual(self._count(outbox), 2)
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(
+                    select(func.count())
+                    .select_from(outbox)
+                    .where(outbox.c.related_source_event_id == original_id)
+                ),
+                1,
+            )
 
     def test_frozen_recovery_fields_share_pg_commit_and_survive_new_connection(
         self,
@@ -403,6 +602,143 @@ class PostgresStorageCandidateTests(unittest.TestCase):
             self.assertEqual(decision, "progress")
         self.assertEqual(self._count(recovery_progress), 1)
         self.assertEqual(committed, staged)
+
+    def test_saved_recovery_observation_uses_caller_pg_transaction(self) -> None:
+        """Saved evidence and its window share one caller-owned PG transaction."""
+        self.addCleanup(progress_metadata.drop_all, self.engine)
+        progress_metadata.create_all(self.engine)
+        original_id = uuid4()
+        batch_id = uuid4()
+        snapshot_id = uuid4()
+        original = ingest_observation(self.engine, _reception(uuid4(), temperature=11))
+        self.assertEqual(original.status, "accepted_new")
+        assert original.observation_id is not None
+        anomaly = {
+            "schema_version": "1.0",
+            "source_event_id": str(original_id),
+            "kind": "temperature_high",
+            "warehouse_id": str(_WAREHOUSE_ID),
+            "batch_id": str(batch_id),
+            "observation_ids": [str(original.observation_id)],
+            "metric_code": "temperature",
+            "sampled_at": _SAMPLED_AT,
+            "value": 11.0,
+            "unit": "°C",
+            "severity": "warning",
+            "rule_snapshot_id": str(snapshot_id),
+            "rule_version": "temp-v1",
+            "algorithm_version": "threshold-rule/1",
+            "evidence": {"comparison": ">", "threshold": 8.0},
+        }
+        self.assertEqual(
+            stage_f03_candidate(
+                self.engine,
+                source_event_id=original_id,
+                observation_id=original.observation_id,
+                body=anomaly,
+                now=_RECEIVED_AT,
+            ),
+            "staged",
+        )
+        raw = {
+            "schema_version": "1.0",
+            "device_id": str(_DEVICE_ID),
+            "message_id": str(uuid4()),
+            "sampled_at": "2026-10-15T00:00:10Z",
+            "metrics": [
+                {"key": "temperature", "value": 6.5, "unit": "°C"},
+                {"key": "humidity", "value": 70, "unit": "%RH"},
+            ],
+        }
+        saved = ingest_observation(
+            self.engine,
+            _Reception(
+                json.dumps(raw, ensure_ascii=False, separators=(",", ":")),
+                uuid4(),
+                _RECEIVED_AT + timedelta(seconds=10),
+            ),
+        )
+        self.assertEqual(saved.status, "accepted_new")
+        assert saved.observation_id is not None
+        selected_rule = {
+            "kind": "threshold_high",
+            "warehouse_id": str(_WAREHOUSE_ID),
+            "batch_id": str(batch_id),
+            "metric_code": "temperature",
+            "snapshot_id": str(snapshot_id),
+            "rule_version": "temp-v1",
+            "severity": "warning",
+            "unit": "°C",
+            "comparison": ">",
+            "threshold": 8.0,
+            "effective_start_at": "2026-10-14T00:00:00Z",
+            "effective_end_at": None,
+            "recovery": {"comparison": "<=", "threshold": 7.0, "min_samples": 3},
+        }
+        args = {
+            "original_source_event_id": original_id,
+            "observation_id": saved.observation_id,
+            "batch_id": batch_id,
+            "historical_rule": selected_rule,
+        }
+
+        with self.engine.connect() as writer:
+            transaction = writer.begin()
+            rolled_back = advance_saved_recovery_observation_on_connection_candidate(
+                writer, **args
+            )
+            self.assertEqual(
+                (rolled_back.status, rolled_back.decision), ("advanced", "progress")
+            )
+            self.assertEqual(self._count(recovery_progress), 0)
+            transaction.rollback()
+        self.assertEqual(self._count(recovery_progress), 0)
+
+        with self.engine.begin() as writer:
+            committed = advance_saved_recovery_observation_on_connection_candidate(
+                writer, **args
+            )
+            replay = advance_saved_recovery_observation_on_connection_candidate(
+                writer, **args
+            )
+            self.assertEqual(
+                (committed.status, committed.decision), ("advanced", "progress")
+            )
+            self.assertEqual(
+                (replay.status, replay.decision), ("advanced", "duplicate")
+            )
+        self.assertEqual(self._count(recovery_progress), 1)
+        with self.engine.connect() as connection:
+            saved_progress = (
+                connection.execute(select(recovery_progress)).mappings().one()
+            )
+            self.assertEqual(
+                saved_progress["observation_ids"], [str(saved.observation_id)]
+            )
+
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    select(observations).where(
+                        observations.c.id == saved.observation_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            tampered_raw = dict(row["raw_payload"])
+            tampered_raw["device_id"] = str(uuid4())
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == saved.observation_id)
+                .values(raw_payload=tampered_raw)
+            )
+        with self.engine.begin() as writer:
+            held = advance_saved_recovery_observation_on_connection_candidate(
+                writer, **args
+            )
+            self.assertEqual(held.status, "held_invalid_evidence")
+            self.assertEqual(self._count(recovery_progress), 1)
 
     def test_recovery_staging_shares_pg_caller_commit_and_rollback(self) -> None:
         """A future admission lock can own the same PG transaction as C staging.

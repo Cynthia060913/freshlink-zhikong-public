@@ -1,5 +1,106 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 同连接恢复端口与晚到更正持久化
+
+在 C 分支 `feature/c-data-quality-bootstrap` 的 `09823df9b7ab5c884813aa46fa7dc1a05bc3cc7f`
+基础上，本机 Docker Desktop 29.9.2 使用缓存 `freshlink-app:p0`（Python 3.14）和
+`postgres:18`，通过仓库 `compose.a01-tests.yml` 建立唯一内部网络、tmpfs 临时测试库；
+源码只读挂载，未拉镜像、未访问应用数据库或真实通知服务。实际执行：
+`test_telemetry_recovery_outbox_candidate`、
+`test_telemetry_data_quality_correction_candidate`，以及 PostgreSQL 严格回归中的
+`test_saved_recovery_observation_uses_caller_pg_transaction`、
+`test_late_invalid_reception_persists_held_correction_idempotently`、
+`test_late_message_conflict_persists_held_correction_idempotently`：
+**31 passed / 0 failed / 0 skipped**。该 PG 回归实际验证外层回滚、重放幂等、被篡改证据
+保持原进度、晚到 invalid/conflict 记录生成稳定 UUID、更正记录保持 `held_contract`
+且不能被领取。专属容器与网络已清理。
+
+同一源码的 Ruff lint、Ruff format 和三个生产模块 mypy 均通过；6 个 Python 文件 AST
+解析通过，`git diff --check` 通过。主机 Python 仍为 3.13.9 且无 SQLAlchemy；实际测试
+运行于项目 Python 3.14 镜像中。本结果是 C 候选函数与严格临时 PostgreSQL 回归，不是
+正式 Alembic 发布、A 门禁接线、自动告警恢复或完整 E1。
+
+## 2026-10-25 详情接收证据 UTC 顺序与跨模块辅助边界
+
+C [PR #11 最终 `6474de86a30da1ebe1c36716583d198bc94b5a01`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+修复观测详情中同一秒的整秒与带小数 UTC 接收时间按文本排序会颠倒的问题。
+候选 HTTP 回归使用独立测试库实际保存同一消息的整秒首次接收、100 ms 冲突
+和 500 ms 重复，断言详情按真实时刻返回且原始值不被覆盖。初次提交时
+Codex 隔离 Python3.13 缺业务依赖，只做 AST、Ruff0.16.9、差异和有限公开
+安全检查；随后在本人 Windows 用户会话以 Python3.14.3、uv0.9.26、
+原 `uv.lock` 的 `--frozen` 模式安装到**工作区旁独立虚拟环境**，没有修改
+宿主 Python。以 `python -m unittest -q` 运行候选 HTTP、存储、历史、
+快照和质量五个模块，**64项实际通过/0失败**，均使用临时 SQLite；其中
+HTTP 文件 **8/8**，含本次混合精度详情回归。**没有在此机运行 PostgreSQL、
+主程序或第二机完整业务**。
+
+同一锁定环境另外执行 B 历史 F02→C 多批、B 原异常恢复规则→C 绑定、
+C 规则评价/恢复窗口/恢复 outbox 五个模块，`python -m unittest -q`
+**51项实际通过/0失败/0跳过**。这两项 B/C 测试调用实际 B 规则服务，
+A 设备门禁在 SQLite 用例中仍为合成替身；不能记作真实 PG 并发、B 接受
+恢复、通知外发或 E1。两个本机分组共 115 个不同测试方法，均为临时 SQLite。
+[最终头 Backend run 40166876095](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40166876095)
+在云端 Python3.14.8 执行 `test_telemetry_http_candidate.py` 8 项，整仓
+**1219通过/12跳过/165 warnings/92%**，另五项适用检查成功。首头
+`c7f56c0…` 曾因 Ruff 格式门禁失败，随后 `6474de8…` 以项目指定版本修正并
+在新头通过，不沿用旧红灯或把 12 跳过写成通过。
+
+C 协助 B 的通知队列扫描修复在**另一独立分支** [Draft PR #72
+`b4027b0cba293d3fb05262524397a3d7fd87ad35`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/72)，
+不属于 C PR #11 或当前 main。[辅助头 Backend run 40115858437](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40115858437)
+在 Python3.14.8 执行包含通知 runner 19 项的整仓 **687通过/80 warnings/93%**；
+它使用合成 transport、没有真实通知外发。B PR #10 尚须整合后的精确头复审，
+不能将辅助头检查并入 B 正式功能完成数。两渠道终端实收、自动恢复、
+第二机同版主程序及完整 E1 均未验收。
+
+本轮另用本人 Windows 用户会话只读定位 per-user Docker CLI：它不在
+`PATH`，但通过 `%LOCALAPPDATA%/Programs/DockerDesktop/resources/bin/docker.exe`
+可读取 Client/Server 29.9.2 与 Compose 5.6.1；镜像/运行容器清单为空。
+没有拉镜像、运行项目或改系统配置。此复核已补到 A [PR #61](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/61#issuecomment-6394180967)，
+不能替代同版离线包、独立哈希或第二机业务验证。
+
+## 2026-10-24 恢复新鲜度候选与第二机 Docker 环境
+
+C 分支完整 `a30e8b608e5c8bfd4e8e579984a493665647d7cf`，已正常合入
+共同 main `0d12cf56f569223f78ad7fcb1edcc25e05bafb02`；相对 main
+behind 0/ahead 11。C 只读 `check_recovery_freshness_candidate` 在 A 完整
+接纳前沿锁内核对冻结身份、epoch、证据版本、原异常和恢复窗口；严格 PostgreSQL
+回归覆盖当时可读、晚到非法接收后 hold、证据版本改变后 hold。此检查不发 B 网络，
+锁释放后仍有新接纳竞态，不能称自动恢复完成；B 的晚到坏证据更正事件语义见
+[#5 待确认](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6384562071)。
+
+本人 Windows 仅做 AST 语法和 `git diff --check`；本机项目 Python3.13 缺
+SQLAlchemy，没有运行此 PG 测试。精确头
+[Backend run 40096723151](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40096723151)
+使用项目 Python3.14.8，受控 PG 严格文件实际执行，**1217 passed / 12
+skipped / 161 warnings / 92% 覆盖**；同头另五项适用 Actions 均 success。
+12 skipped 仍为未执行项目，不能以总数替代完整 E1。
+
+第二台 Windows 已经本人同意安装官方 Docker Desktop。安装包有效 Docker Inc
+签名，按 per-user 模式安装；本机实际 `docker version` 为 CLI/ Linux x86_64
+engine 29.9.2，Compose v5.6.1。没有拉镜像、收到 A 的最终同版离线包与独立
+哈希、启动/登录应用、测试真实 PostgreSQL/MQTT 业务或两个真实收件终端。
+下一步需要 A 私下交付最终同版包与独立哈希，再在此电脑按实际版本复现。
+
+## 2026-10-24 多批原子评价与恢复规则夹具修复
+
+精确 C HEAD `45c22e3ad7ede0d4fd02206b7b244285c284d3e8`，共同 main
+`df3b3eda409924d05bb0b45c392d9041cd2611a9`。本机 Windows 项目隔离
+Python3.13/SQLite 运行相关 unittest **37项、35通过/2跳过**（需项目
+Python3.14 的真实 B 服务集成测试跳过）；Ruff lint/format、单文件 mypy
+和 `git diff --check` 通过。先前 `8db5a40e4270ff6f6d704b47976e3bae40bc17f5`
+远端 Backend 1 项失败，定位为 C 测试夹具将 B F02 规则 `candidate_kind`
+误写成 F03 `temperature_high`；`903f5230d0482b2e751fdaf0a70c5dc1761f228a`
+改为实际 F02 `threshold_high`，不改 F03 事件类型。
+
+[当前 Backend run 40074918444](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40074918444)
+项目 Python3.14/受控 PG **1214 passed/12 skipped/161 warnings、92%**；
+实际 B 历史 F02 多批/恢复集成测试与严格 PG 门禁文件 5 项在日志中均执行。
+相同 SHA 适用六项检查 completed/success；12 skipped 不算通过，通用
+Playwright 不算 C 页面联调。本人电脑 Docker CLI 未找到，未运行本机 PG/MQTT
+或重启验证；第二机仅只读预检、未收到 A 的离线包。A 多批 caller、自动恢复、
+B 可靠外发/真实双收件和完整 E1 未验。
+
 ## 2026-10-23 历史 B 规则与 C 高温门禁同版组合
 
 业务头 `8d6026367119c79cae00bf5e1a4ab7dfe37563a3`，测试夹具修复头
