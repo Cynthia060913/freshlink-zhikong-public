@@ -267,7 +267,7 @@ class CorrectionWireCandidateTests(unittest.TestCase):
                     .where(observations.c.id == UUID(OBSERVATION_ID))
                     .values(raw_payload=changed_raw)
                 )
-                with self.assertRaisesRegex(ValueError, "stored quality differs"):
+                with self.assertRaisesRegex(ValueError, "raw_text and raw_payload"):
                     prepare_held_correction_wire_on_connection_candidate(
                         connection, source_event_id=UUID(CORRECTION_ID)
                     )
@@ -278,6 +278,16 @@ class CorrectionWireCandidateTests(unittest.TestCase):
                     .values(raw_payload=raw, quality=["missing_metric:humidity"])
                 )
                 with self.assertRaisesRegex(ValueError, "stored quality differs"):
+                    prepare_held_correction_wire_on_connection_candidate(
+                        connection, source_event_id=UUID(CORRECTION_ID)
+                    )
+            with engine.begin() as connection:
+                connection.execute(
+                    update(observations)
+                    .where(observations.c.id == UUID(OBSERVATION_ID))
+                    .values(quality=["ok"], raw_text=json.dumps(changed_raw))
+                )
+                with self.assertRaisesRegex(ValueError, "raw_text and raw_payload"):
                     prepare_held_correction_wire_on_connection_candidate(
                         connection, source_event_id=UUID(CORRECTION_ID)
                     )

@@ -1,5 +1,10 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+原始观测复核后又补 `raw_text`/`raw_payload` 一致性拒绝；本后续增量在项目
+Python3.14.8 定向 C unittest **7/7**、Ruff/mypy 通过，尚未重新跑完整本机
+PG 1370 项；下节 JUnit SHA 只属于此前 `0a3e2dcd39dfa8b43ee76e149d45f5cbae335dad`。
+更正仍 held/attempt0，远端新头 CI 与 E1 分别待核。
+
 ## 2026-10-25 C 更正原始观测复核增量（M03/E1 未签收）
 
 在 C 更正 wire 只读准备中复核关联原温度异常的持久 raw/规范值/质量/采样
