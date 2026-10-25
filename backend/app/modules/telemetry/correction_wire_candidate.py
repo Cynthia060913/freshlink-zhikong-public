@@ -19,6 +19,10 @@ from sqlalchemy.engine import Connection
 from app.modules.telemetry.data_quality_correction_candidate import (
     _correction_source_id,
 )
+from app.modules.telemetry.envelope_preview import (
+    _reject_json_constant,
+    _unique_json_object,
+)
 from app.modules.telemetry.f03_body_candidate import (
     f03_digest_candidate,
     normalize_f03_body_candidate,
@@ -259,6 +263,18 @@ def prepare_held_correction_wire_on_connection_candidate(
     )
     if saved is None:
         raise ValueError("original anomaly observation is missing")
+    try:
+        parsed_raw = json.loads(
+            saved["raw_text"],
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+        if not isinstance(parsed_raw, dict) or _canonical(parsed_raw) != _canonical(
+            saved["raw_payload"]
+        ):
+            raise ValueError("original raw_text and raw_payload differ")
+    except (TypeError, RecursionError, ValueError) as exc:
+        raise ValueError("original raw_text and raw_payload differ") from exc
     sample = _sample_from_saved(saved, batch_id=UUID(projection.body["batch_id"]))
     original_body = original["body"]
     if (
