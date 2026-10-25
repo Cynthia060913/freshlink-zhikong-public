@@ -96,7 +96,7 @@ class GatedRecoveryObservationTests(unittest.TestCase):
                     rules=[
                         {
                             "metric_code": "temperature",
-                            "candidate_kind": "threshold_high",
+                            "candidate_kind": "temperature_high",
                             "severity": "warning",
                             "threshold_high": 8,
                             "unit": "°C",

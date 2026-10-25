@@ -125,6 +125,12 @@ class GatedRecoveryObservationWorker:
             )
             if rule is None:
                 return held("historical_rule_missing")
+            # Same narrow F02 compatibility as A's high evaluator: older B
+            # snapshots stored F03's temperature_high spelling. Normalize the
+            # copied kind only; never rewrite the immutable snapshot, identity,
+            # threshold, comparator or historical effective interval.
+            if rule.get("kind") == "temperature_high":
+                rule = {**rule, "kind": "threshold_high"}
             device_id, warehouse_id = owner
             epoch = self._epochs[device_id]
             with self.engine.connect() as connection:
