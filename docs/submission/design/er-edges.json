@@ -1,0 +1,227 @@
+{
+  "source": "71e5a8820ee966db1b250afaf0a72143a4bdc62b",
+  "arrows": "referenced parent to referencing child; no invented cross-module FK",
+  "edges": [
+    {
+      "figure": "tikz_er_a",
+      "child_node": "heartbeat",
+      "parent_node": "device",
+      "child": "iot_heartbeat_message",
+      "parent": "iot_device",
+      "columns": [
+        "device_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_a",
+      "child_node": "event",
+      "parent_node": "device",
+      "child": "iot_connectivity_event",
+      "parent": "iot_device",
+      "columns": [
+        "device_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_a",
+      "child_node": "command",
+      "parent_node": "device",
+      "child": "iot_command",
+      "parent": "iot_device",
+      "columns": [
+        "device_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_a",
+      "child_node": "attempt",
+      "parent_node": "command",
+      "child": "iot_command_attempt",
+      "parent": "iot_command",
+      "columns": [
+        "command_id"
+      ],
+      "target": [
+        "command_id"
+      ]
+    },
+    {
+      "figure": "tikz_er_a",
+      "child_node": "receipt",
+      "parent_node": "command",
+      "child": "iot_command_receipt",
+      "parent": "iot_command",
+      "columns": [
+        "command_id"
+      ],
+      "target": [
+        "command_id"
+      ]
+    },
+    {
+      "figure": "tikz_er_b",
+      "child_node": "batch",
+      "parent_node": "warehouse",
+      "child": "alerts_batch",
+      "parent": "alerts_warehouse",
+      "columns": [
+        "warehouse_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_b",
+      "child_node": "rule",
+      "parent_node": "batch",
+      "child": "alerts_batch_rule_snapshot",
+      "parent": "alerts_batch",
+      "columns": [
+        "batch_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_b",
+      "child_node": "event",
+      "parent_node": "batch",
+      "child": "alerts_event",
+      "parent": "alerts_batch",
+      "columns": [
+        "batch_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_b",
+      "child_node": "event",
+      "parent_node": "warehouse",
+      "child": "alerts_event",
+      "parent": "alerts_warehouse",
+      "columns": [
+        "warehouse_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_b",
+      "child_node": "status",
+      "parent_node": "event",
+      "child": "alerts_status_transition",
+      "parent": "alerts_event",
+      "columns": [
+        "alert_event_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_b",
+      "child_node": "attempt",
+      "parent_node": "event",
+      "child": "alerts_notification_attempt",
+      "parent": "alerts_event",
+      "columns": [
+        "alert_event_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_c",
+      "child_node": "reception",
+      "parent_node": "observation",
+      "child": "telemetry_reception_candidate",
+      "parent": "telemetry_observation_candidate",
+      "columns": [
+        "observation_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_c",
+      "child_node": "quality",
+      "parent_node": "observation",
+      "child": "telemetry_quality_tag_candidate",
+      "parent": "telemetry_observation_candidate",
+      "columns": [
+        "observation_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_c",
+      "child_node": "evaluation",
+      "parent_node": "observation",
+      "child": "telemetry_evaluation_candidate",
+      "parent": "telemetry_observation_candidate",
+      "columns": [
+        "observation_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_c",
+      "child_node": "outbox",
+      "parent_node": "observation",
+      "child": "telemetry_candidate_outbox_candidate",
+      "parent": "telemetry_observation_candidate",
+      "columns": [
+        "observation_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_c",
+      "child_node": "member",
+      "parent_node": "observation",
+      "child": "telemetry_snapshot_member_candidate",
+      "parent": "telemetry_observation_candidate",
+      "columns": [
+        "observation_id"
+      ],
+      "target": [
+        "id"
+      ]
+    },
+    {
+      "figure": "tikz_er_c",
+      "child_node": "member",
+      "parent_node": "snapshot",
+      "child": "telemetry_snapshot_member_candidate",
+      "parent": "telemetry_snapshot_candidate",
+      "columns": [
+        "snapshot_id"
+      ],
+      "target": [
+        "id"
+      ]
+    }
+  ]
+}
