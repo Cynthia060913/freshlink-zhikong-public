@@ -42,10 +42,27 @@ dry-run 零发送零 attempt → 合成 SMTP 成功/APP 暂时失败 → 新进�
 
 ## 当前实际证据与尚缺
 
-本轮两文件接入后，真实临时 PG 专项 **60 passed**：运行器19、派发28、A并发13；
-唯一迁移链 upgrade/check 通过，清理后本项目容器/网络均为空。该专项未覆盖前端。
-进程组合证据以实际运行生成的 `notification-composition.json` 与 cleanup 为准，
-本说明不预先声明该入口已通过。
+2026-10-25 15:23（北京时间）精确代码提交
+`1b7a9d91e6a8a426eb4995e7f9114bff1a399ba7`，工作区干净：
+
+- 完整隔离后端 **1341 个实际 testcase，零失败/错误/跳过，覆盖率92%**，不是 XML
+  顶层累计计数。包括新增 A 启动适配9项、B/C runner19项、A并发13项。
+  证据 `work/a01-tests-20261025152326-45864/pytest.xml`，SHA256
+  `560c8081ef6f1ede487a7eda8d307e904cde8441c54f25dc405e2ed6ca0fbcad`。
+- 唯一 Alembic 链空库 upgrade/check 通过。真实 MQTT→四个 CLI→C PG→TCP B
+  告警→独立 B runner 合成渠道链通过；A 默认启动模块实际 dry-run，四个新的
+  runner 进程验证0/2/3/3条持久 attempt、只补缺失 APP、不重复发送。
+  `work/gated-ee06fdf2492f4b3d9b5205f3eb58c7dc/notification-composition.json`，SHA256
+  `259a82ba46f188fd5c757aa88036cbb402503031d7e39b0a3c28afca5b728f43`。
+- 两个专属项目清理后容器/网络均为空；运行子进程无强制 kill，四个角色正常退出0。
+  Uvicorn 完成优雅关闭后按框架行为重抛 owner SIGTERM（-15），不是零退出；
+  未初始化范围探针预期失败1。没有连接原数据库、改宿主 Python或外发通知。
+- 启动器 mypy、三份新 Python 文件 Ruff 检查通过；有限公开文本扫描无检出，
+  不等于历史/图片/评论或完整安全审计。
+
+该版本仍包含 A53 已验证的 C45 业务源码；C 后续 freshness/HTTP 增量不在这次
+组合内，不能把它写成最新 C 已接线。后续仅文档记录变化不重跑相同全部回归；
+新增业务源码需再核对相关专项。
 
 仍需：B 复核采用 C 的修复、C 对精确 A 候选审查；发送者和接收者私密配置、
 具体发送许可、两渠道终端实收；C 恢复/修正契约及实际调度、完整同版 E1；
