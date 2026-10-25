@@ -1,5 +1,29 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 恢复发前原始观测复核与同头完整 PG 回归
+
+在已同步共同 main `7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e` 的
+C 分支 `be22199637aa6010b1cfe82940a106397c44e122` 上增加本次变更：
+恢复发前只读检查重新由保存的原始 JSON 计算原高温及窗口样本的归一化值和
+质量标记，并核原异常温度/采样时刻。既有测试夹具改为符合实际保存格式，
+新增原高温与恢复窗口各一次篡改 `raw_payload`、而正文/前沿不变时应保守
+`held/invalid_stored_evidence`，还原后仍 `ready_at_check` 的真实 PG 回归。
+
+本人 Windows 上运行仓库 `scripts/windows/check-a01-acceptance.ps1`：使用已
+缓存 `freshlink-app:p0`（Python 3.14.8）及 `postgres:18`，本轮唯一项目
+`a01-tests-20261025200503-30336` 的内部网络、tmpfs 测试库，执行唯一
+Alembic 链至 C01、`alembic check`、初始化测试数据、整仓 pytest 与 90% 覆盖率
+门禁。结果 **1353 passed / 0 failed / 0 skipped / 2 warnings / 92%**，
+运行 268.26 秒；JUnit `pytest.xml` SHA256
+`2c0cacb3c83a9038cf28dc6fc04ae72176ef8eb0bd914ee13352630f3c093c27`
+（原件保存在忽略的本机 `work/a01-tests-20261025200503-30336`）。脚本退出码
+0，独立按本项目标签回读容器/网络均为空。只读镜像内 Ruff lint/format 两文件
+通过，mypy 单生产文件通过；首次 Ruff 因只读源码挂载下默认缓存无法创建
+而未执行，设置临时缓存目录后成功，不改源码挂载或降低检查。
+
+这是本机同头隔离 PG 的模块和整仓回归；没有启用恢复发送、B 关联更正
+HTTP、通知实收，也没有把本候选放进最终同版第二机包或签收 E1。
+
 ## 2026-10-25 跨冷库归属冲突的 PostgreSQL 定向复测
 
 在已同步共同 main `7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e`

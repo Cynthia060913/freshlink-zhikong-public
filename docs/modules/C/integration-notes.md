@@ -1073,3 +1073,28 @@ A 最小接线位置是现有 `GatedHighWorker.evaluate` 的 `len(active) != 1` 
 返回的 `source_event_ids` 仅表示已提交的高温候选，不是 B 已接收、投递或实收。
 当前 SQLite 单测 Mock A 写门禁，真实 PG 同头锁/事务、A caller 和 B F02 多批
 组合仍需项目 Python3.14/受控 PG 复测；在此之前端口是可审核候选，不是 E1。
+
+## 2026-10-24：恢复发送前只读新鲜度检查（不启用发送）
+
+`recovery_freshness_candidate.check_recovery_freshness_candidate(engine, *,
+recovery_source_event_id, device_id, warehouse_id, stream_epoch)` 在受控 PG
+事务中取得 A 同设备前沿锁，核冻结的设备/仓库/epoch/接纳序列/证据 revision
+仍与当前一致；再核原异常已投递、恢复窗口仍合格、冻结正文与窗口观测集合一致、
+原始及恢复观测的质量/温度/时间，以及原异常接收后有无未解决的 invalid/conflict
+接收或重复冲突。返回 `ready_at_check`、`held` 或 `retryable_failure`，原因仅固定错误码。
+该入口不认领 outbox、不访问 B、不发网络请求、不把告警标记 resolved。
+发前检查还会重算冻结恢复正文与原异常正文各自的 F03 摘要，拒绝入库后被改动的
+正文；即使摘要与正文一致，原事件也必须仍是同来源、同观测、同批次和同采样
+时刻的 `temperature_high`。这些都是必要的持久证据检查，不能替代 B 已受理恢复
+后的更正事件契约。
+本轮再按保存的原始 JSON 重算原高温及恢复窗口每个观测的归一化/质量，核对
+原高温正文的温度和采样时刻；原文与保存的派生值不一致时返回 `held`，不得
+单凭未变化的冻结前沿或 F03 正文放行。缺湿度但真实高温仍依原数据质量规则
+处理，不把它删成脏数据。
+
+锁在检查事务结束后释放，因此 `ready_at_check` 只代表该时点；后续新证据仍可能
+到达。正式恢复 sender 必须设计认领与发送前复核的调用顺序，并落实 B 对已受理
+恢复后晚到坏证据的更正事件语义及关联 ID/通知展示，才能启用。当前 A 的
+`deliver-high` 只处理高温，恢复仍排除；不能把此只读端口或合成测试表述为 E1
+自动恢复闭环。项目 Python3.14/专属 PG 的精确测试结果见同头 CI/证据，未实跑
+前保持待测。
