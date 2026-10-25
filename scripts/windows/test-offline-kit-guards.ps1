@@ -85,3 +85,59 @@ foreach($case in $cases){
     Require-Rejection $fixture $hash
 }
 Write-Output ('PASS valid Unicode ZIP and '+$cases.Count+' corruption cases rejected without Docker; evidence='+$run)
+
+# Pure discovery regressions: empty placeholder executables are NEVER executed.
+# Environment overrides are process-only and restored even when an assertion fails.
+$discoveryKeys=@('PATH','ProgramFiles','LOCALAPPDATA','DOCKER_HOST','DOCKER_CONTEXT')
+$discoverySaved=@{}
+foreach($key in $discoveryKeys){$discoverySaved[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+$discoveryChecks=0
+try {
+    $env:PATH=''
+    $env:ProgramFiles=Join-Path $run 'empty-system'
+    $env:LOCALAPPDATA=Join-Path $run 'empty-local'
+    if(Find-OfflineDockerExecutable){throw 'Missing CLI should remain unavailable'}
+    $discoveryChecks++
+    foreach($layout in @('system','per-user-programs','per-user-docker')){
+        $base=Join-Path $run ('CLI 空格 '+$layout)
+        $env:ProgramFiles=Join-Path $base 'system'
+        $env:LOCALAPPDATA=Join-Path $base 'local'
+        $expected=switch($layout){
+            'system' {Join-Path $env:ProgramFiles 'Docker/Docker/resources/bin/docker.exe'}
+            'per-user-programs' {Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/resources/bin/docker.exe'}
+            'per-user-docker' {Join-Path $env:LOCALAPPDATA 'Docker/resources/bin/docker.exe'}
+        }
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $expected))|Out-Null
+        [IO.File]::WriteAllText($expected,'synthetic placeholder - never execute')
+        if((Find-OfflineDockerExecutable) -ne $expected){throw 'Official no-PATH discovery failed'}
+        # A function named docker cannot replace an application executable.
+        & {
+            function docker {throw 'Synthetic shell function must never be called'}
+            if((Find-OfflineDockerExecutable) -ne $expected){throw 'Shell shim shadowed official CLI discovery'}
+        }
+        $discoveryChecks+=2
+    }
+    if([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT){
+        $bin=Join-Path $run 'CLI PATH优先'
+        [IO.Directory]::CreateDirectory($bin)|Out-Null
+        $expected=Join-Path $bin 'docker.exe'
+        [IO.File]::WriteAllText($expected,'synthetic placeholder - never execute')
+        $env:PATH=$bin
+        if((Find-OfflineDockerExecutable) -ne $expected){throw 'PATH executable should retain precedence'}
+        $discoveryChecks++
+    }
+    # Explicit remote/context overrides must still fail before discovery or I/O.
+    foreach($key in @('DOCKER_HOST','DOCKER_CONTEXT')){
+        $env:DOCKER_HOST='';$env:DOCKER_CONTEXT=''
+        [Environment]::SetEnvironmentVariable($key,'synthetic-remote-override','Process')
+        $blocked=$false
+        try {[void](Get-OfflineLocalDocker)}catch{
+            $blocked=$_.Exception.Message -eq 'Unset explicit Docker host/context overrides before local proof'
+        }
+        if(-not $blocked){throw 'Explicit remote override was not refused before CLI execution'}
+        $discoveryChecks++
+    }
+} finally {
+    foreach($key in $discoveryKeys){[Environment]::SetEnvironmentVariable($key,$discoverySaved[$key],'Process')}
+}
+Write-Output ('PASS '+$discoveryChecks+' pure CLI discovery/remote-override checks; no Docker executable was run')

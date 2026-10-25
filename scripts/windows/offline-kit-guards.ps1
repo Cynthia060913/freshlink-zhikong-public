@@ -75,9 +75,27 @@ function Assert-OfflineKit([string]$Directory,[string]$ExpectedManifestSha256) {
     return $manifest
 }
 
+function Find-OfflineDockerExecutable {
+    # Discovery only: no installation, PATH change or engine operation. Ignore
+    # aliases/functions and keep the same official Desktop layouts as common.ps1.
+    $command=Get-Command docker -CommandType Application -ErrorAction SilentlyContinue|Select-Object -First 1
+    if($command -and (Test-Path -LiteralPath $command.Source -PathType Leaf)){return $command.Source}
+    $locations=@()
+    if($env:ProgramFiles){$locations+=Join-Path $env:ProgramFiles 'Docker/Docker/resources/bin/docker.exe'}
+    if($env:LOCALAPPDATA){
+        $locations+=Join-Path $env:LOCALAPPDATA 'Programs/DockerDesktop/resources/bin/docker.exe'
+        $locations+=Join-Path $env:LOCALAPPDATA 'Docker/resources/bin/docker.exe'
+    }
+    foreach($location in $locations){
+        if(Test-Path -LiteralPath $location -PathType Leaf){return $location}
+    }
+    return $null
+}
+
 function Get-OfflineLocalDocker {
     if($env:DOCKER_HOST -or $env:DOCKER_CONTEXT){throw 'Unset explicit Docker host/context overrides before local proof'}
-    $docker=(Get-Command docker -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
+    $docker=Find-OfflineDockerExecutable
+    if(-not $docker){throw 'Local Docker Desktop CLI not found in PATH or official install locations; no installation or system change was attempted'}
     $endpoint=(& $docker context inspect --format '{{.Endpoints.docker.Host}}'|Out-String).Trim()
     if($LASTEXITCODE -or $endpoint -notmatch '^npipe://'){throw 'Only a local Windows named-pipe Docker Desktop engine is allowed'}
     $platform=(& $docker info --format '{{.OSType}}/{{.Architecture}}'|Out-String).Trim()
