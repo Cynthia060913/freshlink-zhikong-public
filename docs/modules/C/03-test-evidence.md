@@ -1,5 +1,25 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 同连接恢复端口与晚到更正持久化
+
+在 C 分支 `feature/c-data-quality-bootstrap` 的 `09823df9b7ab5c884813aa46fa7dc1a05bc3cc7f`
+基础上，本机 Docker Desktop 29.9.2 使用缓存 `freshlink-app:p0`（Python 3.14）和
+`postgres:18`，通过仓库 `compose.a01-tests.yml` 建立唯一内部网络、tmpfs 临时测试库；
+源码只读挂载，未拉镜像、未访问应用数据库或真实通知服务。实际执行：
+`test_telemetry_recovery_outbox_candidate`、
+`test_telemetry_data_quality_correction_candidate`，以及 PostgreSQL 严格回归中的
+`test_saved_recovery_observation_uses_caller_pg_transaction`、
+`test_late_invalid_reception_persists_held_correction_idempotently`、
+`test_late_message_conflict_persists_held_correction_idempotently`：
+**31 passed / 0 failed / 0 skipped**。该 PG 回归实际验证外层回滚、重放幂等、被篡改证据
+保持原进度、晚到 invalid/conflict 记录生成稳定 UUID、更正记录保持 `held_contract`
+且不能被领取。专属容器与网络已清理。
+
+同一源码的 Ruff lint、Ruff format 和三个生产模块 mypy 均通过；6 个 Python 文件 AST
+解析通过，`git diff --check` 通过。主机 Python 仍为 3.13.9 且无 SQLAlchemy；实际测试
+运行于项目 Python 3.14 镜像中。本结果是 C 候选函数与严格临时 PostgreSQL 回归，不是
+正式 Alembic 发布、A 门禁接线、自动告警恢复或完整 E1。
+
 ## 2026-10-25 详情接收证据 UTC 顺序与跨模块辅助边界
 
 C [PR #11 最终 `6474de86a30da1ebe1c36716583d198bc94b5a01`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)

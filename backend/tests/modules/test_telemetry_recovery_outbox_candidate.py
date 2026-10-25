@@ -23,6 +23,7 @@ from app.modules.telemetry.delivery_candidate import (
 from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.recovery_observation_candidate import (
     advance_saved_recovery_observation_candidate,
+    advance_saved_recovery_observation_on_connection_candidate,
 )
 from app.modules.telemetry.recovery_observation_scan_candidate import (
     scan_saved_recovery_observations_candidate,
@@ -312,9 +313,27 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             ("held_invalid_evidence", "unresolved_reception_evidence"),
         )
         with self.engine.connect() as connection:
-            self.assertEqual(
-                connection.scalar(select(func.count()).select_from(outbox)), 1
+            original = (
+                connection.execute(
+                    select(outbox).where(outbox.c.source_event_id == _ORIGINAL)
+                )
+                .mappings()
+                .one()
             )
+            corrections = (
+                connection.execute(
+                    select(outbox).where(outbox.c.related_source_event_id == _ORIGINAL)
+                )
+                .mappings()
+                .all()
+            )
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(outbox)), 2
+            )
+        self.assertEqual(original["state"], "delivered")
+        self.assertEqual(len(corrections), 1)
+        self.assertEqual(corrections[0]["state"], "held_contract")
+        self.assertEqual(corrections[0]["attempt_count"], 0)
 
     def test_reused_reception_id_conflict_also_holds_recovery(self) -> None:
         self.progress(10, 50, 130)
@@ -804,6 +823,82 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
             self.assertEqual(
                 connection.scalar(select(func.count()).select_from(outbox)), 1
             )
+
+    def test_saved_observation_connection_uses_outer_rollback_and_idempotent_replay(
+        self,
+    ) -> None:
+        observation_id = self.ingest(10, 6.5)
+        args = {
+            "original_source_event_id": _ORIGINAL,
+            "observation_id": observation_id,
+            "batch_id": _BATCH,
+            "historical_rule": _selection(),
+        }
+
+        with self.engine.connect() as connection:
+            with self.assertRaisesRegex(ValueError, "open caller transaction"):
+                advance_saved_recovery_observation_on_connection_candidate(
+                    connection, **args
+                )
+            transaction = connection.begin()
+            staged = advance_saved_recovery_observation_on_connection_candidate(
+                connection, **args
+            )
+            self.assertEqual((staged.status, staged.decision), ("advanced", "progress"))
+            transaction.rollback()
+        self.assertIsNone(load_recovery_progress(self.engine, _ORIGINAL))
+
+        with self.engine.begin() as connection:
+            committed = advance_saved_recovery_observation_on_connection_candidate(
+                connection, **args
+            )
+            replay = advance_saved_recovery_observation_on_connection_candidate(
+                connection, **args
+            )
+            self.assertEqual(
+                (committed.status, committed.decision), ("advanced", "progress")
+            )
+            self.assertEqual(
+                (replay.status, replay.decision), ("advanced", "duplicate")
+            )
+        saved = load_recovery_progress(self.engine, _ORIGINAL)
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.observation_ids, (observation_id,))
+
+    def test_saved_observation_connection_holds_tampered_evidence_without_writes(
+        self,
+    ) -> None:
+        observation_id = self.ingest(10, 6.5)
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    select(observations).where(observations.c.id == observation_id)
+                )
+                .mappings()
+                .one()
+            )
+            raw = dict(row["raw_payload"])
+            raw["device_id"] = str(uuid4())
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == observation_id)
+                .values(raw_payload=raw)
+            )
+
+        with self.engine.begin() as connection:
+            result = advance_saved_recovery_observation_on_connection_candidate(
+                connection,
+                original_source_event_id=_ORIGINAL,
+                observation_id=observation_id,
+                batch_id=_BATCH,
+                historical_rule=_selection(),
+            )
+            self.assertEqual(result.status, "held_invalid_evidence")
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(recovery_progress)),
+                0,
+            )
+        self.assertIsNone(load_recovery_progress(self.engine, _ORIGINAL))
 
     def test_invalid_time_replay_after_restart_cannot_reset_newer_progress(
         self,

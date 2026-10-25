@@ -1,5 +1,70 @@
 # C 共享接线请求
 
+## 2026-10-25 恢复观测同连接端口（待 A 接线）
+
+新增 `advance_saved_recovery_observation_on_connection_candidate(connection, ...)`，
+供 A 在设备接纳门禁持有的事务内调用。输入为原异常 UUID、已存观测 UUID、可信批次
+UUID和按原异常采样时刻选出的 B 历史规则。函数复核原 F03 摘要与关联、原始观测、
+身份、采样时刻、单位、质量标记及设备/冷库一致性，再调用同一 Connection 上的持久
+恢复窗口端口。它要求调用方先开启事务；不会另开连接、提交或回滚。证据错误返回
+`held_invalid_evidence`；SQL/并发持久化错误继续向外抛出，调用方必须回滚整个门禁
+事务。重复观测返回持久窗口的重复/冻结决策，不重复增加证据。
+
+原 `advance_saved_recovery_observation_candidate(engine, ...)` 现在只是兼容包装器，
+以 `engine.begin()` 调用上述端口；A 的门禁不能调用该包装器或
+`scan_saved_recovery_observations_candidate`，因为它们不能共享已持有的同一连接。
+接口仍是 C 模块候选，尚未接入 A 的生产门禁，也不触发自动告警恢复或 B 投递。
+
+## 2026-10-25 F03 关联数据质量更正候选（待 A/B 签收）
+
+`data_quality_correction_candidate.py` 在 C 已有候选 outbox 表可用时，由无效
+接收、同消息内容冲突或接收 ID 重用路径在接收事务内尝试生成一条关联更正。
+只处理同一已认证设备/冷库下、原异常已由 C 标为 `delivered` 且坏证据
+`received_at_utc >=` 原始观测 `first_received_at_utc` 的温度高/低事件。原异常
+行和历史不改写；原始坏输入仍只留在受限 reception audit 表。
+
+更正来源 ID 使用 UUIDv5：namespace 是原异常 `source_event_id`，名称为
+`c-data-quality-correction/v0:{evidence_kind}:{reception_id}:{receipt_sha256}`。
+接收 ID 重用使用被重用的 reception ID 与本次接收摘要，不使用审计行随机 UUID；
+相同重放因此得到同 ID，不同原始内容得到不同摘要和不同 ID。更正只包含摘要、
+受控 `reason_code`、接收 UTC 和关联 ID，不复制 raw payload。
+
+当前内部记录形状如下。它是 C 的隔离候选记录，**不是已接受的 F03 HTTP DTO**：
+
+```json
+{
+  "schema_version": "c-data-quality-correction/v0",
+  "source_event_id": "<UUIDv5>",
+  "kind": "data_quality",
+  "related_source_event_id": "<original-temperature-event-UUID>",
+  "warehouse_id": "<trusted-warehouse-UUID>",
+  "observation_id": "<original-observation-UUID>",
+  "evidence": {
+    "evidence_kind": "reception",
+    "evidence_id": "<reception-UUID>",
+    "reason_code": "invalid_schema_version",
+    "outcome": "invalid",
+    "received_at_utc": "2026-10-25T08:00:00Z",
+    "raw_sha256": "<64 lowercase hex characters>",
+    "send_state": "held_until_f03_contract_acceptance"
+  }
+}
+```
+
+持久候选暂用现有 outbox 表的 `held_contract` 状态与
+`f03_data_quality_contract_unconfirmed` 错误码；C 的 due/claim 只认 `pending` 或
+到期 `leased`，所以该记录不会被 C 投递端领取。无 outbox 候选表时保留接收审计、
+不伪造更正入库，也不建新表或新迁移。当前恢复检查对晚到 invalid/conflict 仍返回
+hold；这项更正记录不会自动重开或关闭 B 的旧告警。
+
+**待 A/B 确认**：F03 是否接受 `kind=data_quality` 及 `related_source_event_id`；
+稳定 DTO 的必需字段、severity、`sampled_at` 与接收时间的语义、原异常/冷库/批次
+关联校验，以及 B 接收/幂等/冲突和列表双 ID 行为。在确认前记录保持 held，不走
+HTTP、不接 A worker、不算 E1 或正式 PostgreSQL 接入。Python 3.14.8 离线镜像内
+16 项目标测试通过；新增更正逻辑与回放/claim 测试使用隔离 SQLite，测试进程的
+标准应用夹具另外升级了唯一链到 C01 的临时 PostgreSQL。该组合不是更正表的
+PostgreSQL 并发/重启测试，也不是正式迁移或全链路验证。
+
 ## 2026-10-25 观测详情接收证据的时间顺序
 
 C 独立详情接口按接收时间的实际 UTC 时刻及接收 ID 稳定排序。
