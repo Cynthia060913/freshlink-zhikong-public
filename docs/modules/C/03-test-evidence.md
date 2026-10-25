@@ -1,5 +1,27 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-25 详情接收证据 UTC 顺序与跨模块辅助边界
+
+C [PR #11 最终 `6474de86a30da1ebe1c36716583d198bc94b5a01`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+修复观测详情中同一秒的整秒与带小数 UTC 接收时间按文本排序会颠倒的问题。
+候选 HTTP 回归使用独立测试库实际保存同一消息的整秒首次接收、100 ms 冲突
+和 500 ms 重复，断言详情按真实时刻返回且原始值不被覆盖。本人 Windows
+Python3.13 仅做 AST、Ruff0.16.9、差异和有限公开安全检查；缺项目
+FastAPI/SQLAlchemy，**没有在此机运行该业务测试或 PostgreSQL**。
+[最终头 Backend run 40166876095](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40166876095)
+在云端 Python3.14.8 执行 `test_telemetry_http_candidate.py` 8 项，整仓
+**1219通过/12跳过/165 warnings/92%**，另五项适用检查成功。首头
+`c7f56c0…` 曾因 Ruff 格式门禁失败，随后 `6474de8…` 以项目指定版本修正并
+在新头通过，不沿用旧红灯或把 12 跳过写成通过。
+
+C 协助 B 的通知队列扫描修复在**另一独立分支** [Draft PR #72
+`b4027b0cba293d3fb05262524397a3d7fd87ad35`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/72)，
+不属于 C PR #11 或当前 main。[辅助头 Backend run 40115858437](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40115858437)
+在 Python3.14.8 执行包含通知 runner 19 项的整仓 **687通过/80 warnings/93%**；
+它使用合成 transport、没有真实通知外发。B PR #10 尚须整合后的精确头复审，
+不能将辅助头检查并入 B 正式功能完成数。两渠道终端实收、自动恢复、
+第二机同版主程序及完整 E1 均未验收。
+
 ## 2026-10-24 恢复新鲜度候选与第二机 Docker 环境
 
 C 分支完整 `a30e8b608e5c8bfd4e8e579984a493665647d7cf`，已正常合入

@@ -1,5 +1,28 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-25 同版范围更新（M03/E1 仍未签收）
+
+本轮 C [PR #11 精确 `6474de86a30da1ebe1c36716583d198bc94b5a01`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
+新增详情接收证据的 UTC 混合精度排序回归，保留原始观测和重复/冲突结果。
+[对应 Backend run 40166876095](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40166876095)
+在云端 Python3.14.8/受控服务跑整仓 **1219通过、12跳过、165 warnings、
+92%**；该测试文件 8 项实际列入执行，另五项适用 Actions 成功。
+本人 Windows Python3.13 缺业务依赖，只完成 AST、Ruff、差异和有限安全
+检查，**没有本机业务/PG/主程序浏览器实测**。详情排序修复不是新增数据入库、
+正式导出或 E1 闭环。
+
+C 辅助 B 的 [Draft PR #72 精确 `b4027b0cba293d3fb05262524397a3d7fd87ad35`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/72)
+仅用合成传输复现单渠道通知扫描饥饿；[独立 Backend run 40115858437](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40115858437)
+为 687通过/80 warnings/93%。这是**另一分支、另一基线**，不得与 C 的
+1219 项相加，不代表 B 主 PR #10 已整合、实际 SMTP/飞书收件或恢复自动投递。
+A 在 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6)
+记录的真实 PG/MQTT/HTTP 分段证据按 A 精确组合来源保留，也不能与上述
+独立结果拼成同版完整 E1。当前仍缺 B 最终头复审、两渠道终端实收、恢复
+更正契约/自动发送、第二机同版业务及最终 M01—M05 材料签收。
+
+2026-10-24 已核验过 Docker Linux 引擎；本轮 Codex 执行身份未找到 Docker
+CLI，且没有收到可独立核哈希的最终同版包，因此未在此机启动或登录应用。
+
 ## 2026-10-24 C 恢复保守核对与第二机环境（M02/M03/E1 未签收）
 
 C [PR #11 精确 `a30e8b608e5c8bfd4e8e579984a493665647d7cf`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)
