@@ -13,6 +13,12 @@ Codex 隔离 Python3.13 缺业务依赖，只做 AST、Ruff0.16.9、差异和有
 快照和质量五个模块，**64项实际通过/0失败**，均使用临时 SQLite；其中
 HTTP 文件 **8/8**，含本次混合精度详情回归。**没有在此机运行 PostgreSQL、
 主程序或第二机完整业务**。
+
+同一锁定环境另外执行 B 历史 F02→C 多批、B 原异常恢复规则→C 绑定、
+C 规则评价/恢复窗口/恢复 outbox 五个模块，`python -m unittest -q`
+**51项实际通过/0失败/0跳过**。这两项 B/C 测试调用实际 B 规则服务，
+A 设备门禁在 SQLite 用例中仍为合成替身；不能记作真实 PG 并发、B 接受
+恢复、通知外发或 E1。两个本机分组共 115 个不同测试方法，均为临时 SQLite。
 [最终头 Backend run 40166876095](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40166876095)
 在云端 Python3.14.8 执行 `test_telemetry_http_candidate.py` 8 项，整仓
 **1219通过/12跳过/165 warnings/92%**，另五项适用检查成功。首头

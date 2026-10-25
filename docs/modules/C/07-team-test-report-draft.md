@@ -15,6 +15,11 @@ uv0.9.26 与原锁文件 `--frozen` 同步到工作区旁独立虚拟环境，�
 主程序或浏览器业务实测**。详情排序修复不是新增数据入库、
 正式导出或 E1 闭环。
 
+同一隔离环境又运行 B 历史 F02 与 C 多批/恢复规则、C 评价/恢复窗口/
+恢复 outbox 五个模块，**51项通过、0失败/跳过**；两项 B/C 用例直接调用
+B 规则服务，但 A 门禁为 SQLite 合成替身。两个本机分组共 **115个不同
+单测**，不能当真实 PG 门禁、自动恢复或完整 E1。
+
 C 辅助 B 的 [Draft PR #72 精确 `b4027b0cba293d3fb05262524397a3d7fd87ad35`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/72)
 仅用合成传输复现单渠道通知扫描饥饿；[独立 Backend run 40115858437](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40115858437)
 为 687通过/80 warnings/93%。这是**另一分支、另一基线**，不得与 C 的
