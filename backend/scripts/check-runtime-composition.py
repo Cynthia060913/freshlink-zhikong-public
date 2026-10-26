@@ -102,6 +102,7 @@ def run():
         )
 
     owned = []
+    expected_finished = set()
     publisher = None
     result = {}
 
@@ -137,6 +138,7 @@ def run():
                         "refresh-recovery",
                         "watch-recovery",
                     }
+                    and name not in expected_finished
                     and process.poll() is not None
                 ):
                     raise AssertionError("Runtime child exited: " + name)
@@ -655,6 +657,7 @@ def run():
                         wait_for(lambda: corrections()[0]["state"] == "delivered")
                         sender.terminate()
                         assert sender.wait(timeout=12) == 0
+                        expected_finished.add("deliver-correction")
                         final_correction = corrections()[0]
                         assert final_correction["body"] == held_correction["body"]
                         assert (
