@@ -23,6 +23,7 @@ from app.modules.telemetry.delivery_candidate import (
     deliver_once_candidate,
 )
 from app.modules.telemetry.outbox_candidate import (
+    DeliveryClaimCandidate,
     claim_candidate,
     due_source_ids_candidate,
     finish_candidate,
@@ -190,6 +191,38 @@ class CandidateDeliveryTests(unittest.TestCase):
             "lost_lease",
         )
         self.assertEqual((again.lookup_ids, again.sent_bodies), ([], []))
+
+    def test_claimed_port_does_not_send_before_claim_commit(self) -> None:
+        token = uuid4()
+        port = FakePort()
+        with self.engine.connect() as connection:
+            transaction = connection.begin()
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == self.source_id)
+                .values(
+                    state="leased",
+                    lease_token=token,
+                    lease_until_utc=NOW + timedelta(seconds=30),
+                    attempt_count=1,
+                )
+            )
+            claim = DeliveryClaimCandidate(
+                self.source_id,
+                token,
+                dict(self.body),
+                self._row()["body_sha256"],
+                1,
+            )
+            self.assertEqual(
+                deliver_claimed_candidate(self.engine, claim=claim, now=NOW, port=port),
+                "lost_lease",
+            )
+            transaction.rollback()
+        self.assertEqual((port.lookup_ids, port.sent_bodies), ([], []))
+        self.assertEqual(
+            (self._row()["state"], self._row()["attempt_count"]), ("pending", 0)
+        )
 
     def test_locally_incompatible_frozen_body_is_rejected_once(self) -> None:
         class MissingOnlyTransport:
