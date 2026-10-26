@@ -6,6 +6,7 @@ the historical B rule. This port does not schedule itself or resolve B alerts.
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,6 +17,10 @@ from sqlalchemy import select
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.modules.telemetry.envelope_preview import (
+    _reject_json_constant,
+    _unique_json_object,
+)
 from app.modules.telemetry.f03_body_candidate import (
     f03_digest_candidate,
     normalize_f03_body_candidate,
@@ -48,9 +53,26 @@ class RecoveryAdvanceResultCandidate:
 
 def _sample_from_saved(row: Any, *, batch_id: UUID) -> RecoverySampleCandidate:
     raw = row["raw_payload"]
+    raw_text = row["raw_text"]
     received_at = row["first_received_at_utc"]
-    if not isinstance(raw, dict) or not isinstance(received_at, datetime):
+    if (
+        not isinstance(raw, dict)
+        or not isinstance(raw_text, str)
+        or not isinstance(received_at, datetime)
+    ):
         raise ValueError("stored observation evidence is invalid")
+    try:
+        parsed_raw = json.loads(
+            raw_text,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+        if not isinstance(parsed_raw, dict) or json.dumps(
+            parsed_raw, sort_keys=True, ensure_ascii=False, allow_nan=False
+        ) != json.dumps(raw, sort_keys=True, ensure_ascii=False, allow_nan=False):
+            raise ValueError("stored raw_text differs from raw_payload")
+    except TypeError, ValueError, RecursionError, OverflowError:
+        raise ValueError("stored raw_text is invalid") from None
     if received_at.tzinfo is None:  # SQLite's test driver drops tzinfo.
         received_at = received_at.replace(tzinfo=UTC)
     view = deepcopy(raw)
