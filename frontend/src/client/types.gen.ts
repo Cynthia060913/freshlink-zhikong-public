@@ -23,6 +23,10 @@ export type AlertEventPublic = {
      */
     source_event_id: string;
     /**
+     * Related Source Event Id
+     */
+    related_source_event_id: string | null;
+    /**
      * Kind
      */
     kind: string;
