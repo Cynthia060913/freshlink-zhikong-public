@@ -426,6 +426,11 @@ def _correction_related_check(session: Session, payload: CandidateCreate) -> str
         or original.metric_code != "temperature"
         or payload.metric_code != "temperature"
     ):
+        # The correction is about THAT anomaly's evidence: it must
+        # name a TEMPERATURE anomaly in the same warehouse/batch —
+        # not a recovery (which is an ingestion record, not an
+        # alert), not a data_quality event, not a humidity anomaly
+        # (A review 5644143081 P1).
         return "related_event_mismatch"
     return None
 

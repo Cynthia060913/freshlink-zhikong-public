@@ -17,23 +17,30 @@ the original anomaly. Contract under test:
   a correction racing a real recovery on a second PG connection
   serializes behind it and must not regress the resolved state.
 
-Real PostgreSQL (shared test database); world rows use uuid-suffixed
-codes so reruns never collide, and committed alert rows are deleted
-again in tearDown so the shared database stays clean.
+Real PostgreSQL behind an explicit disposable-database gate (C review
+5651588362): setUp refuses to touch anything but an owned throwaway
+target — hosted CI's ``app`` database or a locally opted-in test
+database. World rows (warehouse/batches) use uuid-suffixed codes so
+reruns never collide, and tearDown deletes again everything this
+class created: transitions/attempts, alert events, batches and the
+warehouse.
 """
 
 from __future__ import annotations
 
+import os
 import threading
 import unittest
 import uuid
 from typing import Any
 
 from sqlalchemy import delete
+from sqlalchemy.engine import make_url
 from sqlmodel import Session, col, select
 
+from app.core.config import settings
 from app.core.db import engine
-from app.modules.alerts.models.batch import BatchCreate
+from app.modules.alerts.models.batch import Batch, BatchCreate
 from app.modules.alerts.models.event import (
     AlertEvent,
     AlertStatusTransition,
@@ -41,12 +48,48 @@ from app.modules.alerts.models.event import (
     CandidateKind,
     NotificationAttempt,
 )
-from app.modules.alerts.models.warehouse import WarehouseCreate
+from app.modules.alerts.models.warehouse import Warehouse, WarehouseCreate
 from app.modules.alerts.notifications.dispatch import build_envelope
 from app.modules.alerts.notifications.transport import NotificationKind
 from app.modules.alerts.services.batches import create_batch
 from app.modules.alerts.services.events import get_alert_status, receive_candidate
 from app.modules.alerts.services.warehouses import create_warehouse
+
+
+def _require_disposable_pg() -> None:
+    """Refuse any write outside an owned disposable database.
+
+    Mirrors the strict gate of
+    ``tests/integration/test_alert_lifecycle_concurrency.py``: hosted CI
+    (throwaway ``app`` database inside the workflow's container) or the
+    local docker test stack (``freshlink_test`` on ``test-db``). A local
+    run must additionally opt in via ``B01_CORRECTION_TEST_PG=1`` and
+    point at a database that is none of the shared/production names.
+    Without the gate the whole case skips — never runs blind.
+    """
+
+    if os.getenv("FRESHLINK_INBOX_TEST_POSTGRES") != "1":
+        raise unittest.SkipTest("requires controlled disposable PG entry")
+    url = make_url(str(settings.DATABASE_URL))
+    hosted = (
+        os.getenv("GITHUB_ACTIONS") == "true"
+        and os.getenv("CI") == "true"
+        and url.host in {"localhost", "127.0.0.1", "db"}
+        and url.database == "app"
+        and settings.FASTAPI_ENV == "development"
+    )
+    local_docker = (
+        url.host == "test-db"
+        and url.database == "freshlink_test"
+        and settings.PROJECT_NAME == "FreshLink-test"
+    )
+    local_opt_in = (
+        os.getenv("B01_CORRECTION_TEST_PG") == "1"
+        and url.host in {"localhost", "127.0.0.1", "test-db"}
+        and url.database not in {"app", "postgres", "freshlink", "freshlink_test"}
+    )
+    if not (hosted or local_docker or local_opt_in):
+        raise RuntimeError("refusing non-disposable correction world")
 
 
 def _candidate(**over: Any) -> CandidateCreate:
@@ -72,6 +115,9 @@ def _candidate(**over: Any) -> CandidateCreate:
 
 class CorrectionContractCase(unittest.TestCase):
     def setUp(self) -> None:
+        # Before ANY connection: refuse non-disposable targets (C review
+        # 5651588362). Nothing below runs when the gate is not satisfied.
+        _require_disposable_pg()
         suffix = uuid.uuid4().hex[:8]
         with Session(engine) as session:
             warehouse = create_warehouse(
@@ -97,28 +143,37 @@ class CorrectionContractCase(unittest.TestCase):
         self._sources: list[str] = []
 
     def tearDown(self) -> None:
-        if not self._sources:
-            return
+        # Delete everything THIS class created — alert rows plus the
+        # world (C review 5651588362): committed rows would otherwise
+        # join the shared database and crowd the runner tests'
+        # oldest-first pending scan.
         with Session(engine) as session:
-            ids = list(
-                session.exec(
-                    select(AlertEvent.id).where(
-                        col(AlertEvent.source_event_id).in_(self._sources)
+            if self._sources:
+                ids = list(
+                    session.exec(
+                        select(AlertEvent.id).where(
+                            col(AlertEvent.source_event_id).in_(self._sources)
+                        )
+                    ).all()
+                )
+                if ids:
+                    session.execute(
+                        delete(AlertStatusTransition).where(
+                            col(AlertStatusTransition.alert_event_id).in_(ids)
+                        )
                     )
-                ).all()
+                    session.execute(
+                        delete(NotificationAttempt).where(
+                            col(NotificationAttempt.alert_event_id).in_(ids)
+                        )
+                    )
+                    session.execute(
+                        delete(AlertEvent).where(col(AlertEvent.id).in_(ids))
+                    )
+            session.execute(
+                delete(Batch).where(col(Batch.id).in_([self.bid, self.other_bid]))
             )
-            if ids:
-                session.execute(
-                    delete(AlertStatusTransition).where(
-                        col(AlertStatusTransition.alert_event_id).in_(ids)
-                    )
-                )
-                session.execute(
-                    delete(NotificationAttempt).where(
-                        col(NotificationAttempt.alert_event_id).in_(ids)
-                    )
-                )
-                session.execute(delete(AlertEvent).where(col(AlertEvent.id).in_(ids)))
+            session.execute(delete(Warehouse).where(col(Warehouse.id) == self.wid))
             session.commit()
 
     def _receive(self, payload: CandidateCreate) -> Any:
@@ -294,6 +349,67 @@ class CorrectionContractCase(unittest.TestCase):
         self.assertEqual(str(receipt.status), "invalid")
         self.assertEqual(receipt.reason_code, "related_event_mismatch")
 
+    def _related_kind_is_invalid_zero_write(self, original: str) -> None:
+        """A review 5644143081 P1: the original must be a TEMPERATURE
+        anomaly — a recovery, a data_quality event or a humidity
+        anomaly can never be the subject of a correction; permanent
+        invalid, zero partial writes."""
+
+        before = len(self._correction_rows(original))
+        receipt = self._receive(self._correction(original))
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        with Session(engine) as session:
+            stored = session.exec(
+                select(AlertEvent).where(
+                    col(AlertEvent.source_event_id) == receipt.source_event_id
+                )
+            ).all()
+        self.assertEqual(stored, [])  # zero partial writes
+        self.assertEqual(len(self._correction_rows(original)), before)
+
+    def test_correction_of_a_recovery_is_invalid(self) -> None:
+        original = self._seed_original(resolved=False)
+        recovery = self._recovery_payload(original)
+        self._receive(recovery)
+        self._related_kind_is_invalid_zero_write(recovery.source_event_id)
+
+    def test_correction_of_a_correction_is_invalid(self) -> None:
+        original = self._seed_original(resolved=False)
+        first = self._correction(original)
+        self._receive(first)
+        self._related_kind_is_invalid_zero_write(first.source_event_id)
+
+    def test_correction_of_humidity_anomaly_is_invalid(self) -> None:
+        humidity_source = f"humidity-{uuid.uuid4()}"
+        self._receive(
+            _candidate(
+                source_event_id=humidity_source,
+                warehouse_id=self.wid,
+                batch_id=self.bid,
+                metric_code="humidity",
+                kind=CandidateKind.HUMIDITY_HIGH,
+                value=95.0,
+                unit="%RH",
+                evidence={"comparison": ">", "threshold": 90.0},
+            )
+        )
+        self._related_kind_is_invalid_zero_write(humidity_source)
+
+    def test_non_temperature_correction_payload_is_invalid(self) -> None:
+        """PR #83 (C): the CORRECTION itself must also be a temperature
+        observation — a humidity-metric data_quality payload may not
+        correct a temperature anomaly."""
+
+        original = self._seed_original(resolved=False)
+        payload = self._correction(original)
+        payload.metric_code = "humidity"
+        payload.unit = "%RH"
+        receipt = self._receive(payload)
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        self.assertEqual(self._correction_rows(original), [])
+
     def test_recovery_cannot_be_the_related_original(self) -> None:
         original = self._seed_original(resolved=False)
         recovery = self._recovery_payload(original)
@@ -353,6 +469,56 @@ class CorrectionContractCase(unittest.TestCase):
                 kind=CandidateKind.TEMPERATURE_RECOVERED,
                 rule_snapshot_id=uuid.UUID("aaaa1111-1111-4111-8111-111111111111"),
             )
+
+    # -- disposition list carries the optional link (A P2) -------------
+
+    def test_list_summary_carries_related_only_for_corrections(self) -> None:
+        from tests.modules.alerts.test_alerts_routes import _client
+
+        client = _client()
+        wid = client.post("/warehouses/", json={"code": "WHL", "name": "W"}).json()[
+            "id"
+        ]
+        bid = client.post(
+            f"/warehouses/{wid}/batches",
+            json={"code": "B001", "product": "x"},
+        ).json()["id"]
+        anomaly = {
+            "source_event_id": "list-anom-1",
+            "warehouse_id": wid,
+            "batch_id": bid,
+            "observation_ids": ["00000000-0000-4000-8000-0000000000aa"],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-25T08:00:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "warning",
+            "rule_version": "v1",
+        }
+        self.assertEqual(client.post("/candidates", json=anomaly).status_code, 201)
+        correction = {
+            "source_event_id": "list-correction-1",
+            "warehouse_id": wid,
+            "batch_id": bid,
+            "observation_ids": ["00000000-0000-4000-8000-0000000000ab"],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-25T09:00:00Z",
+            "value": None,
+            "kind": "data_quality",
+            "severity": "info",
+            "evidence": {"correction": "late invalid evidence"},
+            "related_source_event_id": "list-anom-1",
+        }
+        self.assertEqual(client.post("/candidates", json=correction).status_code, 201)
+        rows = client.get("/alerts/").json()["data"]
+        by_source = {row["source_event_id"]: row for row in rows}
+        self.assertEqual(
+            by_source["list-correction-1"]["related_source_event_id"],
+            "list-anom-1",
+        )
+        # Plain anomalies carry the optional field as None (no link).
+        self.assertIsNone(by_source["list-anom-1"]["related_source_event_id"])
 
     # -- idempotent replay and content conflict ------------------------
 
