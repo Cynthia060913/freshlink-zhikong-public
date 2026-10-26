@@ -58,6 +58,7 @@ def run():
         HeartbeatWorker,
         HeartbeatWorkerSettings,
     )
+    from app.modules.iot.high_delivery_worker import HighDeliveryWorker
     from app.modules.iot.high_evaluation_worker import GatedHighWorker
     from app.modules.iot.models import Device
     from app.modules.iot.simulator_fleet import FleetSettings, SimulatorFleet
@@ -68,6 +69,11 @@ def run():
         TelemetryReceiver,
     )
     from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
+    from app.modules.telemetry.b_http_candidate import (
+        BHttpCandidatePort,
+        HttpCandidateReply,
+    )
+    from app.modules.telemetry.outbox_candidate import outbox
     from app.modules.telemetry.storage_candidate import observations
 
     spec = importlib.util.spec_from_file_location(
@@ -125,7 +131,7 @@ def run():
             require(login.status_code == 200, "login")
             headers = {"Authorization": "Bearer " + login.json()["access_token"]}
             actor = api.get("/api/v1/users/me", headers=headers).json()
-            warehouses, batches = [], []
+            warehouses, batches, rule_ids = [], [], {}
             for number in (1, 2):
                 response = api.post(
                     "/api/v1/warehouses/",
@@ -172,6 +178,7 @@ def run():
                     },
                 )
                 require(response.status_code == 201, "real B historical rule create")
+                rule_ids[batch_id] = response.json()["id"]
 
             zones, passwords, bindings, epochs = [], {}, {}, {}
             with Session(engine) as session:
@@ -382,6 +389,112 @@ def run():
                         "both active apple batches have explicit normal verdicts",
                     )
                 outcomes[str(sensor)] = outcome.status
+
+            # A controlled historical rule switch, never rewriting old normal
+            # evaluations: new real MQTT samples must name EVERY active batch.
+            high_started = datetime.now(UTC)
+            for batch_id in batches:
+                response = api.post(
+                    f"/api/v1/batches/{batch_id}/rule-snapshots",
+                    headers=headers,
+                    json={
+                        "version_id": str(uuid4()),
+                        "rule_version": "fleet-high-proof-v2",
+                        "effective_start_at": high_started.isoformat(),
+                        "supersedes_snapshot_ids": [rule_ids[batch_id]],
+                        "rules": [
+                            {
+                                "metric_code": "temperature",
+                                "candidate_kind": "threshold_high",
+                                "severity": "warning",
+                                "threshold_high": 1,
+                                "unit": "°C",
+                            }
+                        ],
+                    },
+                )
+                require(response.status_code == 201, "append historical high-test rule")
+            high_sensors = (identity(1, 1), identity(1, 5))
+            wait_for(
+                lambda: all(
+                    any(
+                        row["device_id"] == sensor
+                        and row["sampled_at_utc"] >= high_started
+                        for row in saved()
+                    )
+                    for sensor in high_sensors
+                )
+            )
+            high_sources = {}
+            for sensor in high_sensors:
+                row = max(
+                    (item for item in saved() if item["device_id"] == sensor),
+                    key=lambda item: item["first_received_at_utc"],
+                )
+                require(
+                    evaluation.evaluate(row["id"], now=datetime.now(UTC)).status
+                    == "candidate_staged",
+                    "real MQTT sample stages high candidates",
+                )
+                expected_batches = set(
+                    batches[:2] if sensor == high_sensors[0] else batches[2:]
+                )
+                with engine.connect() as connection:
+                    rows = list(
+                        connection.execute(
+                            select(outbox).where(
+                                outbox.c.observation_id == row["id"],
+                                outbox.c.body["kind"].as_string() == "temperature_high",
+                            )
+                        ).mappings()
+                    )
+                require(
+                    len(rows) == len(expected_batches)
+                    and {UUID(item["body"]["batch_id"]) for item in rows}
+                    == expected_batches,
+                    "all active batches have distinct high candidates",
+                )
+                high_sources.update(
+                    {item["source_event_id"]: item["body"]["batch_id"] for item in rows}
+                )
+
+            class RootTransport:
+                def request(self, method, path, body=None):
+                    response = api.request(
+                        method,
+                        path,
+                        content=body,
+                        headers={**headers, "Content-Type": "application/json"},
+                    )
+                    return HttpCandidateReply(response.status_code, response.content)
+
+            high_port = BHttpCandidatePort(RootTransport())
+            sender = HighDeliveryWorker(
+                engine, high_port, device_ids=list(high_sensors)
+            )
+            sent = sender.run_once()
+            require(
+                {source for source, outcome in sent if outcome == "delivered"}
+                == set(high_sources)
+                and len(sent) == 3,
+                "three distinct high events committed through authenticated B ASGI HTTP",
+            )
+            require(
+                not HighDeliveryWorker(
+                    engine, high_port, device_ids=list(high_sensors)
+                ).run_once(),
+                "restarted high sender does not resend delivered work",
+            )
+            for source, batch_id in high_sources.items():
+                response = api.get(
+                    f"/api/v1/candidates/by-source/{source}", headers=headers
+                )
+                require(
+                    response.status_code == 200
+                    and response.json()["batch_id"] == batch_id
+                    and response.json()["rule_version"] == "fleet-high-proof-v2",
+                    "B readback preserves batch and historical rule",
+                )
             fleet.stop_requested.set()
             for thread, worker in zip(threads, workers, strict=True):
                 if worker is fleet:
@@ -521,10 +634,15 @@ def run():
                 "restart_retained_c_history_and_resumed_7_streams": True,
                 "warehouse_snapshot_csv_counts": counts,
                 "actual_all_active_batch_normal_outcomes": outcomes,
+                "actual_multi_batch_high_mqtt_to_b_asgi_http_events": len(high_sources),
+                "multi_batch_high_source_to_batch": {
+                    str(source): batch for source, batch in high_sources.items()
+                },
+                "high_delivery_transport": "authenticated ASGI TestClient; not TCP",
+                "high_sender_restart_resend_count": 0,
                 "notifications_sent": 0,
                 "complete_e1": False,
                 "not_tested": [
-                    "multi-batch high-temperature alert delivery",
                     "C recovery",
                     "two terminal receipts",
                     "second machine",

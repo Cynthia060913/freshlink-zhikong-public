@@ -1,5 +1,61 @@
 # C 共享接线请求
 
+## 2026-10-25 更正 wire 准备时复核原高温证据
+
+`prepare_held_correction_wire_on_connection_candidate` 在已交付的内部摘要、
+F03 原事件摘要和稳定 UUIDv5 校验之后，还读原异常的 C 持久观测，按保存的
+raw JSON 重新计算规范值与质量。只有原事件的观测 ID、冷库、采样时刻、
+温度与有效原始观测相同才返回拟投递 wire。篡改 raw/质量即抛 `ValueError`，
+后续补检还要求原始文本 `raw_text` 与解析载荷 `raw_payload` 保持一致，
+重复键和非有限 JSON 不能绕过接收边界；
+调用方不得释放更正或发送；数据库故障由调用方回滚。该检查只核原异常，
+不等于坏接收审计已完成独立发前复核。原内部 body/hash、wire DTO/digest、
+`held_contract/attempt0` 均未改变。B PR #80 小修及 A 审定前仍不开自动发送。
+
+## 2026-10-25 持续接纳后的恢复前沿续验候选
+
+`recovery_refreeze_candidate.py::refresh_pending_recovery_frontier_on_connection_candidate`
+是 C 的调用方事务端口。A 先在**同一 PostgreSQL Connection**完成新观测/接收终态，
+再在设备前沿锁保护下调用；函数自行读当前完整 A 前沿并锁 C pending 恢复行。
+仅当恢复未领取/attempt0、同设备/冷库/epoch、原高温与冻结窗口原始证据仍一致，
+且从旧冻结序号到当前序号的**每条** A 接收均有同 ID 的 C 审计回执及有效保存
+观测，温度按原历史规则仍在恢复范围、采样顺序与最大间隔未破坏时，才 CAS 更新
+三个 `frozen_*` 前沿数值。恢复 F03 正文、稳定 ID、摘要、原规则、窗口、旧尝试历史
+一律不变；`leased/delivered`、换 epoch、坏证据、高温、不完整前沿均不更新。
+数据库错误向调用方抛出，调用方回滚整个事务；不会在持锁期间调用 B HTTP。
+
+本端口是一次有界续验，**不自动发送**。A 仍需在锁外真实发送前调用
+`check_recovery_freshness_candidate` 并处理再变更窗口；B 关联更正和真正恢复回执
+另行联调。若新增样本超过原规则最大间隔或出现新高温，本冻结候选保持 held；
+是否另开新恢复窗口/新 source ID 需 A/B/C 在 #5 确认，不能靠覆写旧 F03 body
+或重置 attempt 绕过幂等。
+
+## 2026-10-25 B PR #80 更正 DTO 的 C 只读准备端口
+
+共同 main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546` 已含 A PR #78；
+B 独立 [PR #80](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/80)
+精确 `b07a5e3e91cc674b3b06469a35f7c130839f1982` 仍待审。
+`correction_wire_candidate.py::prepare_held_correction_wire_on_connection_candidate`
+在调用方事务内只读 C 的 `held_contract` 更正与已投递原温度异常，验证原内部
+body/hash、原 F03 body/hash、原异常关联/冷库/观测归属及 UUIDv5 稳定来源，再
+确定性映射到 B 1.0 DTO 和单独 wire 摘要。`source_event_id` 不变；
+`related_source_event_id` 指向原异常；`batch_id`、历史规则标识来自原异常；
+`sampled_at` 使用坏接收的 UTC **接收时刻**，不宣称它是设备有效采样时刻；
+`value=null`、`severity=info`，不把缺测或错误单位显示为正常温度。
+原内部正文和摘要不改写，原始坏输入仅在受限接收审计表；wire 不复制原文。
+
+固定有效 JSON 为
+[`examples/data-quality-correction-f03-wire-candidate.json`](examples/data-quality-correction-f03-wire-candidate.json)，
+wire 摘要 `sha256:8c04fb17927df069a2a4bf02213f221a76af0fa62110313db07f34e566290dbf`。
+跨批/跨库或关联错误不能从 C 准备端口通过；B 对未知原异常返回
+`invalid/unknown_related_event`，跨批/库返回 `invalid/related_event_mismatch`，
+同 source 同摘要返回 `accepted_duplicate`，改正文返回 `conflict`。
+本端口尚未运行 B HTTP，也不修改 `held_contract/attempt0`。A/B 请在 #5 明确
+PR #80 审查修复后的精确头与 B 回执签名；C 随后提供独立 claim/投递小包，
+不能把现有通用 claim 的恢复冻结戳门槛套到更正，不能只把 held 改 pending。
+发送超时用原 source 查 B by-source，保持同一 wire body/digest 重放；
+瞬时失败走有界重试，永久拒绝保留证据，发送不得在 A 设备锁事务内进行。
+
 ## 2026-10-25 恢复观测同连接端口（待 A 接线）
 
 新增 `advance_saved_recovery_observation_on_connection_candidate(connection, ...)`，
@@ -1100,3 +1156,25 @@ recovery_source_event_id, device_id, warehouse_id, stream_epoch)` 在受控 PG
 `deliver-high` 只处理高温，恢复仍排除；不能把此只读端口或合成测试表述为 E1
 自动恢复闭环。项目 Python3.14/专属 PG 的精确测试结果见同头 CI/证据，未实跑
 前保持待测。
+
+## 2026-10-26：更正专用领取与回执候选（默认关闭）
+
+`correction_delivery_candidate.claim_correction_wire_candidate(engine, *,
+source_event_id, now, lease_seconds=30, contract_confirmed=False)` 只领取 C
+持久 `held_contract`、到期 `pending` 或租约过期 `leased` 的关联更正；先在同一
+事务核原异常已投递、原始观测及内部正文，再投影 B 1.0 wire 并以独立摘要作为
+网络身份。内部 v0 正文与 `body_sha256` 始终不改。领取提交后才可访问 B，
+`finish_correction_wire_candidate` 只允许当前租约且内部摘要未变的 worker
+提交 delivered/retry/rejected；旧租约不能覆盖新结果。
+
+`deliver_correction_once_candidate(engine, *, source_event_id, now, port,
+max_attempts=10, contract_confirmed=False)` 先按来源查询 B，缺失才 POST；POST
+回复丢失时再次按来源查询，必须核同一 `source_event_id` 和**wire** 摘要才
+记 delivered。不一致走持久有界重试/拒绝。`BHttpLinkedCorrectionPort` 是
+单独的严格 1.0 DTO HTTP 适配器，普通 F03 适配器继续拒绝关联更正。
+
+以上入口没有接后台调度，默认 `contract_confirmed=False` 时不领取、不联网。
+需要 B PR #80 修复原温度异常主体约束及鉴权列表 `related_source_event_id`
+后，A/B 审定同版 B 1.0 合约、领取调用者与运行权限，才能显式启用。A 的
+恢复 sender、B 的更正后告警状态及实际通知均不由此候选端口代替；不得将
+SQLite/模拟 B 测试表述为真实 PostgreSQL、TCP、E1 或双渠道实收。

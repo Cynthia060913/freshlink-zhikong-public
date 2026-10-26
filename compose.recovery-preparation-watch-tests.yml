@@ -1,0 +1,5 @@
+# Opt-in extension of the already isolated continuation proof, no published ports.
+services:
+  test-runner:
+    environment:
+      FRESHLINK_RECOVERY_WATCH_PROOF: "1"

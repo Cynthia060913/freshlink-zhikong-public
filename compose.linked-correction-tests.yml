@@ -1,0 +1,5 @@
+# Explicit owned-network proof; this does not change application startup.
+services:
+  test-runner:
+    environment:
+      FRESHLINK_LINKED_CORRECTION_PROOF: "1"

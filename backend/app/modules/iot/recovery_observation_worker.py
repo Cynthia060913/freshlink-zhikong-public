@@ -158,6 +158,23 @@ class GatedRecoveryObservationWorker:
                         or (device.warehouse_id != warehouse_id or warehouse is None)
                     ):
                         raise FrontierUnavailable("current sensor binding unavailable")
+                    frozen_child = connection.scalar(
+                        select(outbox.c.source_event_id).where(
+                            outbox.c.related_source_event_id
+                            == original_source_event_id,
+                            outbox.c.body["kind"].as_string()
+                            == "temperature_recovered",
+                        )
+                    )
+                    if frozen_child is not None:
+                        # Once a window has a stable wire body, later samples
+                        # must renew its frontier, not restage another body for
+                        # the same source. Check under the same A stream lock
+                        # so two preparation processes cannot race this guard.
+                        transaction.rollback()
+                        return RecoveryObservationResult(
+                            "duplicate", observation_id, frozen_child
+                        )
                     # C rechecks original digest, owner, raw/quality and history
                     # using THIS connection, not its legacy Engine wrapper.
                     before = _version(connection, original_source_event_id)

@@ -44,7 +44,7 @@ try {
     if((git rev-parse HEAD).Trim() -ne $source -or (git status --porcelain)){throw 'Source changed during proof'}
     $code=0
     Write-Output ('PASS gated 2 warehouses/3 batches/14-device storage+control segment: '+$out)
-    Write-Output 'NOT FULL E1: multi-batch normal evaluation is included; no recovery/two receipt/second-machine acceptance.'
+    Write-Output 'NOT FULL E1: multi-batch normal/high evaluation and B ASGI HTTP included; no C recovery/two receipt/second-machine acceptance.'
 } catch {Write-Output ('STOP: '+$_.Exception.Message)}
 finally {
     if($docker -and $compose){& $docker @compose down --remove-orphans;if($LASTEXITCODE){$clean=0;$code=1}}

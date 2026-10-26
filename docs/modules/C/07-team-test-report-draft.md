@@ -1,6 +1,52 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
-## 2026-10-25 收口证据核对（本节最新，M03/E1 未签收）
+## 2026-10-26 当前 C 恢复修复与更正投递（E1/M03 未签收）
+
+| 来源与精确版本 | 实际验证 | 尚未验证 |
+| --- | --- | --- |
+| C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 恢复修复 `9ec008befb477e13cc9e9e8f60deeb2782269043` | 保存的 `raw_text` 严格解析并与 `raw_payload` 比较；同 admission 序号而 evidence revision 更新时，仅在完整原异常/窗口/前沿重验后续验。本人 Windows 隔离 Python3.14.3 相关 unittest **49/49**（SQLite/纯函数），Ruff 四文件、mypy 两生产文件通过。精确头六项适用 Actions 均成功；[Backend 40310929517](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40310929517) **1378 passed/2 skipped/182 warnings/91%**，日志显示 C 严格 PG 候选文件 5 项实际执行。 | 本人此轮无可用 Docker CLI，未运行 A [PR #82](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/82) 的 89 项叠加组合。PR #82 旧头 `13e88899bb7ab42163b336508f061ee34ce8f9a8` 尚未含此修复；[C 阻断审查](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/82#pullrequestreview-5651329999) 等待 A 新头与真实 PG/HTTP 复验。两渠道实收、完整 E1 和最终第二机仍未验证。整仓 2 skipped 不计通过。 |
+| C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) PG 测试门控 `7e59adf942212097ecb49ef8a2ee9c512dbc59f2` | 仅在项目 GitHub Actions 临时 development `db/app` 且现有 inbox PG 门控同时启用时，C 的 15 项随机私有 schema 严格 PG 用例才执行；本机仍须显式开关和专属 `test-db/freshlink_test/FreshLink-test`。本人本机默认运行 **15 跳过**，用模拟 URL 证明非测试目标在建连前拒绝、受控目标通过守卫但连接被拦截。精确头六类远端检查完成成功；[Backend 40273501906](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40273501906) 日志中该 C 文件 **13+2 个通过点、0 个该文件跳过**，整仓 **1377 passed/2 skipped/182 warnings/91%**。覆盖并发单赢家、持久重试同 wire、新 Engine/连接回读、事务回滚、固定快照/CSV 与鉴权 HTTP 候选。 | 这是 GitHub 临时 PostgreSQL 与模块独立路由；本人 Windows 此轮没有 Docker CLI，未在本机跑 PG。新 Engine/连接不是容器重建；`metadata.create_all` 在私有 schema 不等于正式迁移或主程序挂载。两通知实收、A 自动发送、完整 E1 和最终同版第二机仍未验；整仓剩余 2 skipped 不计通过。 |
+| C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) `095594fae995cbafd707f2d5c92f4252c13bf027`，业务提交 `92c47dc86d904891e34cf94419fd0e8526c6dfd9` | 更正专用持久租约、冻结 B wire 摘要、锁外回执与有界重试已上传；默认 `contract_confirmed=False`，不领取或联网。本人 Windows 隔离 Python3.14.3 同步共同 main 后相关 SQLite/模拟 B **47/47**；Ruff/mypy 通过。精确头六类 Actions 完成成功，[Backend 40257883476](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40257883476) **1362 passed/17 skipped/174 warnings/91%**。 | 本轮新增严格 PG 双 worker/重启同 wire 用例因专用门控未启用而未执行；本机当前无 Docker CLI。真实 B HTTP、A 调度、通知终端和完整 E1 均未验。17 项跳过不计通过。 |
+| C 协助 B 正式审查缺口：[PR #83](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/83) `905e50f5ba79ca8f12c895fcbff27d73bd0a60c5`，基于 B80 `b07a5e3e91cc674b3b06469a35f7c130839f1982`，目标仅为 B 功能分支 | 原温度异常 kind/metric 约束、鉴权告警列表双 source ID 与负例已上传；本人本机 Python3.14.3 HTTP 生命周期 **12/12**、Ruff/mypy、有限文本安全扫描通过。精确头六类 Actions 成功：[Backend 40272165454](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40272165454) **1365 passed/15 skipped/174 warnings/92%**，更正 PG 文件 16 dots；[Playwright 40272165352](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40272165352) 四片 **26+26+26+25 passed**，告警列表输入为 Mock。 | 本人本机 PG/浏览器未跑；B/A 尚需审查并选择接入，PR80 当前头未直接改动，不能把 PR83 的绿灯写成 PR80 已修复。真实两渠道收件、C→B 自动更正和 E1 未通过。 |
+| C 固定 [更正 wire JSON](examples/data-quality-correction-f03-wire-candidate.json) 与上述 B 候选模型 | 本人隔离 Python3.14.3 只读对拍：C 校验器与 B `CandidateCreate.model_validate`/`compute_content_digest` 均接受同一固定 JSON，得到同一完整摘要 `sha256:8c04fb17927df069a2a4bf02213f221a76af0fa62110313db07f34e566290dbf`；B 解析 kind=`data_quality`、metric=`temperature`，关联 ID 保留。 | 此项没有数据库、HTTP 或网络，不证明原异常存在、同仓同批、重放、告警恢复或通知实收。 |
+
+PR #83 行中的“B/A 尚需审查”是该精确头首次记录时的状态；A 随后已正式批准
+并把原作者提交整合进 PR #82 候选，但 B 原 PR #80 仍未因此自动更新。
+各行属于不同分支/精确头，不能相加为一套同版端到端结果。下方 10 月 25 日
+记录的“无新 admission 不续验”仅是当时版本的断言，已被本轮完整证据重验后的
+合法 revision-only 续验取代；原负向与失败历史仍保留。C 模块、A/B
+集成、B 两渠道实收及冻结版第二机验证仍按 [#9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9)、
+[#6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6) 和各自原始证据逐项更新。
+
+### 10 月 25 日旧轮次补充
+
+原始观测复核后又补 `raw_text`/`raw_payload` 一致性拒绝；本后续增量在项目
+Python3.14.8 定向 C unittest **7/7**、Ruff/mypy 通过，尚未重新跑完整本机
+PG 1370 项；下节 JUnit SHA 只属于此前 `0a3e2dcd39dfa8b43ee76e149d45f5cbae335dad`。
+更正当时仍 held/attempt0；该旧轮增量的远端检查在当时待核，当前
+PR11 精确头与 E1 状态以上表及 GitHub 实时记录为准。
+
+## 2026-10-25 C 更正原始观测复核增量（M03/E1 未签收）
+
+在 C 更正 wire 只读准备中复核关联原温度异常的持久 raw/规范值/质量/采样
+时刻和观测归属；原始观测或质量被改时拒绝生成拟投递正文，held/attempt0
+不变。本人 Windows 项目 Python3.14.8/隔离 PG18、唯一 Alembic C01 的整仓
+**1370 passed/0 failed/0 skipped/2 warnings/91%**；JUnit SHA256
+`07c3731beca25bbf7dea028f5218334f19bdd8a40f8c54274f245eea64d8935c`，
+随机项目容器/网络清理后均 0。定向 C 7/7、Ruff、mypy 通过；完整步骤及
+初次只读缓存失败见 [C 测试证据](03-test-evidence.md)。此项仍无 C 更正领取、
+B HTTP/回执、双渠道实收或完整 E1，当前远端 CI 待本增量上传后回读。
+
+## 2026-10-25 C 当前恢复续验与更正映射证据（M03/E1 未签收）
+
+| 范围 | 本人实际运行 | 尚未验证 |
+| --- | --- | --- |
+| 已推送 C [PR #11 `ae51bad7ad7cdfcc144806bf9dc18671ed9741e1`](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)，共同 main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546` | Windows 项目 Python3.14.8、隔离 PG18/tmpfs、唯一迁移至 C01/metadata check，完整 **1370 passed/0 skipped/91%**，JUnit SHA256 `58283e669a997c5110dd9de8be0f0ec5c19023f3f7bf565f6213d86512c1991e`；六项适用 CI 成功，Backend PR 合并测试引用 1354 passed/16 skipped/91%。B PR80 精确 DTO 对拍可解析且 wire digest 一致，但仅只读映射，C 更正仍 held/attempt0。 | B PR80 最终审查、C 更正领取/真实 HTTP、A 真实恢复自动发送、两通知终端及完整 E1。CI 的 16 跳过不算本机 PG 通过。 |
+| C 新的持续接纳恢复前沿续验端口（本节版本以文件所在提交为准） | 同一 Windows 项目 Python3.14.8/隔离 PG18，定向新场景 **1 passed/0 skipped**，首轮缺湿度样本被正确拒绝后在新库补齐重跑；完整整仓 **1370 passed/0 failed/0 skipped/2 warnings/91%**，JUnit SHA256 `e5cb18bcb6e90188c2deb6f3bd9355befafacb7c29a1f161034b8b9371edd709`。按随机项目标签核验本轮容器/网络残留 0。续验只改 C 冻结前沿序号/修订，不改 F03 正文、ID、摘要、尝试历史。 | 本增量远端 CI、A 生产组合与持续 sender、B 恢复实际回执/更正、最终同版第二机及 E1；超过历史规则最大间隔或新增高温时保守 held，后续新恢复窗口策略待共同确定。 |
+
+不同 SHA、机器和运行批次的测试条目不能求和为一套完整 E1。详细原始方法和失败记录见 [C 测试证据](03-test-evidence.md)，A/B 结果只按本人 GitHub 证据引用。
+
+## 2026-10-25 此前收口证据核对（M03/E1 未签收）
 
 | 来源与精确版本 | 实际证据 | 边界与下一步 |
 | --- | --- | --- |

@@ -1,5 +1,131 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-26 恢复窗口原文与 revision-only 续验修复
+
+本轮代码精确提交 `9ec008befb477e13cc9e9e8f60deeb2782269043`（C PR #11，
+共同 main 基础 `426604f2933a3b2d594f8fad6019dfdea84e75cf`）。只改 C 两个
+生产文件和两个测试文件：保存原文按接收边界规则拒绝无效 JSON、重复键、非有限值
+及与解析载荷不一致；相同 admission 序号而共享 revision 更新时，只有原异常、
+窗口和完整前沿均重新验证通过才续验。原正文/hash、锁顺序、CAS、租约/attempt
+限制与坏证据/高温拒绝保持。
+
+本人 Windows 项目隔离 Python3.14.3 运行恢复相关四个 unittest 模块，
+**49 tests passed、0 failed**（临时 SQLite 与纯函数）；Ruff 本轮四文件和
+mypy 两生产文件通过，暂存文本安全扫描零 findings（有限模式）。本机此轮
+无可用 Docker CLI，未运行 A 的 89 项叠加组合。精确头
+[Backend Actions 40310929517](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40310929517)
+在 GitHub 受控 PostgreSQL 执行 **1378 passed/2 skipped/182 warnings/91%**，
+C `test_telemetry_gated_high_postgres_candidate.py` 五项实际执行；另外五项
+适用 Actions 也成功。该云端 PG 结果不等于本人本机 PG 或 A 新组合复验。
+PR #82 旧头 `13e88899bb7ab42163b336508f061ee34ce8f9a8` 未含本修复，
+[正式阻断审查](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/82#pullrequestreview-5651329999)
+等待 A 接入精确代码提交并重跑多批次/坏原文/gap 与真实 PG/HTTP。
+2026-10-25 下方“无新增 admission 不续验”是旧代码的测试预期；现在只有
+**完整重验通过**的 revision-only 情况可续验，坏原文或不确定前沿仍拒绝。
+真实两渠道实收、完整 E1、最终冻结版第二机均未验证。
+
+## 2026-10-26 更正专用领取候选（本机隔离环境）
+
+当前增量新增纠错专用租约、锁外 B 查询/POST、模糊回执按来源和 wire 摘要核验、
+过期租约 fencing 与持久退避；仍默认关闭，没有调度和真实外发。Windows
+隔离项目 Python 3.14.3 对 `test_telemetry_correction_delivery_candidate`、
+`test_telemetry_correction_wire_candidate`、`test_telemetry_delivery_candidate`
+实际执行 `python -B -m unittest ... -v`：**31 tests passed，0 errors，0
+failures**。SQLite 内存库和模拟 B 覆盖丢失 POST 回执、摘要/来源不匹配、
+陈旧租约、原始证据篡改与默认不启用。Ruff lint/format 与 mypy 三个生产文件
+通过。此前首次运行的时区错误已修后重测，不算成功结果。
+
+新增受环境变量 `FRESHLINK_C_TEST_POSTGRES=1` 门控的 PostgreSQL 同来源双
+worker 竞争、重启保留与重领同 wire 摘要用例；**本轮尚未实际运行**。真实 B
+HTTP、A 调度接线、远端 CI、完整 E1 与通知实收同样未测；上传后的 SHA 和
+远端结果需另行登记，不能沿用本机 31 项结果。
+
+## 2026-10-25 原始文本一致性补检（前一整仓测试后的增量）
+
+原异常发前检查再比较持久 `raw_text` 与 `raw_payload`：用接收边界同样的
+重复键/非有限 JSON 拒绝规则解析原文，按规范 JSON 内容比较，单改原文也
+保守拒绝。固定更正 wire 不变，行仍 `held_contract/attempt0`。本机缓存项目
+Python3.14.8 无网络只读容器，定向 unittest **7/7 通过、0 跳过**（增加
+单改原文反例）；Ruff lint/format 和 mypy 单生产文件通过。首次重跑 7 项中
+1 项失败：旧断言期待“质量不一致”，但被新增的“原文/载荷不一致”更早拒绝；
+修正断言后再次实跑通过。此增量**未重新运行完整本机 PG 1370 项**，下节
+1370 项只归属此前 `0a3e2dcd39dfa8b43ee76e149d45f5cbae335dad` 提交。
+新头的远端 CI 必须另行核验；本增量没有真实 B HTTP、自动发送或 E1。
+
+## 2026-10-25 更正投递前原始观测复核（仍只读）
+
+在已有 `correction_wire_candidate.py` 同 Connection 只读准备端口增加一次
+原异常持久观测复核：按保存的 raw JSON 重新计算规范值与质量，要求原高温/低温
+事件的观测 ID、冷库、采样时刻和温度与原有效观测一致。原 raw 或质量记录被
+改变时拒绝生成 wire；C 更正 outbox 保持 `held_contract/attempt0`，不释放、
+不领取、不发送。固定 JSON 与 wire 摘要不变。
+
+本机 Windows 使用缓存项目 `freshlink-app:p0`（Python3.14.8）只读挂载、
+`--network none` 执行 C 定向 unittest：**7/7 通过，0 跳过**，其中同一持久
+fixture 验证正常原高温可映射、篡改 raw 与质量各被拒绝且更正行不变。Ruff
+lint/format、mypy 生产文件通过。首次 Ruff 尝试因只读缓存目录不能建临时
+文件而未执行规范检查，改用容器临时缓存后通过；这不是代码检查通过记录。
+
+随后执行仓库原受控脚本 `scripts/windows/check-a01-acceptance.ps1`，随机项目
+`a01-tests-20261025234151-19988`，隔离 PostgreSQL18/tmpfs，唯一 Alembic
+升级至 C01 与 metadata check 无差异；整仓 **1370 passed / 0 failed /
+0 skipped / 2 warnings / 91% coverage**，退出码 0。JUnit `pytest.xml`
+SHA256 `07c3731beca25bbf7dea028f5218334f19bdd8a40f8c54274f245eea64d8935c`；
+XML suite `tests=1669` 包含 subtest 展开，不当作 1669 个独立用例。原件在被忽略的
+本机 `work/a01-tests-20261025234151-19988`；按该项目标签回读容器/网络均 0。
+本轮未运行真实 B HTTP、自动发送、通知终端或 E1；远端 CI 须待推送本增量后
+单独回读，不能沿用旧头绿灯。
+
+## 2026-10-25 持续正常样本后的恢复前沿续验（定向 PG）
+
+在 C 新端口 `refresh_pending_recovery_frontier_on_connection_candidate` 的
+候选源码上，Windows 使用项目 Python3.14.8 镜像及独立 PostgreSQL18/tmpfs，
+随机项目 `c-refreeze-20261025232125-54324`，真实升级唯一 Alembic 链至 C01
+并初始化应用测试数据；运行现有严格 PG 场景扩展用例
+`test_recovery_freeze_and_a_revision_commit_together_on_real_pg`：**1 passed，
+0 skipped，2 warnings**，目标测试含：只改 revision 无新接纳不得续验、pending
+前沿不完整不得续验、同事务有效新温湿度接收及 A 终态后可续验且原正文/ID/
+摘要/attempt 不变、换 epoch/leased 不续验、后续新高温仍 held。临时项目容器和
+网络均已清理。首跑 `c-refreeze-20261025231838-11880` **1 failed**：测试
+新样本缺湿度，被 C 质量标记拒作恢复证据；补齐有效湿度后在全新临时库重跑
+通过，没有放宽生产质量门禁。Ruff lint/format 与 mypy 两生产文件通过。
+
+随后本机运行受控整仓脚本 `scripts/windows/check-a01-acceptance.ps1`，项目
+`a01-tests-20261025232230-46932`，唯一 Alembic 链至 C01/metadata check：
+**1370 passed / 0 failed / 0 skipped / 2 warnings / 91% coverage**，
+281.66 秒、退出码 0；JUnit SHA256
+`e5cb18bcb6e90188c2deb6f3bd9355befafacb7c29a1f161034b8b9371edd709`。
+原件在忽略的本机 `work/a01-tests-20261025232230-46932`；按本轮项目标签
+独立复查容器/网络均为空。此头尚未测远端 CI、实际 B HTTP、持续 sender、两通知
+终端或完整 E1；这些结果不能替代后续同版验证。
+
+## 2026-10-25 关联更正 wire 准备端口（未投递）
+
+在已安全合入共同 main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546`
+的 C 分支，新增内部冻结更正到 B PR #80 候选 DTO 的只读映射与同 Connection
+读取端口。Windows 上使用已缓存 `freshlink-app:p0`（Python 3.14.8）只读挂载
+源码运行 `python -m unittest tests.modules.test_telemetry_correction_wire_candidate -v`：
+**7/7 通过，0 跳过**。验证固定 JSON/摘要、同一记录重放、原正文不变、
+关联错/摘要错/稳定来源错拒绝、SQLite 持久行读取后仍 `held_contract/attempt0`。
+另将 B PR #80 精确 `b07a5e3e91cc674b3b06469a35f7c130839f1982` 的
+`models/event.py` 单文件以只读覆盖挂载进同镜像：固定 DTO 实际通过
+`CandidateCreate.model_validate`，B `compute_content_digest` 与 C 摘要相等。
+首次对拍缺 `PYTHONPATH` 而未导入测试模块；修正路径后通过，未改 B 源码。
+Ruff lint/format 与 mypy 单生产文件通过。没有 B HTTP、PostgreSQL 更正
+并发/重启、真实投递或 E1；PR #80 仍需 A 独立审查及 B 修复后再按新头对拍。
+
+随后运行仓库 `scripts/windows/check-a01-acceptance.ps1`：本机 Windows、
+隔离 `freshlink-app:p0` / Python 3.14.8 与 `postgres:18`，随机项目
+`a01-tests-20261025230110-46300` 的临时库，唯一 Alembic 链升级至 C01，
+`alembic check` 无差异。完整后端 **1370 passed / 0 failed / 0 skipped /
+2 warnings / 91% coverage**，282.59 秒，脚本退出码 0；JUnit
+`pytest.xml` SHA256
+`58283e669a997c5110dd9de8be0f0ec5c19023f3f7bf565f6213d86512c1991e`。
+原件保存在忽略的本机 `work/a01-tests-20261025230110-46300`；按该随机项目
+标签复查容器和网络均为空。91% 满足项目 90% 门禁；和旧头 92% 分别记账，
+不伪称覆盖率没有变化。此运行不测试浏览器、远端 CI、真实 B HTTP、通知
+终端实收或完整 E1。
+
 ## 2026-10-25 恢复发前原始观测复核与同头完整 PG 回归
 
 在已同步共同 main `7f16115c2b063ec0efe171418ca7e2a1e2ab6d4e` 的

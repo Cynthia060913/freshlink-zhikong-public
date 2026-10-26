@@ -1,9 +1,9 @@
 """Persist held correction records for late rejected reception evidence.
 
-This is an internal C candidate only. Its JSON is not the F03 wire DTO: B has
-not accepted ``kind=data_quality`` or the linked-correction fields yet. Rows
-are deliberately stored as ``held_contract`` in the existing candidate
-outbox, which is not eligible for claims or delivery.
+This is an internal C record, not the F03 wire DTO. A proposed B linked
+correction contract exists in PR #80, but release/claim/send semantics remain
+under review. Rows remain ``held_contract`` in the existing candidate outbox
+and are not eligible for claims or delivery.
 """
 
 from __future__ import annotations

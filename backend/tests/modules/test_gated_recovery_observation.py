@@ -423,3 +423,137 @@ class GatedRecoveryObservationTests(unittest.TestCase):
             self.assertIn("not_send_authorization", report["scope"])
         child = [row for row in self.rows() if row["source_event_id"] == recovery][0]
         self.assertEqual((child["state"], child["attempt_count"]), ("pending", 0))
+
+    def frozen_recovery(self):
+        for second in (10, 20, 30):
+            result = self.advance(self.save(6, second))
+        self.assertEqual(result.status, "staged")
+        return result.source_event_id, settings_for(
+            self.store.device_id, self.store.epoch
+        )
+
+    def test_new_valid_admission_can_refreeze_without_changing_body_or_attempt(self):
+        recovery, settings = self.frozen_recovery()
+        before = [r for r in self.rows() if r["source_event_id"] == recovery][0]
+        self.save(6, 40)
+        self.assertEqual(
+            service.check_ready_once(self.store.engine, settings, (recovery,)),
+            {"held": 1},
+        )
+        self.assertEqual(
+            service.refresh_once(self.store.engine, settings, (recovery,)),
+            {"refrozen": 1},
+        )
+        self.assertEqual(
+            service.check_ready_once(self.store.engine, settings, (recovery,)),
+            {"ready_at_check": 1},
+        )
+        self.assertEqual(
+            service.refresh_once(self.store.engine, settings, (recovery,)),
+            {"already_current": 1},
+        )
+        after = [r for r in self.rows() if r["source_event_id"] == recovery][0]
+        for key in ("body", "body_sha256", "source_event_id", "attempt_count", "state"):
+            self.assertEqual(before[key], after[key])
+        self.assertGreater(after["frozen_admitted_seq"], before["frozen_admitted_seq"])
+
+    def test_refreeze_keeps_new_high_and_already_leased_candidates_held(self):
+        recovery, settings = self.frozen_recovery()
+        self.save(11, 40)
+        before = [r for r in self.rows() if r["source_event_id"] == recovery][0]
+        self.assertEqual(
+            service.refresh_once(self.store.engine, settings, (recovery,)), {"held": 1}
+        )
+        with self.store.engine.begin() as connection:
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == recovery)
+                .values(state="leased", lease_token=uuid4())
+            )
+        self.assertEqual(
+            service.refresh_once(self.store.engine, settings, (recovery,)), {"held": 1}
+        )
+        after = [r for r in self.rows() if r["source_event_id"] == recovery][0]
+        self.assertEqual(after["frozen_admitted_seq"], before["frozen_admitted_seq"])
+
+    def test_refreeze_storage_failure_rolls_back_frontier_and_pool_still_works(self):
+        recovery, settings = self.frozen_recovery()
+        self.save(6, 40)
+        before = [r for r in self.rows() if r["source_event_id"] == recovery][0]
+        real = service.refresh_pending_recovery_frontier_on_connection_candidate
+
+        def fail(connection, **kwargs):
+            real(connection, **kwargs)
+            raise OperationalError("synthetic", {}, RuntimeError("private"))
+
+        with patch.object(
+            service,
+            "refresh_pending_recovery_frontier_on_connection_candidate",
+            side_effect=fail,
+        ):
+            self.assertEqual(
+                service.refresh_once(self.store.engine, settings, (recovery,)),
+                {"retryable_failure": 1},
+            )
+        after = [r for r in self.rows() if r["source_event_id"] == recovery][0]
+        self.assertEqual(after["frozen_admitted_seq"], before["frozen_admitted_seq"])
+        self.assertEqual(
+            service.refresh_once(self.store.engine, settings, (recovery,)),
+            {"refrozen": 1},
+        )
+
+    def test_refreeze_commit_failure_is_not_provisional_success(self):
+        recovery, settings = self.frozen_recovery()
+        self.save(6, 40)
+        before = [r for r in self.rows() if r["source_event_id"] == recovery][0]
+
+        def fail(_connection):
+            raise OperationalError("commit", {}, RuntimeError("private"))
+
+        event.listen(self.store.engine, "commit", fail)
+        try:
+            self.assertEqual(
+                service.refresh_once(self.store.engine, settings, (recovery,)),
+                {"retryable_failure": 1},
+            )
+        finally:
+            event.remove(self.store.engine, "commit", fail)
+        after = [r for r in self.rows() if r["source_event_id"] == recovery][0]
+        self.assertEqual(after["frozen_admitted_seq"], before["frozen_admitted_seq"])
+        self.assertEqual(
+            service.refresh_once(self.store.engine, settings, (recovery,)),
+            {"refrozen": 1},
+        )
+
+    def test_explicit_refreeze_cli_changes_stamp_without_sending(self):
+        recovery, settings = self.frozen_recovery()
+        self.save(6, 40)
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "scope.json"
+            config.write_text(settings.model_dump_json(), encoding="utf-8")
+            captured = io.StringIO()
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "prepare",
+                        "--config",
+                        str(config),
+                        "--refresh-recovery-id",
+                        str(recovery),
+                    ],
+                ),
+                patch.object(service, "create_engine", return_value=self.store.engine),
+                redirect_stdout(captured),
+            ):
+                service.main()
+            report = json.loads(captured.getvalue())
+            self.assertEqual(report["results"], {"refrozen": 1})
+            self.assertIn("not_B_delivery", report["scope"])
+        after = [r for r in self.rows() if r["source_event_id"] == recovery][0]
+        self.assertEqual((after["state"], after["attempt_count"]), ("pending", 0))
+
+    def test_refreeze_duplicate_ids_are_rejected_before_writing(self):
+        recovery, settings = self.frozen_recovery()
+        with self.assertRaises(ValueError):
+            service.refresh_once(self.store.engine, settings, (recovery, recovery))

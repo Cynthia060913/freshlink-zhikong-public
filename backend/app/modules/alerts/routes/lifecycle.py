@@ -84,6 +84,7 @@ def list_alerts(
             AlertEventSummary(
                 alert_event_id=row.id,
                 source_event_id=row.source_event_id,
+                related_source_event_id=row.related_source_event_id,
                 kind=row.kind,
                 severity=row.severity,
                 warehouse_id=row.warehouse_id,

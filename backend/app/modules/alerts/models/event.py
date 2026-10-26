@@ -360,11 +360,13 @@ class CandidateCreate(SQLModel):
             raise ValueError(
                 "temperature_recovered candidates must carry related_source_event_id"
             )
-        if self.related_source_event_id and self.kind is not (
-            CandidateKind.TEMPERATURE_RECOVERED
+        if self.related_source_event_id and self.kind not in (
+            CandidateKind.TEMPERATURE_RECOVERED,
+            CandidateKind.DATA_QUALITY,
         ):
             raise ValueError(
-                "related_source_event_id is only valid on temperature_recovered"
+                "related_source_event_id is only valid on temperature_recovered "
+                "and on data_quality correction events"
             )
         return self
 
@@ -551,6 +553,11 @@ class AlertEventSummary(SQLModel):
 
     alert_event_id: uuid.UUID
     source_event_id: str
+    # Optional traceability link (#5 6394581672, A review 5644143081
+    # P2, PR #83): a data_quality correction names the original anomaly
+    # it corrects. Read-only display field — no state machine change,
+    # no history rewrite.
+    related_source_event_id: str | None
     kind: str
     severity: str | None
     warehouse_id: uuid.UUID | None

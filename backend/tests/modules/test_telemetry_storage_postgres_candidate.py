@@ -23,6 +23,10 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.modules.iot.stream_frontier import FrontierStamp
+from app.modules.telemetry.correction_delivery_candidate import (
+    claim_correction_wire_candidate,
+    finish_correction_wire_candidate,
+)
 from app.modules.telemetry.data_quality_correction_candidate import (
     _correction_source_id,
 )
@@ -80,7 +84,12 @@ from app.modules.telemetry.storage_candidate import (
     receptions,
 )
 
-_ENABLED = os.getenv("FRESHLINK_C_TEST_POSTGRES") == "1"
+_HOSTED_CI = (
+    os.getenv("GITHUB_ACTIONS") == "true"
+    and os.getenv("CI") == "true"
+    and os.getenv("FRESHLINK_INBOX_TEST_POSTGRES") == "1"
+)
+_ENABLED = os.getenv("FRESHLINK_C_TEST_POSTGRES") == "1" or _HOSTED_CI
 _DEVICE_ID = UUID("11111111-1111-4111-8111-111111111111")
 _WAREHOUSE_ID = UUID("22222222-2222-4222-8222-222222222222")
 _OTHER_WAREHOUSE_ID = UUID("44444444-4444-4444-8444-444444444444")
@@ -121,22 +130,30 @@ def _reception(
     )
 
 
-@unittest.skipUnless(_ENABLED, "requires FRESHLINK_C_TEST_POSTGRES=1")
+@unittest.skipUnless(_ENABLED, "requires owned C PG or hosted test database")
 class PostgresStorageCandidateTests(unittest.TestCase):
     def setUp(self) -> None:
-        # Refuse to connect until the exact disposable project/database/host
-        # guard passes. A fresh schema per test prevents HTTP data from
-        # changing the transaction test's expected row counts.
+        # Refuse every unowned target before opening a connection. The hosted
+        # CI path is the workflow's disposable development app database;
+        # every test creates and drops only its own random private schema.
         from app.core.config import settings
 
         url = make_url(str(settings.DATABASE_URL))
-        if (
-            url.get_backend_name() != "postgresql"
-            or url.host != "test-db"
-            or url.database != "freshlink_test"
-            or settings.PROJECT_NAME != "FreshLink-test"
-        ):
-            raise AssertionError("C PG test requires disposable test-db only")
+        disposable = (
+            url.get_backend_name() == "postgresql"
+            and url.host == "test-db"
+            and url.database == "freshlink_test"
+            and settings.PROJECT_NAME == "FreshLink-test"
+        )
+        hosted_ci = (
+            _HOSTED_CI
+            and url.get_backend_name() == "postgresql"
+            and url.host in {"localhost", "127.0.0.1", "db"}
+            and url.database == "app"
+            and settings.FASTAPI_ENV == "development"
+        )
+        if not (disposable or hosted_ci):
+            raise AssertionError("C PG test requires owned disposable test database")
         self.url = url.set(drivername="postgresql+psycopg")
         self.schema = "c_test_" + uuid4().hex
         self.base_engine = create_engine(self.url, pool_pre_ping=True)
@@ -284,6 +301,108 @@ class PostgresStorageCandidateTests(unittest.TestCase):
                 ),
                 1,
             )
+
+    def test_correction_claim_is_single_winner_and_restarts_with_same_wire(
+        self,
+    ) -> None:
+        accepted = ingest_observation(self.engine, _reception(uuid4()))
+        self.assertEqual(accepted.status, "accepted_new")
+        assert accepted.observation_id is not None
+        original_id = uuid4()
+        self._stage_delivered_high_anomaly(
+            source_event_id=original_id,
+            observation_id=accepted.observation_id,
+            batch_id=uuid4(),
+            snapshot_id=uuid4(),
+        )
+        invalid = _Reception(
+            json.dumps(
+                {
+                    "schema_version": "2.0",
+                    "device_id": str(_DEVICE_ID),
+                    "message_id": str(uuid4()),
+                    "sampled_at": _SAMPLED_AT,
+                    "metrics": [{"key": "temperature", "value": 11, "unit": "°C"}],
+                }
+            ),
+            uuid4(),
+            _RECEIVED_AT + timedelta(seconds=20),
+        )
+        self.assertEqual(ingest_observation(self.engine, invalid).status, "invalid")
+        with self.engine.connect() as connection:
+            correction = (
+                connection.execute(
+                    select(outbox).where(
+                        outbox.c.related_source_event_id == original_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        source_id = correction["source_event_id"]
+        self.assertIsNone(
+            claim_correction_wire_candidate(
+                self.engine,
+                source_event_id=source_id,
+                now=_RECEIVED_AT + timedelta(seconds=30),
+            )
+        )
+        barrier = Barrier(2)
+
+        def race():
+            barrier.wait(timeout=10)
+            return claim_correction_wire_candidate(
+                self.engine,
+                source_event_id=source_id,
+                now=_RECEIVED_AT + timedelta(seconds=30),
+                contract_confirmed=True,
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(race) for _ in range(2)]
+            claims = [future.result(timeout=20) for future in futures]
+        winners = [claim for claim in claims if claim is not None]
+        self.assertEqual(len(winners), 1)
+        claim = winners[0]
+        self.assertEqual(claim.attempt_count, 1)
+        self.assertEqual(claim.wire_body["source_event_id"], str(source_id))
+        self.assertEqual(claim.wire_body["related_source_event_id"], str(original_id))
+
+        restarted = create_engine(self.url, pool_pre_ping=True).execution_options(
+            schema_translate_map={None: self.schema}
+        )
+        self.addCleanup(restarted.dispose)
+        with restarted.connect() as connection:
+            saved = (
+                connection.execute(
+                    select(outbox).where(outbox.c.source_event_id == source_id)
+                )
+                .mappings()
+                .one()
+            )
+        self.assertEqual((saved["state"], saved["attempt_count"]), ("leased", 1))
+        self.assertEqual(saved["body"], correction["body"])
+        self.assertEqual(saved["body_sha256"], correction["body_sha256"])
+        self.assertTrue(
+            finish_correction_wire_candidate(
+                restarted,
+                claim=claim,
+                disposition="retry",
+                now=_RECEIVED_AT + timedelta(seconds=30),
+                error_code="b_timeout_unresolved",
+                retry_after_seconds=30,
+            )
+        )
+        next_claim = claim_correction_wire_candidate(
+            restarted,
+            source_event_id=source_id,
+            now=_RECEIVED_AT + timedelta(seconds=60),
+            contract_confirmed=True,
+        )
+        self.assertIsNotNone(next_claim)
+        assert next_claim is not None
+        self.assertEqual(next_claim.wire_digest, claim.wire_digest)
+        self.assertEqual(next_claim.attempt_count, 2)
 
     def test_late_message_conflict_persists_held_correction_idempotently(self) -> None:
         message_id = uuid4()
