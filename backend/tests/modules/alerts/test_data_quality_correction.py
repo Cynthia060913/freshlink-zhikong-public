@@ -24,16 +24,19 @@ again in tearDown so the shared database stays clean.
 
 from __future__ import annotations
 
+import os
 import threading
 import unittest
 import uuid
 from typing import Any
 
 from sqlalchemy import delete
+from sqlalchemy.engine import make_url
 from sqlmodel import Session, col, select
 
+from app.core.config import settings
 from app.core.db import engine
-from app.modules.alerts.models.batch import BatchCreate
+from app.modules.alerts.models.batch import Batch, BatchCreate
 from app.modules.alerts.models.event import (
     AlertEvent,
     AlertStatusTransition,
@@ -41,7 +44,7 @@ from app.modules.alerts.models.event import (
     CandidateKind,
     NotificationAttempt,
 )
-from app.modules.alerts.models.warehouse import WarehouseCreate
+from app.modules.alerts.models.warehouse import Warehouse, WarehouseCreate
 from app.modules.alerts.notifications.dispatch import build_envelope
 from app.modules.alerts.notifications.transport import NotificationKind
 from app.modules.alerts.services.batches import create_batch
@@ -71,7 +74,35 @@ def _candidate(**over: Any) -> CandidateCreate:
 
 
 class CorrectionContractCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        # This suite writes real PostgreSQL rows. Never run it merely because
+        # an application DATABASE_URL happens to be configured.
+        if os.getenv("FRESHLINK_INBOX_TEST_POSTGRES") != "1":
+            raise unittest.SkipTest("requires explicit disposable PostgreSQL opt-in")
+        url = make_url(str(settings.DATABASE_URL))
+        local = (
+            url.get_backend_name() == "postgresql"
+            and url.host == "test-db"
+            and url.database == "freshlink_test"
+            and settings.PROJECT_NAME == "FreshLink-test"
+        )
+        hosted = (
+            url.get_backend_name() == "postgresql"
+            and os.getenv("GITHUB_ACTIONS") == "true"
+            and os.getenv("CI") == "true"
+            and url.host in {"localhost", "127.0.0.1", "db"}
+            and url.database == "app"
+            and settings.FASTAPI_ENV == "development"
+        )
+        if not (local or hosted):
+            raise RuntimeError("refusing non-disposable correction test database")
+
     def setUp(self) -> None:
+        # addCleanup also runs if setUp fails after one of the service
+        # methods commits, so even a partial test world is removed.
+        self._sources: list[str] = []
+        self.addCleanup(self._cleanup_world)
         suffix = uuid.uuid4().hex[:8]
         with Session(engine) as session:
             warehouse = create_warehouse(
@@ -91,21 +122,21 @@ class CorrectionContractCase(unittest.TestCase):
             )
             self.other_bid = other_batch.id
             session.commit()
-        # source_event_ids this test committed, for tearDown cleanup:
-        # committed rows would otherwise join the shared database and
-        # crowd the runner tests' oldest-first pending scan.
-        self._sources: list[str] = []
 
-    def tearDown(self) -> None:
-        if not self._sources:
-            return
+    def _cleanup_world(self) -> None:
+        # Only IDs created by this test are removed; never clear a shared
+        # table or guess at other tests' rows.
         with Session(engine) as session:
-            ids = list(
-                session.exec(
-                    select(AlertEvent.id).where(
-                        col(AlertEvent.source_event_id).in_(self._sources)
-                    )
-                ).all()
+            ids = (
+                list(
+                    session.exec(
+                        select(AlertEvent.id).where(
+                            col(AlertEvent.source_event_id).in_(self._sources)
+                        )
+                    ).all()
+                )
+                if self._sources
+                else []
             )
             if ids:
                 session.execute(
@@ -119,6 +150,19 @@ class CorrectionContractCase(unittest.TestCase):
                     )
                 )
                 session.execute(delete(AlertEvent).where(col(AlertEvent.id).in_(ids)))
+            batch_ids = [
+                batch_id
+                for batch_id in (
+                    getattr(self, "bid", None),
+                    getattr(self, "other_bid", None),
+                )
+                if batch_id is not None
+            ]
+            if batch_ids:
+                session.execute(delete(Batch).where(col(Batch.id).in_(batch_ids)))
+            warehouse_id = getattr(self, "wid", None)
+            if warehouse_id is not None:
+                session.execute(delete(Warehouse).where(Warehouse.id == warehouse_id))
             session.commit()
 
     def _receive(self, payload: CandidateCreate) -> Any:
@@ -499,3 +543,4 @@ class CorrectionContractCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
