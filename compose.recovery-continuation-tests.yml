@@ -1,0 +1,8 @@
+# Only extends the existing exclusive, disposable, internal runtime proof.
+services:
+  test-runner:
+    environment:
+      FRESHLINK_RECOVERY_PREPARATION_PROOF: "1"
+      FRESHLINK_RECOVERY_CONTINUATION_PROOF: "1"
+      FEISHU_WEBHOOK_URL: ""
+      FEISHU_WEBHOOK_SECRET: ""

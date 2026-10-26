@@ -127,6 +127,11 @@ def build_envelope(
         lines.append(f"指标: {value_text}")
     lines.append(f"采样时间: {format_alert_time(event.sampled_at)}")
     lines.append(f"来源事件: {event.source_event_id}")
+    if event.related_source_event_id:
+        # Dual-ID traceability (#5 6394581672): corrections and
+        # recoveries name the original anomaly so the notification
+        # shows both ids without rewriting any history.
+        lines.append(f"关联事件: {event.related_source_event_id}")
     lines.append(f"告警记录: {event.id}")
     lines.append("机器判定结果，现场处置请以人工复核为准。")
     return NotificationEnvelope(

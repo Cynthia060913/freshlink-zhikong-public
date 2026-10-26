@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$AppImage='freshlink-app:p0',[switch]$ControlEntry,[switch]$RuntimeProcesses,[switch]$NotificationRunner)
+param([string]$AppImage='freshlink-app:p0',[switch]$ControlEntry,[switch]$RuntimeProcesses,[switch]$NotificationRunner,[switch]$RecoveryContinuation,[switch]$RecoveryPreparationWatch,[switch]$LinkedCorrection,[switch]$GuardedRecovery)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $root=Get-FreshLinkRoot
@@ -12,16 +12,19 @@ $docker=$null
 $exitCode=1
 $cleanup=1
 try {
-    if(@($ControlEntry,$RuntimeProcesses,$NotificationRunner).Where({$_}).Count -gt 1){throw 'Select one proof mode; results must not be conflated'}
+    if(@($ControlEntry,$RuntimeProcesses,$NotificationRunner,$RecoveryContinuation,$RecoveryPreparationWatch,$LinkedCorrection,$GuardedRecovery).Where({$_}).Count -gt 1){throw 'Select one proof mode; results must not be conflated'}
+    if($GuardedRecovery){$LinkedCorrection=$true}
+    if($LinkedCorrection){$RecoveryPreparationWatch=$true}
+    if($RecoveryPreparationWatch){$RecoveryContinuation=$true}
     Set-Location -LiteralPath $root
     $docker=Assert-FreshLinkDocker
     foreach($image in @($AppImage,'postgres:18','eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408')){
         & $docker image inspect $image --format '{{.Id}}'
         if($LASTEXITCODE){throw 'Required cached image missing; no automatic pulls'}
     }
-    # A57 reviewed C's raw-evidence preflight extension; retain the exact
-    # subtree identity gate, including the unchanged C01 proposal.
-    & git diff --quiet cd3707ad1ab3f88ee62a15d5c82e55d076255efe -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    # A62 integrates the exact C correction lease/wire/receipt port source.
+    # Keep the identity gate, including the unchanged C01 proposal.
+    & git diff --quiet 121550c468520adbbe7f35a9e286304e915d4bec -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
     if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
     $revision=(& git rev-parse HEAD).Trim()
     if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}
@@ -36,7 +39,11 @@ try {
     $env:GATED_SOURCE_DIRTY=if($dirty.Count){'1'}else{'0'}
     $env:GATED_CONTROL_ENTRY=if($ControlEntry){'1'}else{'0'}
     $compose=@('compose','--project-name',$project,'-f','compose.gated-telemetry-tests.yml')
-    if($RuntimeProcesses){$compose+=@('-f','compose.runtime-composition-tests.yml')}
+    if($RuntimeProcesses -or $RecoveryContinuation){$compose+=@('-f','compose.runtime-composition-tests.yml')}
+    if($RecoveryContinuation){$compose+=@('-f','compose.recovery-continuation-tests.yml')}
+    if($RecoveryPreparationWatch){$compose+=@('-f','compose.recovery-preparation-watch-tests.yml')}
+    if($LinkedCorrection){$compose+=@('-f','compose.linked-correction-tests.yml')}
+    if($GuardedRecovery){$compose+=@('-f','compose.guarded-recovery-tests.yml')}
     if($NotificationRunner){$compose+=@('-f','compose.notification-runtime-tests.yml')}
     & $docker @compose config --quiet
     if($LASTEXITCODE){throw 'Owned compose configuration invalid'}
@@ -47,17 +54,23 @@ try {
     $runExit=$LASTEXITCODE
     & $docker logs $runner 2>&1 | Tee-Object -FilePath (Join-Path $results 'runner.log')
     if($runExit){throw 'Actual gated MQTT/PG/HTTP proof failed'}
-    $reportName=if($NotificationRunner){'notification-composition.json'}elseif($RuntimeProcesses){'runtime-composition.json'}else{'gated-telemetry.json'}
-    $phase=if($NotificationRunner){'actual_runtime_to_persistent_synthetic_notifications_passed'}elseif($RuntimeProcesses){'actual_runtime_processes_tcp_b_csv_passed'}else{'actual_mqtt_gated_c_http_csv_passed'}
+    $reportName=if($NotificationRunner){'notification-composition.json'}elseif($RuntimeProcesses -or $RecoveryContinuation){'runtime-composition.json'}else{'gated-telemetry.json'}
+    $phase=if($NotificationRunner){'actual_runtime_to_persistent_synthetic_notifications_passed'}elseif($RuntimeProcesses -or $RecoveryContinuation){'actual_runtime_processes_tcp_b_csv_passed'}else{'actual_mqtt_gated_c_http_csv_passed'}
     $report=Get-Content -LiteralPath (Join-Path $results $reportName) -Raw|ConvertFrom-Json
     if($report.phase -ne $phase -or $report.source_revision -ne $revision -or $report.complete_e1 -or $report.notifications_sent -ne 0){throw 'Wrong proof identity/scope'}
-    if($RuntimeProcesses -and (($report.actual_runtime_processes -join ',') -ne 'receive,store,evaluate,deliver-high' -or -not $report.actual_tcp_http_api)){throw 'Runtime process/TCP proof incomplete'}
+    if(($RuntimeProcesses -or $RecoveryContinuation) -and (($report.actual_runtime_processes -join ',') -ne 'receive,store,evaluate,deliver-high' -or -not $report.actual_tcp_http_api)){throw 'Runtime process/TCP proof incomplete'}
+    if($RecoveryContinuation -and (-not $report.new_mqtt_admission_refrozen_while_workers_live -or -not $report.actual_recovery_http_and_resolved_readback)){throw 'Live recovery continuation proof incomplete'}
+    if($RecoveryPreparationWatch -and -not $report.actual_preparation_watch_restart){throw 'Preparation watch/restart proof incomplete'}
+    if($LinkedCorrection -and -not $report.actual_late_mqtt_correction_background_tcp){throw 'Linked correction runtime proof incomplete'}
+    if($GuardedRecovery -and (-not $report.actual_guarded_recovery_background_tcp -or -not $report.guarded_recovery_sender_restart_no_resend)){throw 'Guarded recovery process proof incomplete'}
     if($NotificationRunner -and (-not $report.synthetic_sinks_only -or -not $report.actual_pg_dispatch_lease -or -not $report.restart_sends_only_missing_channel -or -not $report.third_delivery_process_no_resend -or $report.persistent_attempt_rows -ne 3)){throw 'Persistent synthetic notification proof incomplete'}
     if($ControlEntry -and -not $report.actual_control_and_subsequent_c_data.actual_control_process_entry){throw 'Control process entry was not exercised'}
     $exitCode=0
-    $label=if($NotificationRunner){'runtime/C/B/persistent synthetic notification runner'}elseif($RuntimeProcesses){'runtime processes/TCP B/raw/history/CSV'}else{'gated MQTT/C/JWT-HTTP/CSV'}
+    $label=if($LinkedCorrection){'live MQTT/recovery/linked correction worker/TCP B traceability'}elseif($NotificationRunner){'runtime/C/B/persistent synthetic notification runner'}elseif($RecoveryContinuation){'live workers/new MQTT/refreeze/TCP B recovery'}elseif($RuntimeProcesses){'runtime processes/TCP B/raw/history/CSV'}else{'gated MQTT/C/JWT-HTTP/CSV'}
     Write-Output ('PASS '+$label+' segment; evidence: '+$results)
-    Write-Output 'NOT FULL E1: runtime does not certify release approval; no recovery/real notification receipts/second-machine acceptance.'
+    if($GuardedRecovery){Write-Output 'NOT FULL E1: guarded recovery process passed; no real notification receipts or final second-machine acceptance.'}
+    elseif($LinkedCorrection){Write-Output 'NOT FULL E1: recovery sending remains explicit; no real notification receipts or final second-machine acceptance.'}
+    else{Write-Output 'NOT FULL E1: no unattended recovery/correction scheduling, real notification receipts or final second-machine acceptance.'}
 } catch {Write-Output ('STOP: '+$_.Exception.Message)}
 finally {
     if($docker -and $compose){

@@ -35,6 +35,7 @@ from app.modules.iot.telemetry_worker import TelemetryDeliveryWorker, TelemetryR
 from app.modules.iot.warehouse_bridge import warehouse_lookup_for_session
 from app.modules.telemetry.b_http_candidate import (
     BHttpCandidatePort,
+    BHttpLinkedCorrectionPort,
     UrllibCandidateTransport,
 )
 
@@ -115,11 +116,26 @@ def main() -> None:
     parser.add_argument(
         "--role",
         required=True,
-        choices=("receive", "store", "evaluate", "deliver-high"),
+        choices=(
+            "receive",
+            "store",
+            "evaluate",
+            "deliver-high",
+            "deliver-correction",
+            "deliver-recovery",
+        ),
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--max-seconds", type=float)
+    parser.add_argument("--confirm-correction-contract", action="store_true")
+    parser.add_argument("--confirm-recovery-contract", action="store_true")
     args = parser.parse_args()
+    if args.confirm_correction_contract != (args.role == "deliver-correction"):
+        parser.error(
+            "linked correction requires its own explicit contract confirmation"
+        )
+    if args.confirm_recovery_contract != (args.role == "deliver-recovery"):
+        parser.error("recovery requires its own explicit contract confirmation")
     if args.max_seconds is not None and (
         not math.isfinite(args.max_seconds) or args.max_seconds <= 0
     ):
@@ -135,9 +151,11 @@ def main() -> None:
         password = os.environ.get("FRESHLINK_TELEMETRY_MQTT_PASSWORD", "")
         if args.role == "receive" and not password:
             raise ValueError("MQTT account owner password required")
-        if args.role == "deliver-high" and not os.environ.get(
-            "FRESHLINK_B_SERVICE_BEARER"
-        ):
+        if args.role in {
+            "deliver-high",
+            "deliver-correction",
+            "deliver-recovery",
+        } and not os.environ.get("FRESHLINK_B_SERVICE_BEARER"):
             raise ValueError("B authenticated ingestion credential required")
         owned_engine = create_engine(
             application_engine.url,
@@ -168,6 +186,44 @@ def main() -> None:
             )
             stop_requested = delivery_worker.stop_requested
             run = delivery_worker.run
+        elif args.role == "deliver-correction":
+            from app.modules.iot.correction_delivery_worker import (
+                CorrectionDeliveryWorker,
+            )
+
+            correction_sender = CorrectionDeliveryWorker(
+                owned_engine,
+                settings,
+                BHttpLinkedCorrectionPort(
+                    UrllibCandidateTransport(
+                        base_url=os.environ.get(
+                            "FRESHLINK_B_INTERNAL_ORIGIN", "http://127.0.0.1:8000"
+                        ),
+                        bearer=lambda: os.environ.get("FRESHLINK_B_SERVICE_BEARER", ""),
+                    )
+                ),
+                contract_confirmed=True,
+            )
+            stop_requested = correction_sender.stop_requested
+            run = correction_sender.run
+        elif args.role == "deliver-recovery":
+            from app.modules.iot.recovery_delivery_worker import RecoveryDeliveryWorker
+
+            recovery_sender = RecoveryDeliveryWorker(
+                owned_engine,
+                settings,
+                BHttpCandidatePort(
+                    UrllibCandidateTransport(
+                        base_url=os.environ.get(
+                            "FRESHLINK_B_INTERNAL_ORIGIN", "http://127.0.0.1:8000"
+                        ),
+                        bearer=lambda: os.environ.get("FRESHLINK_B_SERVICE_BEARER", ""),
+                    )
+                ),
+                contract_confirmed=True,
+            )
+            stop_requested = recovery_sender.stop_requested
+            run = recovery_sender.run
         elif args.role == "deliver-high":
             sender = HighDeliveryWorker(
                 owned_engine,
