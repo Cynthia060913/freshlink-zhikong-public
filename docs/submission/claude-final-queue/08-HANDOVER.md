@@ -29,7 +29,8 @@
   build-application-candidate,check-application-candidate,common}.ps1`，命令/参数与 04/07 一致。
 - 已实际读取本任务书五组证据：G1 `runtime-composition.json`、G2 `runtime-child-cleanup.json`/`cleanup.json`、
   G3 `current-c-b83.xml`、G4 `application-build.json`、G5 `application-http.json`/`image-cleanup.json`。
-- 已 `git fetch` 取得 PR69/70/71/77 对应分支（84232d1、b9d0327、6d32984、9e9ba3a）并读取其
+- 已 `git fetch` 取得 PR69/70/71/77 对应分支（`84232d1`、`b9d0327`、`6d32984`、
+  `9e9ba3a6ef7c4d7db0c83ac98d7caaf8296e202d`）并读取其
   Markdown，复用运行说明/录屏脚本/包说明/技术章节与讲稿；`.pptx`、`.webm` 二进制未读内容，仅按文档引用。
 - 核对相对 bfb 的改动仅为本任务书目录下 TASK.md（只读，未改）与八个新文档。
 
