@@ -17,23 +17,30 @@ the original anomaly. Contract under test:
   a correction racing a real recovery on a second PG connection
   serializes behind it and must not regress the resolved state.
 
-Real PostgreSQL (shared test database); world rows use uuid-suffixed
-codes so reruns never collide, and committed alert rows are deleted
-again in tearDown so the shared database stays clean.
+Real PostgreSQL behind an explicit disposable-database gate (C review
+5651588362): setUp refuses to touch anything but an owned throwaway
+target — hosted CI's ``app`` database or a locally opted-in test
+database. World rows (warehouse/batches) use uuid-suffixed codes so
+reruns never collide, and tearDown deletes again everything this
+class created: transitions/attempts, alert events, batches and the
+warehouse.
 """
 
 from __future__ import annotations
 
+import os
 import threading
 import unittest
 import uuid
 from typing import Any
 
 from sqlalchemy import delete
+from sqlalchemy.engine import make_url
 from sqlmodel import Session, col, select
 
+from app.core.config import settings
 from app.core.db import engine
-from app.modules.alerts.models.batch import BatchCreate
+from app.modules.alerts.models.batch import Batch, BatchCreate
 from app.modules.alerts.models.event import (
     AlertEvent,
     AlertStatusTransition,
@@ -41,12 +48,48 @@ from app.modules.alerts.models.event import (
     CandidateKind,
     NotificationAttempt,
 )
-from app.modules.alerts.models.warehouse import WarehouseCreate
+from app.modules.alerts.models.warehouse import Warehouse, WarehouseCreate
 from app.modules.alerts.notifications.dispatch import build_envelope
 from app.modules.alerts.notifications.transport import NotificationKind
 from app.modules.alerts.services.batches import create_batch
 from app.modules.alerts.services.events import get_alert_status, receive_candidate
 from app.modules.alerts.services.warehouses import create_warehouse
+
+
+def _require_disposable_pg() -> None:
+    """Refuse any write outside an owned disposable database.
+
+    Mirrors the strict gate of
+    ``tests/integration/test_alert_lifecycle_concurrency.py``: hosted CI
+    (throwaway ``app`` database inside the workflow's container) or the
+    local docker test stack (``freshlink_test`` on ``test-db``). A local
+    run must additionally opt in via ``B01_CORRECTION_TEST_PG=1`` and
+    point at a database that is none of the shared/production names.
+    Without the gate the whole case skips — never runs blind.
+    """
+
+    if os.getenv("FRESHLINK_INBOX_TEST_POSTGRES") != "1":
+        raise unittest.SkipTest("requires controlled disposable PG entry")
+    url = make_url(str(settings.DATABASE_URL))
+    hosted = (
+        os.getenv("GITHUB_ACTIONS") == "true"
+        and os.getenv("CI") == "true"
+        and url.host in {"localhost", "127.0.0.1", "db"}
+        and url.database == "app"
+        and settings.FASTAPI_ENV == "development"
+    )
+    local_docker = (
+        url.host == "test-db"
+        and url.database == "freshlink_test"
+        and settings.PROJECT_NAME == "FreshLink-test"
+    )
+    local_optin = (
+        os.getenv("B01_CORRECTION_TEST_PG") == "1"
+        and url.host in {"localhost", "127.0.0.1", "test-db"}
+        and url.database not in {"app", "postgres", "freshlink", "freshlink_test"}
+    )
+    if not (hosted or local_docker or local_optin):
+        raise RuntimeError("refusing non-disposable correction world")
 
 
 def _candidate(**over: Any) -> CandidateCreate:
@@ -72,6 +115,9 @@ def _candidate(**over: Any) -> CandidateCreate:
 
 class CorrectionContractCase(unittest.TestCase):
     def setUp(self) -> None:
+        # Before ANY connection: refuse non-disposable targets (C review
+        # 5651588362). Nothing below runs when the gate is not satisfied.
+        _require_disposable_pg()
         suffix = uuid.uuid4().hex[:8]
         with Session(engine) as session:
             warehouse = create_warehouse(
@@ -97,28 +143,37 @@ class CorrectionContractCase(unittest.TestCase):
         self._sources: list[str] = []
 
     def tearDown(self) -> None:
-        if not self._sources:
-            return
+        # Delete everything THIS class created — alert rows plus the
+        # world (C review 5651588362): committed rows would otherwise
+        # join the shared database and crowd the runner tests'
+        # oldest-first pending scan.
         with Session(engine) as session:
-            ids = list(
-                session.exec(
-                    select(AlertEvent.id).where(
-                        col(AlertEvent.source_event_id).in_(self._sources)
+            if self._sources:
+                ids = list(
+                    session.exec(
+                        select(AlertEvent.id).where(
+                            col(AlertEvent.source_event_id).in_(self._sources)
+                        )
+                    ).all()
+                )
+                if ids:
+                    session.execute(
+                        delete(AlertStatusTransition).where(
+                            col(AlertStatusTransition.alert_event_id).in_(ids)
+                        )
                     )
-                ).all()
+                    session.execute(
+                        delete(NotificationAttempt).where(
+                            col(NotificationAttempt.alert_event_id).in_(ids)
+                        )
+                    )
+                    session.execute(
+                        delete(AlertEvent).where(col(AlertEvent.id).in_(ids))
+                    )
+            session.execute(
+                delete(Batch).where(col(Batch.id).in_([self.bid, self.other_bid]))
             )
-            if ids:
-                session.execute(
-                    delete(AlertStatusTransition).where(
-                        col(AlertStatusTransition.alert_event_id).in_(ids)
-                    )
-                )
-                session.execute(
-                    delete(NotificationAttempt).where(
-                        col(NotificationAttempt.alert_event_id).in_(ids)
-                    )
-                )
-                session.execute(delete(AlertEvent).where(col(AlertEvent.id).in_(ids)))
+            session.execute(delete(Warehouse).where(col(Warehouse.id) == self.wid))
             session.commit()
 
     def _receive(self, payload: CandidateCreate) -> Any:
