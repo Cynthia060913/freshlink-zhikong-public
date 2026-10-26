@@ -94,7 +94,6 @@ def list_alerts(
                 sampled_at=row.sampled_at,
                 value=row.value,
                 unit=row.unit,
-                related_source_event_id=row.related_source_event_id,
                 status=statuses.get(row.id, AlertStatus.OPEN),
                 created_at=row.created_at,
             )

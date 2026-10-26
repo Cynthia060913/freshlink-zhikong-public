@@ -23,7 +23,7 @@ try {
     }
     # A62 integrates the exact C correction lease/wire/receipt port source.
     # Keep the identity gate, including the unchanged C01 proposal.
-    & git diff --quiet a395bafae390bd0bd247fa6f33b2f0dc5474cb73 -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    & git diff --quiet 5b8018e19fda01f44f1c6f51ad83d7a95b33b045 -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
     if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
     $revision=(& git rev-parse HEAD).Trim()
     if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}
