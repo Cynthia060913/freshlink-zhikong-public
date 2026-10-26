@@ -61,6 +61,9 @@ def run():
     continue_recovery = os.environ.get("FRESHLINK_RECOVERY_CONTINUATION_PROOF") == "1"
     watch_recovery = os.environ.get("FRESHLINK_RECOVERY_WATCH_PROOF") == "1"
     linked_correction = os.environ.get("FRESHLINK_LINKED_CORRECTION_PROOF") == "1"
+    guarded_recovery = os.environ.get("FRESHLINK_GUARDED_RECOVERY_PROOF") == "1"
+    if guarded_recovery and not linked_correction:
+        raise RuntimeError("Guarded recovery proof requires the linked correction path")
     if linked_correction and not watch_recovery:
         raise RuntimeError("Linked correction proof requires live recovery preparation")
     if continue_recovery and not prepare_recovery:
@@ -576,15 +579,49 @@ def run():
                             bearer=lambda: bearer,
                         )
                     )
-                    assert (
-                        deliver_once_candidate(
-                            engine,
-                            source_event_id=recovery_id,
-                            now=datetime.now(UTC),
-                            port=port,
+                    if guarded_recovery:
+                        recovery_credentials = {
+                            "FRESHLINK_B_INTERNAL_ORIGIN": "http://127.0.0.1:18080",
+                            "FRESHLINK_B_SERVICE_BEARER": bearer,
+                        }
+                        sender = start(
+                            "deliver-recovery",
+                            [
+                                *role_arguments("deliver-recovery"),
+                                "--confirm-recovery-contract",
+                            ],
+                            recovery_credentials,
                         )
-                        == "delivered"
-                    )
+                        wait_for(
+                            lambda: any(
+                                row["source_event_id"] == recovery_id
+                                and row["state"] == "delivered"
+                                for row in rows(outbox)
+                            )
+                        )
+                        assert sender.poll() is None
+                        expected_finished.add("deliver-recovery")
+                        sender.terminate()
+                        assert sender.wait(timeout=15) == 0
+                        restart_arguments = role_arguments("deliver-recovery")
+                        restart_arguments[-1] = "1"
+                        restarted_sender = start(
+                            "deliver-recovery-restarted",
+                            [*restart_arguments, "--confirm-recovery-contract"],
+                            recovery_credentials,
+                        )
+                        assert restarted_sender.wait(timeout=15) == 0
+                        expected_finished.add("deliver-recovery-restarted")
+                    else:
+                        assert (
+                            deliver_once_candidate(
+                                engine,
+                                source_event_id=recovery_id,
+                                now=datetime.now(UTC),
+                                port=port,
+                            )
+                            == "delivered"
+                        )
                     original_receipt = port.lookup(original_id)
                     assert (
                         original_receipt is not None
@@ -732,15 +769,25 @@ def run():
                 "actual_recovery_http_and_resolved_readback": continued,
                 "actual_preparation_watch_restart": watch_recovery and continued,
                 "actual_late_mqtt_correction_background_tcp": corrected,
+                "actual_guarded_recovery_background_tcp": guarded_recovery
+                and continued,
+                "guarded_recovery_sender_restart_no_resend": guarded_recovery
+                and continued,
                 "actual_control_and_subsequent_c_data": control_result,
                 "notifications_sent": 0,
                 "complete_e1": False,
                 "not_tested": [
-                    "unattended recovery scheduling"
-                    if corrected
-                    else "unattended recovery scheduling and late-evidence correction"
-                    if continued
-                    else "recovery",
+                    *(
+                        []
+                        if guarded_recovery and continued
+                        else [
+                            "unattended recovery scheduling"
+                            if corrected
+                            else "unattended recovery scheduling and late-evidence correction"
+                            if continued
+                            else "recovery"
+                        ]
+                    ),
                     "notifications",
                     *([] if control_result else ["control in this run"]),
                     "browser",
