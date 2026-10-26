@@ -119,9 +119,7 @@ class IngestionAuthCase(unittest.TestCase):
         self.assertIn("administrator", r.json()["detail"])
         with Session(_ENGINE) as session:
             self.assertEqual(
-                session.exec(
-                    select(func.count()).select_from(AlertEvent)
-                ).one(),
+                session.exec(select(func.count()).select_from(AlertEvent)).one(),
                 0,
             )
 

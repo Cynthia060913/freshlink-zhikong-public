@@ -364,9 +364,9 @@ class CorrectionContractCase(unittest.TestCase):
         from tests.modules.alerts.test_alerts_routes import _client
 
         client = _client()
-        wid = client.post(
-            "/warehouses/", json={"code": "WHL", "name": "W"}
-        ).json()["id"]
+        wid = client.post("/warehouses/", json={"code": "WHL", "name": "W"}).json()[
+            "id"
+        ]
         bid = client.post(
             f"/warehouses/{wid}/batches",
             json={"code": "B001", "product": "x"},
@@ -384,9 +384,7 @@ class CorrectionContractCase(unittest.TestCase):
             "severity": "warning",
             "rule_version": "v1",
         }
-        self.assertEqual(
-            client.post("/candidates", json=anomaly).status_code, 201
-        )
+        self.assertEqual(client.post("/candidates", json=anomaly).status_code, 201)
         correction = {
             "source_event_id": "list-correction-1",
             "warehouse_id": wid,
@@ -400,9 +398,7 @@ class CorrectionContractCase(unittest.TestCase):
             "evidence": {"correction": "late invalid evidence"},
             "related_source_event_id": "list-anom-1",
         }
-        self.assertEqual(
-            client.post("/candidates", json=correction).status_code, 201
-        )
+        self.assertEqual(client.post("/candidates", json=correction).status_code, 201)
         rows = client.get("/alerts/").json()["data"]
         by_source = {row["source_event_id"]: row for row in rows}
         self.assertEqual(
