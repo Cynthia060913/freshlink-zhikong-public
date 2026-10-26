@@ -1156,3 +1156,25 @@ recovery_source_event_id, device_id, warehouse_id, stream_epoch)` 在受控 PG
 `deliver-high` 只处理高温，恢复仍排除；不能把此只读端口或合成测试表述为 E1
 自动恢复闭环。项目 Python3.14/专属 PG 的精确测试结果见同头 CI/证据，未实跑
 前保持待测。
+
+## 2026-10-26：更正专用领取与回执候选（默认关闭）
+
+`correction_delivery_candidate.claim_correction_wire_candidate(engine, *,
+source_event_id, now, lease_seconds=30, contract_confirmed=False)` 只领取 C
+持久 `held_contract`、到期 `pending` 或租约过期 `leased` 的关联更正；先在同一
+事务核原异常已投递、原始观测及内部正文，再投影 B 1.0 wire 并以独立摘要作为
+网络身份。内部 v0 正文与 `body_sha256` 始终不改。领取提交后才可访问 B，
+`finish_correction_wire_candidate` 只允许当前租约且内部摘要未变的 worker
+提交 delivered/retry/rejected；旧租约不能覆盖新结果。
+
+`deliver_correction_once_candidate(engine, *, source_event_id, now, port,
+max_attempts=10, contract_confirmed=False)` 先按来源查询 B，缺失才 POST；POST
+回复丢失时再次按来源查询，必须核同一 `source_event_id` 和**wire** 摘要才
+记 delivered。不一致走持久有界重试/拒绝。`BHttpLinkedCorrectionPort` 是
+单独的严格 1.0 DTO HTTP 适配器，普通 F03 适配器继续拒绝关联更正。
+
+以上入口没有接后台调度，默认 `contract_confirmed=False` 时不领取、不联网。
+需要 B PR #80 修复原温度异常主体约束及鉴权列表 `related_source_event_id`
+后，A/B 审定同版 B 1.0 合约、领取调用者与运行权限，才能显式启用。A 的
+恢复 sender、B 的更正后告警状态及实际通知均不由此候选端口代替；不得将
+SQLite/模拟 B 测试表述为真实 PostgreSQL、TCP、E1 或双渠道实收。
