@@ -2,14 +2,15 @@
 
 ## 2026-10-26 夜间续证：受保护恢复发送已审，E1 仍未签收
 
-共同 main 为 `296d4cb1a844b8eb9cd93d8506a142581921bda4`。A 的
+共同 main 后续已升至 `0e508d147517f81dfe2b9245c45c0c0e30076592`。A 的
 [PR #88](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/88)
-精确头 `9e27e52879f1e0d725950edee4aa53971d97a048` 面向 main 共 13 文件；
+精确头 `9e27e52879f1e0d725950edee4aa53971d97a048` 共 13 文件，已合入该 main；
 C 已对完整范围提交[正式 APPROVE](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/88#pullrequestreview-5653861150)。
 本机对 6 个 C 文件与原辅助 PR #87 逐字比对为零差异，C 生产子树/C01 对原 C
 `121550c468520adbbe7f35a9e286304e915d4bec` 身份检查也为零差异；
 PR #87 因被 #88 覆盖而关闭，未合并或删除分支。A 已将旧固定 SHA pin 更新为
-上述 C 原头；该精确 PR 仍为 Draft、未合 main。
+上述 C 原头。C 原分支随后正常合入新 main，无强推；当前 PR #11 与 main 的
+三点差异只剩本报告一份 C 文档，不再重复合入已发布的业务文件。
 
 本人 Windows 项目隔离 Python 3.14.3 对 #88 精确源码运行相关 unittest 29 项，
 **22 passed / 7 skipped / 0 failure**；跳过项需 PostgreSQL 条件，不能记为通过。
@@ -17,16 +18,16 @@ PR #87 因被 #88 覆盖而关闭，未合并或删除分支。A 已将旧固定
 [Backend run 40340621960](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40340621960)
 日志为 **1444 passed / 2 skipped / 182 warnings**。A 在 A65 记录的 73 项 PG 专项、
 本地整仓 1446/0 和真实 MQTT/PG/TCP 独立恢复进程属于 A 的环境与证据，C 本机
-没有重跑该完整链。代码审查批准不等于合并许可、两渠道终端实收、完整 E1 或最终
+没有重跑该完整链。代码合并不等于两渠道终端实收、完整 E1 或最终
 第二机验收；已有 attempt 后新前沿仍可能保守 held。下一次采证须等 A 固定同版源码、
 镜像和离线包校验值后，在本 Windows 第二机实际启动并记录登录、采集、CSV、控制
 ACK 与清理；未跑的步骤继续标未测。
 
-## 2026-10-26 晚最新检查点（M03/E1 未签收）
+## 2026-10-26 当晚较早检查点（M03/E1 未签收）
 
 共同 [S0 #5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5) 已关闭；
 A 的 [PR #82](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/82)
-已合入 main `296d4cb1a844b8eb9cd93d8506a142581921bda4`。这只更新共同源码基础，
+当时已合入 main `296d4cb1a844b8eb9cd93d8506a142581921bda4`。这只更新当时共同源码基础，
 不补写下列分段为完整 E1，也不代表两渠道终端实收或 M03 成品签收。
 
 | 来源与精确版本 | 本人实际验证与可引用证据 | 尚未验证 |
