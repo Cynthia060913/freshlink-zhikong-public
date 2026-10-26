@@ -84,7 +84,12 @@ from app.modules.telemetry.storage_candidate import (
     receptions,
 )
 
-_ENABLED = os.getenv("FRESHLINK_C_TEST_POSTGRES") == "1"
+_HOSTED_CI = (
+    os.getenv("GITHUB_ACTIONS") == "true"
+    and os.getenv("CI") == "true"
+    and os.getenv("FRESHLINK_INBOX_TEST_POSTGRES") == "1"
+)
+_ENABLED = os.getenv("FRESHLINK_C_TEST_POSTGRES") == "1" or _HOSTED_CI
 _DEVICE_ID = UUID("11111111-1111-4111-8111-111111111111")
 _WAREHOUSE_ID = UUID("22222222-2222-4222-8222-222222222222")
 _OTHER_WAREHOUSE_ID = UUID("44444444-4444-4444-8444-444444444444")
@@ -125,22 +130,30 @@ def _reception(
     )
 
 
-@unittest.skipUnless(_ENABLED, "requires FRESHLINK_C_TEST_POSTGRES=1")
+@unittest.skipUnless(_ENABLED, "requires owned C PG or hosted test database")
 class PostgresStorageCandidateTests(unittest.TestCase):
     def setUp(self) -> None:
-        # Refuse to connect until the exact disposable project/database/host
-        # guard passes. A fresh schema per test prevents HTTP data from
-        # changing the transaction test's expected row counts.
+        # Refuse every unowned target before opening a connection. The hosted
+        # CI path is the workflow's disposable development app database;
+        # every test creates and drops only its own random private schema.
         from app.core.config import settings
 
         url = make_url(str(settings.DATABASE_URL))
-        if (
-            url.get_backend_name() != "postgresql"
-            or url.host != "test-db"
-            or url.database != "freshlink_test"
-            or settings.PROJECT_NAME != "FreshLink-test"
-        ):
-            raise AssertionError("C PG test requires disposable test-db only")
+        disposable = (
+            url.get_backend_name() == "postgresql"
+            and url.host == "test-db"
+            and url.database == "freshlink_test"
+            and settings.PROJECT_NAME == "FreshLink-test"
+        )
+        hosted_ci = (
+            _HOSTED_CI
+            and url.get_backend_name() == "postgresql"
+            and url.host in {"localhost", "127.0.0.1", "db"}
+            and url.database == "app"
+            and settings.FASTAPI_ENV == "development"
+        )
+        if not (disposable or hosted_ci):
+            raise AssertionError("C PG test requires owned disposable test database")
         self.url = url.set(drivername="postgresql+psycopg")
         self.schema = "c_test_" + uuid4().hex
         self.base_engine = create_engine(self.url, pool_pre_ping=True)
