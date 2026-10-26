@@ -1178,3 +1178,20 @@ max_attempts=10, contract_confirmed=False)` 先按来源查询 B，缺失才 POS
 后，A/B 审定同版 B 1.0 合约、领取调用者与运行权限，才能显式启用。A 的
 恢复 sender、B 的更正后告警状态及实际通知均不由此候选端口代替；不得将
 SQLite/模拟 B 测试表述为真实 PostgreSQL、TCP、E1 或双渠道实收。
+
+## 2026-10-26：受保护恢复领取与锁外发送端口（未接调度）
+
+`recovery_claim_candidate.claim_fresh_recovery_on_connection_candidate(connection,
+*, recovery_source_event_id, device_id, warehouse_id, stream_epoch, now,
+lease_seconds=30, max_attempts=10)` 必须由 A 在**单个外层事务**调用：取得当前
+设备/绑定/epoch 的完整前沿锁、复核原异常与保存的全部证据、同 Connection CAS
+领取并提交，之后才调用 `delivery_candidate.deliver_claimed_candidate(engine,
+*, claim, now, port, max_attempts=10)`。后者先确认租约已经提交且 token、正文、
+摘要、attempt 与时限仍匹配，再在无设备锁时按同 source 查询 B、必要时 POST，
+按 B 原异常 resolved 回读并用现有 fenced `finish_candidate` 记录结果。
+
+不能把只读 `check_recovery_freshness_candidate` 后接另一个事务的通用
+`claim_candidate` 当作原子操作，也不能把恢复事件交给 generic due 循环。
+目前没有 A 调度或运行权限接线，默认零网络发送。attempt>0 后若新证据使冻结
+窗口过期，此端口保守拒领且不改正文/hash；B 未接受时如何终结旧 source，
+待 #5 的 A/B 同版决议，不因本端口存在而宣布自动恢复完成。

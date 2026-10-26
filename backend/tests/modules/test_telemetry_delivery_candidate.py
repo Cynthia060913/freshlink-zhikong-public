@@ -18,6 +18,7 @@ from app.modules.telemetry.b_http_candidate import (
 )
 from app.modules.telemetry.delivery_candidate import (
     RemoteCandidateReceipt,
+    deliver_claimed_candidate,
     deliver_due_batch_candidate,
     deliver_once_candidate,
 )
@@ -162,6 +163,33 @@ class CandidateDeliveryTests(unittest.TestCase):
         self.assertEqual(self._row()["state"], "delivered")
         self.assertEqual(self._run(port, now=NOW + timedelta(hours=1)), "not_due")
         self.assertEqual(len(port.sent_bodies), 1)
+
+    def test_claimed_port_requires_committed_current_lease_before_network(self) -> None:
+        claim = claim_candidate(self.engine, source_event_id=self.source_id, now=NOW)
+        assert claim is not None
+        expired_port = FakePort()
+        self.assertEqual(
+            deliver_claimed_candidate(
+                self.engine,
+                claim=claim,
+                now=NOW + timedelta(seconds=30),
+                port=expired_port,
+            ),
+            "lost_lease",
+        )
+        self.assertEqual((expired_port.lookup_ids, expired_port.sent_bodies), ([], []))
+        accepted = FakePort(send_results=[self._receipt()])
+        self.assertEqual(
+            deliver_claimed_candidate(self.engine, claim=claim, now=NOW, port=accepted),
+            "delivered",
+        )
+        self.assertEqual(accepted.sent_bodies, [self.body])
+        again = FakePort()
+        self.assertEqual(
+            deliver_claimed_candidate(self.engine, claim=claim, now=NOW, port=again),
+            "lost_lease",
+        )
+        self.assertEqual((again.lookup_ids, again.sent_bodies), ([], []))
 
     def test_locally_incompatible_frozen_body_is_rejected_once(self) -> None:
         class MissingOnlyTransport:

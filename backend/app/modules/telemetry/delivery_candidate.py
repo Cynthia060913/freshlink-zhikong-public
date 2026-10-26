@@ -12,13 +12,16 @@ from datetime import datetime
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.engine import Engine
 
 from app.modules.telemetry.outbox_candidate import (
     DeliveryClaimCandidate,
+    _aware_now,
     claim_candidate,
     due_source_ids_candidate,
     finish_candidate,
+    outbox,
 )
 
 ReceiptStatus = Literal[
@@ -148,6 +151,56 @@ def deliver_once_candidate(
     claim = claim_candidate(engine, source_event_id=source_event_id, now=now)
     if claim is None:
         return "not_due"
+    return deliver_claimed_candidate(
+        engine, claim=claim, now=now, port=port, max_attempts=max_attempts
+    )
+
+
+def deliver_claimed_candidate(
+    engine: Engine,
+    *,
+    claim: DeliveryClaimCandidate,
+    now: datetime,
+    port: CandidateDeliveryPort,
+    max_attempts: int = 10,
+) -> DeliveryOutcome:
+    """Send only a committed, still-current lease; never claim a second time.
+
+    The protected recovery claimant owns the A stream lock and commits before
+    calling this port. Its token/body check prevents an uncommitted or replaced
+    lease from sending. No device lock is held while B is contacted. B source
+    lookup before POST, ambiguity lookup, original-resolved readback, bounded
+    retry and fenced finish reuse the same existing delivery decisions.
+    """
+    if not isinstance(claim, DeliveryClaimCandidate):
+        raise ValueError("claim must be DeliveryClaimCandidate")
+    if (
+        isinstance(max_attempts, bool)
+        or not isinstance(max_attempts, int)
+        or not 1 <= max_attempts <= 100
+    ):
+        raise ValueError("max_attempts must be 1-100")
+    current_time = _aware_now(now)
+    with engine.connect() as connection:
+        current = (
+            connection.execute(
+                select(outbox).where(
+                    outbox.c.source_event_id == claim.source_event_id,
+                    outbox.c.lease_until_utc > current_time,
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+    if (
+        current is None
+        or current["state"] != "leased"
+        or current["lease_token"] != claim.lease_token
+        or current["body_sha256"] != claim.body_sha256
+        or current["body"] != claim.body
+        or current["attempt_count"] != claim.attempt_count
+    ):
+        return "lost_lease"
 
     try:
         prior = port.lookup(claim.source_event_id)
