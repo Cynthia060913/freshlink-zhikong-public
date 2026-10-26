@@ -24,6 +24,9 @@ from urllib.request import (
 )
 from uuid import UUID
 
+from app.modules.telemetry.correction_wire_candidate import (
+    validate_correction_wire_body_candidate,
+)
 from app.modules.telemetry.delivery_candidate import (
     InvalidLocalCandidate,
     ReceiptStatus,
@@ -228,6 +231,43 @@ class BHttpCandidatePort:
         if reply.status_code == 422:
             # FastAPI may reject malformed JSON before B creates a structured
             # CandidateReceipt. That input is permanent, never a retryable 503.
+            try:
+                data = _json_object(reply)
+                if data.get("status") == "invalid":
+                    return _remote_receipt(data, "invalid")
+            except ConnectionError:
+                pass
+            return RemoteCandidateReceipt(UUID(body["source_event_id"]), "invalid")
+        return _remote_receipt(_json_object(reply), expected)
+
+
+class BHttpLinkedCorrectionPort(BHttpCandidatePort):
+    """Explicit opt-in B transport for C's linked data-quality correction.
+
+    The ordinary F03 port intentionally rejects a related data-quality row.
+    This narrow adapter accepts only the exact projected correction wire DTO;
+    it never forwards C's internal v0 body or enables a background sender.
+    """
+
+    def send(self, body: dict[str, Any]) -> RemoteCandidateReceipt:
+        try:
+            validate_correction_wire_body_candidate(body)
+        except (TypeError, ValueError) as exc:  # fmt: skip
+            raise InvalidLocalCandidate("linked correction wire is invalid") from exc
+        encoded = json.dumps(
+            body,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        reply = self._transport.request("POST", "/api/v1/candidates", encoded)
+        if reply.status_code in (400, 401, 403):
+            raise PermissionError("B correction send authorization failed")
+        expected = _POST_STATUSES.get(reply.status_code)
+        if expected is None:
+            raise ConnectionError("B correction send returned unexpected HTTP status")
+        if reply.status_code == 422:
             try:
                 data = _json_object(reply)
                 if data.get("status") == "invalid":

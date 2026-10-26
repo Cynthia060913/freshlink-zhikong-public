@@ -1,9 +1,25 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-26 当前 C 更正投递与 B 审查补位（E1/M03 未签收）
+
+| 来源与精确版本 | 实际验证 | 尚未验证 |
+| --- | --- | --- |
+| C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) PG 测试门控 `7e59adf942212097ecb49ef8a2ee9c512dbc59f2` | 仅在项目 GitHub Actions 临时 development `db/app` 且现有 inbox PG 门控同时启用时，C 的 15 项随机私有 schema 严格 PG 用例才执行；本机仍须显式开关和专属 `test-db/freshlink_test/FreshLink-test`。本人本机默认运行 **15 跳过**，用模拟 URL 证明非测试目标在建连前拒绝、受控目标通过守卫但连接被拦截。精确头六类远端检查完成成功；[Backend 40273501906](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40273501906) 日志中该 C 文件 **13+2 个通过点、0 个该文件跳过**，整仓 **1377 passed/2 skipped/182 warnings/91%**。覆盖并发单赢家、持久重试同 wire、新 Engine/连接回读、事务回滚、固定快照/CSV 与鉴权 HTTP 候选。 | 这是 GitHub 临时 PostgreSQL 与模块独立路由；本人 Windows 此轮没有 Docker CLI，未在本机跑 PG。新 Engine/连接不是容器重建；`metadata.create_all` 在私有 schema 不等于正式迁移或主程序挂载。两通知实收、A 自动发送、完整 E1 和最终同版第二机仍未验；整仓剩余 2 skipped 不计通过。 |
+| C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) `095594fae995cbafd707f2d5c92f4252c13bf027`，业务提交 `92c47dc86d904891e34cf94419fd0e8526c6dfd9` | 更正专用持久租约、冻结 B wire 摘要、锁外回执与有界重试已上传；默认 `contract_confirmed=False`，不领取或联网。本人 Windows 隔离 Python3.14.3 同步共同 main 后相关 SQLite/模拟 B **47/47**；Ruff/mypy 通过。精确头六类 Actions 完成成功，[Backend 40257883476](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40257883476) **1362 passed/17 skipped/174 warnings/91%**。 | 本轮新增严格 PG 双 worker/重启同 wire 用例因专用门控未启用而未执行；本机当前无 Docker CLI。真实 B HTTP、A 调度、通知终端和完整 E1 均未验。17 项跳过不计通过。 |
+| C 协助 B 正式审查缺口：[PR #83](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/83) `905e50f5ba79ca8f12c895fcbff27d73bd0a60c5`，基于 B80 `b07a5e3e91cc674b3b06469a35f7c130839f1982`，目标仅为 B 功能分支 | 原温度异常 kind/metric 约束、鉴权告警列表双 source ID 与负例已上传；本人本机 Python3.14.3 HTTP 生命周期 **12/12**、Ruff/mypy、有限文本安全扫描通过。精确头六类 Actions 成功：[Backend 40272165454](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40272165454) **1365 passed/15 skipped/174 warnings/92%**，更正 PG 文件 16 dots；[Playwright 40272165352](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40272165352) 四片 **26+26+26+25 passed**，告警列表输入为 Mock。 | 本人本机 PG/浏览器未跑；B/A 尚需审查并选择接入，PR80 当前头未直接改动，不能把 PR83 的绿灯写成 PR80 已修复。真实两渠道收件、C→B 自动更正和 E1 未通过。 |
+| C 固定 [更正 wire JSON](examples/data-quality-correction-f03-wire-candidate.json) 与上述 B 候选模型 | 本人隔离 Python3.14.3 只读对拍：C 校验器与 B `CandidateCreate.model_validate`/`compute_content_digest` 均接受同一固定 JSON，得到同一完整摘要 `sha256:8c04fb17927df069a2a4bf02213f221a76af0fa62110313db07f34e566290dbf`；B 解析 kind=`data_quality`、metric=`temperature`，关联 ID 保留。 | 此项没有数据库、HTTP 或网络，不证明原异常存在、同仓同批、重放、告警恢复或通知实收。 |
+
+三行属于不同分支/精确头，不能相加为一套同版端到端结果。C 模块、A/B
+集成、B 两渠道实收及冻结版第二机验证仍按 [#9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9)、
+[#6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6) 和各自原始证据逐项更新。
+
+### 10 月 25 日旧轮次补充
+
 原始观测复核后又补 `raw_text`/`raw_payload` 一致性拒绝；本后续增量在项目
 Python3.14.8 定向 C unittest **7/7**、Ruff/mypy 通过，尚未重新跑完整本机
 PG 1370 项；下节 JUnit SHA 只属于此前 `0a3e2dcd39dfa8b43ee76e149d45f5cbae335dad`。
-更正仍 held/attempt0，远端新头 CI 与 E1 分别待核。
+更正当时仍 held/attempt0；该旧轮增量的远端检查在当时待核，当前
+PR11 精确头与 E1 状态以上表及 GitHub 实时记录为准。
 
 ## 2026-10-25 C 更正原始观测复核增量（M03/E1 未签收）
 

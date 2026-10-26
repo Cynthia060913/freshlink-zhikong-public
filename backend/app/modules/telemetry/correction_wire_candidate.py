@@ -78,6 +78,89 @@ def _utc(value: object) -> str:
     return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def validate_correction_wire_body_candidate(body: dict[str, Any]) -> str:
+    """Validate the linked correction DTO without widening ordinary F03.
+
+    The returned digest is B's canonical wire identity. This validator is
+    repeated at the HTTP boundary, which must never send C's internal v0 body.
+    """
+    if not isinstance(body, dict) or set(body) != {
+        "schema_version",
+        "source_event_id",
+        "kind",
+        "warehouse_id",
+        "batch_id",
+        "observation_ids",
+        "metric_code",
+        "sampled_at",
+        "value",
+        "unit",
+        "severity",
+        "rule_snapshot_id",
+        "rule_version",
+        "algorithm_version",
+        "evidence",
+        "related_source_event_id",
+    }:
+        raise ValueError("invalid correction wire fields")
+    source = _uuid(body["source_event_id"], "source_event_id")
+    original = _uuid(body["related_source_event_id"], "related_source_event_id")
+    if source == original:
+        raise ValueError("correction cannot reference itself")
+    for name in ("warehouse_id", "batch_id", "rule_snapshot_id"):
+        _uuid(body[name], name)
+    observations = body["observation_ids"]
+    if not isinstance(observations, list) or len(observations) != 1:
+        raise ValueError("correction requires one observation")
+    _uuid(observations[0], "observation_id")
+    if (
+        body["schema_version"] != "1.0"
+        or body["kind"] != "data_quality"
+        or body["metric_code"] != "temperature"
+        or body["value"] is not None
+        or body["unit"] != "°C"
+        or body["severity"] != "info"
+        or body["algorithm_version"] != _INTERNAL_VERSION
+        or not isinstance(body["rule_version"], str)
+        or not body["rule_version"]
+    ):
+        raise ValueError("unsupported correction wire semantics")
+    sampled_at = _utc(body["sampled_at"])
+    evidence = body["evidence"]
+    if not isinstance(evidence, dict) or set(evidence) != {"correction"}:
+        raise ValueError("invalid correction wire evidence")
+    correction = evidence["correction"]
+    if not isinstance(correction, dict) or set(correction) != {
+        "evidence_kind",
+        "evidence_id",
+        "reason_code",
+        "outcome",
+        "received_at_utc",
+        "raw_sha256",
+    }:
+        raise ValueError("invalid correction wire evidence")
+    evidence_id = _uuid(correction["evidence_id"], "evidence_id")
+    raw_sha256 = correction["raw_sha256"]
+    if (
+        correction["evidence_kind"] not in _EVIDENCE_KINDS
+        or correction["outcome"] not in _OUTCOMES
+        or not isinstance(correction["reason_code"], str)
+        or not 1 <= len(correction["reason_code"]) <= 80
+        or not isinstance(raw_sha256, str)
+        or len(raw_sha256) != 64
+        or any(char not in "0123456789abcdef" for char in raw_sha256)
+        or _utc(correction["received_at_utc"]) != sampled_at
+    ):
+        raise ValueError("invalid correction wire evidence")
+    key = f"{correction['evidence_kind']}:{evidence_id}:{raw_sha256}"
+    if UUID(source) != _correction_source_id(UUID(original), key):
+        raise ValueError("correction wire source identity mismatch")
+    encoded = _canonical(body)
+    if len(encoded) > 32768:
+        raise ValueError("correction wire body exceeds F03 limit")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
 def project_held_correction_wire_candidate(
     *,
     internal_body: dict[str, Any],
@@ -192,12 +275,10 @@ def project_held_correction_wire_candidate(
         "related_source_event_id": related_id,
     }
     encoded = _canonical(wire)
-    if len(encoded) > 32768:
-        raise ValueError("correction wire body exceeds F03 limit")
     frozen = json.loads(encoded)
     return CorrectionWireCandidate(
         body=frozen,
-        content_digest="sha256:" + hashlib.sha256(encoded).hexdigest(),
+        content_digest=validate_correction_wire_body_candidate(frozen),
         internal_body_sha256=internal_digest,
     )
 
@@ -210,6 +291,20 @@ def prepare_held_correction_wire_on_connection_candidate(
     This is a preparation port only. In particular, returning a DTO is not a
     claim, sender enablement, receipt, or permission to perform B HTTP.
     """
+    return _prepare_correction_wire_on_connection_candidate(
+        connection, source_event_id=source_event_id, claim_retry=False
+    )
+
+
+def _prepare_correction_wire_on_connection_candidate(
+    connection: Connection, *, source_event_id: UUID, claim_retry: bool
+) -> CorrectionWireCandidate | None:
+    """Recheck immutable evidence before a dedicated correction lease.
+
+    The public preparation port remains held-only. A correction retry may be
+    pending or have an expired lease, but must never reuse recovery's frozen
+    frontier gate or the generic F03 sender.
+    """
     if not connection.in_transaction():
         raise ValueError("caller must own an open C transaction")
     if not isinstance(source_event_id, UUID):
@@ -221,16 +316,27 @@ def prepare_held_correction_wire_on_connection_candidate(
         .mappings()
         .one_or_none()
     )
-    if correction is None or correction["state"] != "held_contract":
+    allowed_states = (
+        {"held_contract", "pending", "leased"} if claim_retry else {"held_contract"}
+    )
+    if correction is None or correction["state"] not in allowed_states:
         return None
     original_id = correction["related_source_event_id"]
-    if (
-        original_id is None
-        or correction["attempt_count"] != 0
-        or correction["lease_token"] is not None
-        or correction["lease_until_utc"] is not None
+    if original_id is None:
+        raise ValueError("correction lacks original source_event_id")
+    if correction["state"] == "held_contract":
+        if (
+            correction["attempt_count"] != 0
+            or correction["lease_token"] is not None
+            or correction["lease_until_utc"] is not None
+        ):
+            raise ValueError("held correction has invalid outbox state")
+    elif (
+        correction["attempt_count"] < 1
+        or (correction["lease_token"] is None) != (correction["state"] == "pending")
+        or (correction["lease_until_utc"] is None) != (correction["state"] == "pending")
     ):
-        raise ValueError("held correction has invalid outbox state")
+        raise ValueError("retried correction has invalid outbox state")
     original = (
         connection.execute(
             select(outbox).where(outbox.c.source_event_id == original_id)

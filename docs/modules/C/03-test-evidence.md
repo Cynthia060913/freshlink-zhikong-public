@@ -1,5 +1,21 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-26 更正专用领取候选（本机隔离环境）
+
+当前增量新增纠错专用租约、锁外 B 查询/POST、模糊回执按来源和 wire 摘要核验、
+过期租约 fencing 与持久退避；仍默认关闭，没有调度和真实外发。Windows
+隔离项目 Python 3.14.3 对 `test_telemetry_correction_delivery_candidate`、
+`test_telemetry_correction_wire_candidate`、`test_telemetry_delivery_candidate`
+实际执行 `python -B -m unittest ... -v`：**31 tests passed，0 errors，0
+failures**。SQLite 内存库和模拟 B 覆盖丢失 POST 回执、摘要/来源不匹配、
+陈旧租约、原始证据篡改与默认不启用。Ruff lint/format 与 mypy 三个生产文件
+通过。此前首次运行的时区错误已修后重测，不算成功结果。
+
+新增受环境变量 `FRESHLINK_C_TEST_POSTGRES=1` 门控的 PostgreSQL 同来源双
+worker 竞争、重启保留与重领同 wire 摘要用例；**本轮尚未实际运行**。真实 B
+HTTP、A 调度接线、远端 CI、完整 E1 与通知实收同样未测；上传后的 SHA 和
+远端结果需另行登记，不能沿用本机 31 项结果。
+
 ## 2026-10-25 原始文本一致性补检（前一整仓测试后的增量）
 
 原异常发前检查再比较持久 `raw_text` 与 `raw_payload`：用接收边界同样的
