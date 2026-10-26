@@ -8,6 +8,7 @@ export type AlertState = "open" | "acknowledged" | "resolved"
 export interface AlertRow {
   alert_event_id: string
   source_event_id: string
+  related_source_event_id: string | null
   kind: string
   severity: string | null
   warehouse_id: string | null

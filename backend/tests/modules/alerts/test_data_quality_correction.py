@@ -294,6 +294,49 @@ class CorrectionContractCase(unittest.TestCase):
         self.assertEqual(str(receipt.status), "invalid")
         self.assertEqual(receipt.reason_code, "related_event_mismatch")
 
+    def test_recovery_cannot_be_the_related_original(self) -> None:
+        original = self._seed_original(resolved=False)
+        recovery = self._recovery_payload(original)
+        self.assertEqual(str(self._receive(recovery).status), "accepted_new")
+        correction = self._correction(recovery.source_event_id)
+        receipt = self._receive(correction)
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        self.assertEqual(self._correction_rows(recovery.source_event_id), [])
+        self.assertEqual(self._transitions(original), ["resolved"])
+
+    def test_another_correction_cannot_be_the_related_original(self) -> None:
+        original = self._seed_original(resolved=False)
+        first = self._correction(original)
+        self.assertEqual(str(self._receive(first).status), "accepted_new")
+        second = self._correction(first.source_event_id)
+        receipt = self._receive(second)
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        self.assertEqual(self._correction_rows(first.source_event_id), [])
+        self.assertEqual(len(self._correction_rows(original)), 1)
+
+    def test_non_temperature_metric_cannot_be_the_related_original(self) -> None:
+        original = f"wrong-metric-{uuid.uuid4()}"
+        self.assertEqual(
+            str(
+                self._receive(
+                    _candidate(
+                        source_event_id=original,
+                        warehouse_id=self.wid,
+                        batch_id=self.bid,
+                        metric_code="humidity",
+                        unit="%RH",
+                    )
+                ).status
+            ),
+            "accepted_new",
+        )
+        receipt = self._receive(self._correction(original))
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        self.assertEqual(self._correction_rows(original), [])
+
     def test_other_kinds_still_reject_related_at_dto(self) -> None:
         with self.assertRaises(ValueError):
             _candidate(

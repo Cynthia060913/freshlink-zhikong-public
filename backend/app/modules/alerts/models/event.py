@@ -553,6 +553,7 @@ class AlertEventSummary(SQLModel):
 
     alert_event_id: uuid.UUID
     source_event_id: str
+    related_source_event_id: str | None
     kind: str
     severity: str | None
     warehouse_id: uuid.UUID | None
