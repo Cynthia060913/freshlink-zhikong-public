@@ -1,0 +1,5 @@
+# Explicit extension of the owned linked-correction proof. No provider settings.
+services:
+  test-runner:
+    environment:
+      FRESHLINK_GUARDED_RECOVERY_PROOF: "1"

@@ -23,6 +23,9 @@ from app.modules.telemetry.multi_batch_candidate import (
 )
 from app.modules.telemetry.outbox_candidate import outbox, stage_f03_candidate
 from app.modules.telemetry.quality import process_batch
+from app.modules.telemetry.recovery_claim_candidate import (
+    claim_fresh_recovery_on_connection_candidate,
+)
 from app.modules.telemetry.recovery_freshness_candidate import (
     RecoveryFreshnessCandidate,
     check_recovery_freshness_candidate,
@@ -593,6 +596,32 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
         }
         ready = check_recovery_freshness_candidate(store.engine, **ready_args)
         assert ready.status == "ready_at_check"
+
+        def tentative_claim(**overrides):
+            # Roll back the lease so the rest of this evidence test can keep
+            # probing the same pending frozen body without any B network I/O.
+            with store.engine.connect() as connection:
+                transaction = connection.begin()
+                result = claim_fresh_recovery_on_connection_candidate(
+                    connection,
+                    **{**ready_args, **overrides},
+                    now=NOW + timedelta(minutes=10),
+                )
+                if result.claim is not None:
+                    assert result.claim.attempt_count == 1
+                    assert result.claim.body == recovery["body"]
+                    assert (
+                        claim_fresh_recovery_on_connection_candidate(
+                            connection,
+                            **ready_args,
+                            now=NOW + timedelta(minutes=10),
+                        ).status
+                        == "held"
+                    )
+                transaction.rollback()
+                return result
+
+        assert tentative_claim().status == "claimed"
         # A stored source can become inconsistent with its preserved raw
         # sample without changing the immutable F03 body or frozen frontier.
         # Both the high observation and the recovery window must fail closed.
@@ -618,6 +647,7 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
                 RecoveryFreshnessCandidate("held", "invalid_stored_evidence")
             )
+            assert tentative_claim().status == "held"
             with store.engine.begin() as connection:
                 connection.execute(
                     update(observations)
@@ -627,6 +657,23 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
         assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
             RecoveryFreshnessCandidate("ready_at_check")
         )
+        with store.engine.begin() as connection:
+            original_text = connection.scalar(
+                select(observations.c.raw_text).where(observations.c.id == anomaly_id)
+            )
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == anomaly_id)
+                .values(raw_text="invalid synthetic JSON")
+            )
+        assert tentative_claim().reason == "invalid_stored_evidence"
+        with store.engine.begin() as connection:
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == anomaly_id)
+                .values(raw_text=original_text)
+            )
+        assert tentative_claim().status == "claimed"
         # A well-formed but altered body must not pass the pre-send gate merely
         # because its IDs and temperature still match the frozen evidence.
         for source_event_id in (staged.source_event_id, original_id):
@@ -728,6 +775,8 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
         assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
             RecoveryFreshnessCandidate("held", "stale_frozen_frontier")
         )
+        assert tentative_claim().status == "held"
+        assert tentative_claim(stream_epoch=uuid4()).status == "held"
         for observation_id in (anomaly_id, recovered_ids[1]):
             with store.engine.begin() as connection:
                 original_text = connection.scalar(
@@ -757,6 +806,7 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
         assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
             RecoveryFreshnessCandidate("ready_at_check")
         )
+        assert tentative_claim().status == "claimed"
 
         def admit_saved_sample(
             temperature: float, seconds: int, *, check_pending: bool = False
