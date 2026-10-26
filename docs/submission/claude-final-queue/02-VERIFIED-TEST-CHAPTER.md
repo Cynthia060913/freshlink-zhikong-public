@@ -36,8 +36,12 @@ internal 网络、tmpfs 数据库；不修改宿主 Python。证据根目录为 
   timestamp=2026-10-26T05:49:37Z，hostname=10487f5d0262。
 - 覆盖：correction delivery/wire、PG storage（含 authenticated_http_snapshot_csv）、
   B 更正契约、alerts lifecycle（含 acknowledge 幂等/409、normal_user 只读）、worker 退避。
-- 边界：**这是 9fedf0c 组合的专项子集，不是 bfb 全套回归**；任务书/A62 标注"69 过/0 跳过"，
-  本文件实际读到 72 项，二者不一致，最终以该 XML 实际内容与 A 核对为准。
+- A 于 2026-10-26 核对：终端 collected 69 / 69 passed，XML 实际有 69 个 testcase、无失败或跳过；
+  汇总属性 tests=72。相同 pytest 9.1.1 的纯合成探针（1 个测试、3 个成功 subTest）实际输出
+  1 passed、1 个 testcase、汇总 tests=4，复现了子用例计入汇总的口径。保留原始 XML，
+  主用例数采用终端和 testcase 的 69，不据汇总差额声称新增覆盖。
+- 边界：**这是 9fedf0c 组合的专项子集，不是 bfb 全套回归**。后续 C 修复和新组合的实际
+  证据见 `../A64-INTEGRATION-CHECKPOINT.md`，不回写旧版本为通过。
 
 ### G4 应用镜像构建与源核对（165 后端文件 / 39 前端产物）
 - 证据：`source-candidates/20261026162745-1b4fc0b5ff0d43fab7d08eb7245ab63f/application-build.json`（已实际读取）。
