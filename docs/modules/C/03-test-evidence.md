@@ -1,5 +1,29 @@
 # C 测试证据与后续复现清单
 
+## 2026-10-26 恢复窗口原文与 revision-only 续验修复
+
+本轮代码精确提交 `9ec008befb477e13cc9e9e8f60deeb2782269043`（C PR #11，
+共同 main 基础 `426604f2933a3b2d594f8fad6019dfdea84e75cf`）。只改 C 两个
+生产文件和两个测试文件：保存原文按接收边界规则拒绝无效 JSON、重复键、非有限值
+及与解析载荷不一致；相同 admission 序号而共享 revision 更新时，只有原异常、
+窗口和完整前沿均重新验证通过才续验。原正文/hash、锁顺序、CAS、租约/attempt
+限制与坏证据/高温拒绝保持。
+
+本人 Windows 项目隔离 Python3.14.3 运行恢复相关四个 unittest 模块，
+**49 tests passed、0 failed**（临时 SQLite 与纯函数）；Ruff 本轮四文件和
+mypy 两生产文件通过，暂存文本安全扫描零 findings（有限模式）。本机此轮
+无可用 Docker CLI，未运行 A 的 89 项叠加组合。精确头
+[Backend Actions 40310929517](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40310929517)
+在 GitHub 受控 PostgreSQL 执行 **1378 passed/2 skipped/182 warnings/91%**，
+C `test_telemetry_gated_high_postgres_candidate.py` 五项实际执行；另外五项
+适用 Actions 也成功。该云端 PG 结果不等于本人本机 PG 或 A 新组合复验。
+PR #82 旧头 `13e88899bb7ab42163b336508f061ee34ce8f9a8` 未含本修复，
+[正式阻断审查](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/82#pullrequestreview-5651329999)
+等待 A 接入精确代码提交并重跑多批次/坏原文/gap 与真实 PG/HTTP。
+2026-10-25 下方“无新增 admission 不续验”是旧代码的测试预期；现在只有
+**完整重验通过**的 revision-only 情况可续验，坏原文或不确定前沿仍拒绝。
+真实两渠道实收、完整 E1、最终冻结版第二机均未验证。
+
 ## 2026-10-26 更正专用领取候选（本机隔离环境）
 
 当前增量新增纠错专用租约、锁外 B 查询/POST、模糊回执按来源和 wire 摘要核验、
