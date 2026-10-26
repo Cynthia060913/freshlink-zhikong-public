@@ -151,6 +151,10 @@ export type AlertEventSummary = {
      * Unit
      */
     unit: string | null;
+    /**
+     * Related Source Event Id
+     */
+    related_source_event_id?: string | null;
     status: AlertStatus;
     /**
      * Created At
