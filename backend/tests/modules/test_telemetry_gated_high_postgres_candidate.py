@@ -728,10 +728,35 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
         assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
             RecoveryFreshnessCandidate("held", "stale_frozen_frontier")
         )
+        for observation_id in (anomaly_id, recovered_ids[1]):
+            with store.engine.begin() as connection:
+                original_text = connection.scalar(
+                    select(observations.c.raw_text).where(
+                        observations.c.id == observation_id
+                    )
+                )
+                connection.execute(
+                    update(observations)
+                    .where(observations.c.id == observation_id)
+                    .values(raw_text="invalid synthetic JSON")
+                )
+            with store.engine.begin() as connection:
+                assert refresh_pending_recovery_frontier_on_connection_candidate(
+                    connection, **ready_args
+                ) == RecoveryRefreezeCandidate("held", "invalid_stored_evidence")
+            with store.engine.begin() as connection:
+                connection.execute(
+                    update(observations)
+                    .where(observations.c.id == observation_id)
+                    .values(raw_text=original_text)
+                )
         with store.engine.begin() as connection:
             assert refresh_pending_recovery_frontier_on_connection_candidate(
                 connection, **ready_args
-            ) == RecoveryRefreezeCandidate("held", "no_new_admission")
+            ) == RecoveryRefreezeCandidate("refrozen")
+        assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
+            RecoveryFreshnessCandidate("ready_at_check")
+        )
 
         def admit_saved_sample(
             temperature: float, seconds: int, *, check_pending: bool = False
@@ -840,7 +865,16 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             connection.execute(
                 update(outbox)
                 .where(outbox.c.source_event_id == staged.source_event_id)
-                .values(state="pending", lease_token=None)
+                .values(state="pending", lease_token=None, attempt_count=1)
+            )
+        with store.engine.begin() as connection:
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **ready_args
+            ) == RecoveryRefreezeCandidate("held", "recovery_not_unclaimed")
+            connection.execute(
+                update(outbox)
+                .where(outbox.c.source_event_id == staged.source_event_id)
+                .values(attempt_count=0)
             )
         admit_saved_sample(11.0, 150)
         with store.engine.begin() as connection:

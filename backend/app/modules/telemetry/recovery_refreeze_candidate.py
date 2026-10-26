@@ -134,7 +134,10 @@ def refresh_pending_recovery_frontier_on_connection_candidate(
         return RecoveryRefreezeCandidate("held", verified.reason)
     if frozen == current:
         return RecoveryRefreezeCandidate("already_current")
-    if frozen[3] >= stamp.admitted_seq:
+    # A different recovery window can advance the shared evidence revision
+    # without adding an admission. The full saved-evidence check above still
+    # gates this renewal; only a regressed admission sequence is unsafe.
+    if frozen[3] > stamp.admitted_seq:
         return RecoveryRefreezeCandidate("held", "no_new_admission")
     original_id = recovery["related_source_event_id"]
     progress = (

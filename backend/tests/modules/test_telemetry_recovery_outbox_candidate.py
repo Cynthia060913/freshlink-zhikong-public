@@ -824,6 +824,60 @@ class RecoveryOutboxCandidateCase(unittest.TestCase):
                 connection.scalar(select(func.count()).select_from(outbox)), 1
             )
 
+    def test_saved_recovery_rejects_tampered_raw_text_for_original_and_window(
+        self,
+    ) -> None:
+        recovered = self.ingest(10, 6.5)
+        args = {
+            "original_source_event_id": _ORIGINAL,
+            "observation_id": recovered,
+            "batch_id": _BATCH,
+            "historical_rule": _selection(),
+        }
+        for observation_id in (self.original_observation_id, recovered):
+            with self.engine.connect() as connection:
+                original_text = connection.scalar(
+                    select(observations.c.raw_text).where(
+                        observations.c.id == observation_id
+                    )
+                )
+            for tampered_text in (
+                "invalid synthetic JSON",
+                "[]",
+                '{"a":1,"a":2}',
+                '{"value":NaN}',
+                "{}",
+            ):
+                with self.subTest(
+                    observation_id=observation_id, raw_text=tampered_text
+                ):
+                    with self.engine.begin() as connection:
+                        connection.execute(
+                            update(observations)
+                            .where(observations.c.id == observation_id)
+                            .values(raw_text=tampered_text)
+                        )
+                    result = advance_saved_recovery_observation_candidate(
+                        self.engine, **args
+                    )
+                    self.assertEqual(result.status, "held_invalid_evidence")
+                    self.assertNotIn(tampered_text, result.reason)
+            with self.engine.begin() as connection:
+                connection.execute(
+                    update(observations)
+                    .where(observations.c.id == observation_id)
+                    .values(raw_text=original_text)
+                )
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(select(func.count()).select_from(recovery_progress)),
+                0,
+            )
+        self.assertEqual(
+            advance_saved_recovery_observation_candidate(self.engine, **args).status,
+            "advanced",
+        )
+
     def test_saved_observation_connection_uses_outer_rollback_and_idempotent_replay(
         self,
     ) -> None:
