@@ -46,13 +46,13 @@ CI或系统设置。禁止生成/改写任何验收通过JSON；禁止给别人�
 
 既有Claude成果优先复用，不从零再编一套：
 
-- PR69：`claude/delivery-runbook`，此前84232d1af3041dfc9fe7320fe09d79b221afe378，
+- PR69：`claude/delivery-runbook`，此前 `84232d1af3041dfc9fe7320fe09d79b221afe378`，
   `docs/submission/claude/USER-QUICKSTART.md`、`SECOND-MACHINE-ACCEPTANCE.md`。
-- PR70：`claude/demo-script`，此前b9d032702e914b97abad5a580d8f1ec56a0b98de，
+- PR70：`claude/demo-script`，此前 `b9d032702e914b97abad5a580d8f1ec56a0b98de`，
   `DEMO-SCRIPT.md`、`CAPTURE-PRIVACY.md`。
-- PR71：`claude/source-handover`，此前6d32984edfea71e082d499592feb787abf7b0c2b，
+- PR71：`claude/source-handover`，此前 `6d32984edfea71e082d499592feb787abf7b0c2b`，
   `SOURCE-PACKAGE-NOTES.md`、`MATERIALS-HANDOVER.md`。
-- PR77：`claude/a-delivery-materials`，A最近回读头9e9ba3a6ef7c4d7db0c83ac98d7caaf8296e202d，
+- PR77：`claude/a-delivery-materials`，A最近回读头 `9e9ba3a6ef7c4d7db0c83ac98d7caaf8296e202d`，
   `docs/submission/claude-a-materials/` 的技术章节、讲稿和来源表。
 
 这些SHA是带日期线索；若使用旧资料，标注取到的精确版本。可以安全fetch只读引用，不能merge。
