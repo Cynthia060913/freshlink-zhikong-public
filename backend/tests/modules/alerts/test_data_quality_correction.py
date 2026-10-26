@@ -385,6 +385,23 @@ class CorrectionContractCase(unittest.TestCase):
         )
         self._related_kind_is_invalid_zero_write(humidity_source)
 
+    def test_humidity_correction_of_temperature_anomaly_is_invalid(self) -> None:
+        original = self._seed_original(resolved=False)
+        payload = self._correction(original)
+        payload.metric_code = "humidity"
+        payload.unit = "%RH"
+        receipt = self._receive(payload)
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        with Session(engine) as session:
+            stored = session.exec(
+                select(AlertEvent).where(
+                    col(AlertEvent.source_event_id) == payload.source_event_id
+                )
+            ).all()
+        self.assertEqual(stored, [])
+        self.assertEqual(self._transitions(original), [])
+
     def test_other_kinds_still_reject_related_at_dto(self) -> None:
         with self.assertRaises(ValueError):
             _candidate(

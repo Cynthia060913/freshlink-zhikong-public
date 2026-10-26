@@ -427,6 +427,7 @@ def _correction_related_check(session: Session, payload: CandidateCreate) -> str
             str(CandidateKind.TEMPERATURE_LOW),
         )
         or original.metric_code != "temperature"
+        or payload.metric_code != "temperature"
     ):
         # The correction is about THAT anomaly's evidence: it must
         # name a TEMPERATURE anomaly in the same warehouse/batch —
