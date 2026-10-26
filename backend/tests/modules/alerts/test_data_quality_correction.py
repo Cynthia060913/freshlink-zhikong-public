@@ -83,12 +83,12 @@ def _require_disposable_pg() -> None:
         and url.database == "freshlink_test"
         and settings.PROJECT_NAME == "FreshLink-test"
     )
-    local_optin = (
+    local_opt_in = (
         os.getenv("B01_CORRECTION_TEST_PG") == "1"
         and url.host in {"localhost", "127.0.0.1", "test-db"}
         and url.database not in {"app", "postgres", "freshlink", "freshlink_test"}
     )
-    if not (hosted or local_docker or local_optin):
+    if not (hosted or local_docker or local_opt_in):
         raise RuntimeError("refusing non-disposable correction world")
 
 
