@@ -7,6 +7,7 @@ disposable container database before this script. No fallback DDL here.
 """
 
 import csv
+import importlib.util
 import json
 import os
 import signal
@@ -387,6 +388,7 @@ def run():
             prepared = False
             continued = False
             corrected = False
+            control_result = None
             if prepare_recovery:
                 original_id = rows(outbox)[0]["source_event_id"]
                 # All three normal samples enter through authenticated MQTT and
@@ -674,6 +676,36 @@ def run():
                         assert len(rows(AlertStatusTransition.__table__)) == 1
                         assert rows(NotificationAttempt.__table__) == []
                         corrected = True
+                        # Reuse the existing actual control/device proof. C is
+                        # drained by its real store process here, not a manual
+                        # fixture driver or another in-process delivery loop.
+                        spec = importlib.util.spec_from_file_location(
+                            "freshlink_owned_control_proof",
+                            Path(__file__).with_name("check-gated-telemetry.py"),
+                        )
+                        if spec is None or spec.loader is None:
+                            raise RuntimeError("Existing control proof unavailable")
+                        control_proof = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(control_proof)
+                        os.environ["GATED_CONTROL_ENTRY"] = "1"
+                        control_result = control_proof.prove_control_to_stored_data(
+                            api,
+                            {},
+                            warehouse_id,
+                            batch.json()["id"],
+                            rule.json()["id"],
+                            None,
+                            rows,
+                            wait_for,
+                        )
+                        assert control_result["actual_device_execution_ack"]
+                        assert control_result["actual_control_process_entry"]
+                        assert control_result["post_ack_sample_persisted_by_c"]
+                        assert all(
+                            process.poll() is None
+                            for name, process, _ in owned
+                            if name in {"receive", "store", "evaluate", "deliver-high"}
+                        )
             result = {
                 "phase": "actual_runtime_processes_tcp_b_csv_passed",
                 "source_revision": os.environ["GATED_SOURCE_REVISION"],
@@ -697,6 +729,7 @@ def run():
                 "actual_recovery_http_and_resolved_readback": continued,
                 "actual_preparation_watch_restart": watch_recovery and continued,
                 "actual_late_mqtt_correction_background_tcp": corrected,
+                "actual_control_and_subsequent_c_data": control_result,
                 "notifications_sent": 0,
                 "complete_e1": False,
                 "not_tested": [
@@ -706,7 +739,7 @@ def run():
                     if continued
                     else "recovery",
                     "notifications",
-                    "control in this run",
+                    *([] if control_result else ["control in this run"]),
                     "browser",
                     "14 devices",
                     "second machine",

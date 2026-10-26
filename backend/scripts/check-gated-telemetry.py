@@ -148,11 +148,12 @@ def prove_control_to_stored_data(
     def stored():
         if errors:
             raise AssertionError("Control proof worker failed: " + errors[0])
-        for _ in range(10):
-            outcome = delivery.run_once()
-            if outcome is None:
-                break
-            assert outcome.status == "delivered"
+        if delivery is not None:
+            for _ in range(10):
+                outcome = delivery.run_once()
+                if outcome is None:
+                    break
+                assert outcome.status == "delivered"
         return sorted(
             [
                 row

@@ -63,9 +63,10 @@ try {
     if($NotificationRunner -and (-not $report.synthetic_sinks_only -or -not $report.actual_pg_dispatch_lease -or -not $report.restart_sends_only_missing_channel -or -not $report.third_delivery_process_no_resend -or $report.persistent_attempt_rows -ne 3)){throw 'Persistent synthetic notification proof incomplete'}
     if($ControlEntry -and -not $report.actual_control_and_subsequent_c_data.actual_control_process_entry){throw 'Control process entry was not exercised'}
     $exitCode=0
-    $label=if($NotificationRunner){'runtime/C/B/persistent synthetic notification runner'}elseif($RecoveryContinuation){'live workers/new MQTT/refreeze/TCP B recovery'}elseif($RuntimeProcesses){'runtime processes/TCP B/raw/history/CSV'}else{'gated MQTT/C/JWT-HTTP/CSV'}
+    $label=if($LinkedCorrection){'live MQTT/recovery/linked correction worker/TCP B traceability'}elseif($NotificationRunner){'runtime/C/B/persistent synthetic notification runner'}elseif($RecoveryContinuation){'live workers/new MQTT/refreeze/TCP B recovery'}elseif($RuntimeProcesses){'runtime processes/TCP B/raw/history/CSV'}else{'gated MQTT/C/JWT-HTTP/CSV'}
     Write-Output ('PASS '+$label+' segment; evidence: '+$results)
-    Write-Output 'NOT FULL E1: no unattended recovery/correction scheduling, real notification receipts or final second-machine acceptance.'
+    if($LinkedCorrection){Write-Output 'NOT FULL E1: recovery sending remains explicit; no real notification receipts or final second-machine acceptance.'}
+    else{Write-Output 'NOT FULL E1: no unattended recovery/correction scheduling, real notification receipts or final second-machine acceptance.'}
 } catch {Write-Output ('STOP: '+$_.Exception.Message)}
 finally {
     if($docker -and $compose){
