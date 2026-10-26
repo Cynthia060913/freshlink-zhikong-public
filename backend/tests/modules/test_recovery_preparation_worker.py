@@ -15,13 +15,25 @@ from uuid import uuid4
 
 from sqlalchemy import insert, update
 from sqlalchemy.exc import OperationalError
+from sqlmodel import Session
 
+from app.modules.alerts.models import BatchRuleSnapshotCreate
+from app.modules.alerts.services.rules import create_snapshot
 from app.modules.iot import recovery_observation_service as service
 from app.modules.iot.recovery_preparation_worker import RecoveryPreparationWorker
-from app.modules.iot.stream_frontier import FrontierUnavailable
+from app.modules.iot.stream_frontier import (
+    FrontierUnavailable,
+    begin_evidence_write,
+    mark_uncertain,
+)
+from app.modules.telemetry.delivery_candidate import deliver_once_candidate
 from app.modules.telemetry.outbox_candidate import outbox
+from app.modules.telemetry.recovery_freshness_candidate import (
+    check_recovery_freshness_candidate,
+)
 from app.modules.telemetry.storage_candidate import observations
 from tests.api.routes import test_stream_frontier as checks
+from tests.modules import test_gated_high_business as high_checks
 from tests.modules import test_gated_recovery_observation as recovery_checks
 from tests.modules.test_telemetry_service import settings_for
 
@@ -107,6 +119,52 @@ class RecoveryPreparationTests(unittest.TestCase):
         after = self.child()
         self.assertEqual(after["frozen_admitted_seq"], before["frozen_admitted_seq"])
         self.assertEqual((after["state"], after["attempt_count"]), ("pending", 0))
+
+    def test_revision_only_does_not_hide_bad_saved_raw_without_new_admission(self):
+        for second in (10, 20, 30):
+            self.save(6, second)
+        self.watch.run_once(now=self.now)
+        before = self.child()
+        with self.store.engine.begin() as connection:
+            begin_evidence_write(
+                connection,
+                device_id=self.store.device_id,
+                warehouse_id=self.store.warehouse_id,
+                epoch=self.store.epoch,
+            )
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == before["observation_id"])
+                .values(raw_text="invalid synthetic JSON")
+            )
+        result = self.watch.run_once(now=self.now)
+        self.assertEqual(result["frontier_held"], 1)
+        self.assertEqual(
+            self.child()["frozen_evidence_revision"], before["frozen_evidence_revision"]
+        )
+        self.assertEqual(self.child()["attempt_count"], 0)
+
+    def test_revision_only_does_not_clear_uncertainty_without_new_admission(self):
+        for second in (10, 20, 30):
+            self.save(6, second)
+        self.watch.run_once(now=self.now)
+        before = self.child()
+        with self.store.engine.begin() as connection:
+            begin_evidence_write(
+                connection,
+                device_id=self.store.device_id,
+                warehouse_id=self.store.warehouse_id,
+                epoch=self.store.epoch,
+            )
+            mark_uncertain(
+                connection, device_id=self.store.device_id, epoch=self.store.epoch
+            )
+        result = self.watch.run_once(now=self.now)
+        self.assertEqual(result["frontier_held"], 1)
+        self.assertTrue(checks.state(self.store)["gap_reason"])
+        self.assertEqual(
+            self.child()["frozen_evidence_revision"], before["frozen_evidence_revision"]
+        )
 
     def test_two_real_pg_preparers_keep_one_stable_window_without_uncertainty(self):
         for second in (10, 20, 30):
@@ -197,6 +255,79 @@ class RecoveryPreparationTests(unittest.TestCase):
             seen.update(page)
             self.watch._cursor = page[-1]
         self.assertEqual(seen, set(ids))
+
+    def test_actual_two_batch_originals_both_gain_valid_windows_without_first_batch_choice(
+        self,
+    ):
+        batch = high_checks.GatedHighBusinessTests.configure(self, rule=False)
+        with Session(self.store.engine) as session:
+            create_snapshot(
+                session,
+                batch,
+                BatchRuleSnapshotCreate(
+                    version_id=uuid4(),
+                    rule_version="second-batch-recovery-v1",
+                    effective_start_at=checks.T0 - timedelta(days=1),
+                    rules=[
+                        {
+                            "metric_code": "temperature",
+                            "candidate_kind": "temperature_high",
+                            "severity": "warning",
+                            "threshold_high": 8,
+                            "unit": "°C",
+                            "recovery": {
+                                "comparison": "<=",
+                                "threshold": 7,
+                                "min_samples": 3,
+                            },
+                        }
+                    ],
+                ),
+            )
+        observation = self.save(12, 5)
+        result = self.high.evaluate(observation, now=self.now)
+        self.assertEqual(len(result.source_event_ids), 2)
+        for source in result.source_event_ids:
+            self.assertEqual(
+                deliver_once_candidate(
+                    self.store.engine,
+                    source_event_id=source,
+                    now=self.now,
+                    port=recovery_checks.LocalBPort(self.store.engine),
+                ),
+                "delivered",
+            )
+        for second in (10, 20, 30):
+            self.save(6, second)
+        # Preparing another original legitimately advances the common stream
+        # revision. A later bounded tick must renew every earlier window too.
+        first_tick = self.watch.run_once(now=self.now)
+        second_tick = self.watch.run_once(now=self.now)
+        children = [
+            r
+            for r in self.rows()
+            if r["related_source_event_id"] in result.source_event_ids
+        ]
+        self.assertEqual(len(children), 2)
+        self.assertEqual(
+            {r["body"]["batch_id"] for r in children}, {str(self.batch), str(batch)}
+        )
+        for child in children:
+            self.assertEqual((child["state"], child["attempt_count"]), ("pending", 0))
+            detail = check_recovery_freshness_candidate(
+                self.store.engine,
+                recovery_source_event_id=child["source_event_id"],
+                device_id=self.store.device_id,
+                warehouse_id=self.store.warehouse_id,
+                stream_epoch=self.store.epoch,
+            )
+            self.assertEqual(
+                service.check_ready_once(
+                    self.store.engine, self.settings, (child["source_event_id"],)
+                ),
+                {"ready_at_check": 1},
+                (detail, first_tick, second_tick, checks.state(self.store), child),
+            )
 
     def test_foreign_scope_rejected_before_any_window_write(self):
         self.watch.settings = settings_for(self.store.device_id, uuid4())
