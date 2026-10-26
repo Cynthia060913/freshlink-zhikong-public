@@ -1,5 +1,24 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-26 晚最新检查点（M03/E1 未签收）
+
+共同 [S0 #5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5) 已关闭；
+A 的 [PR #82](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/82)
+已合入 main `296d4cb1a844b8eb9cd93d8506a142581921bda4`。这只更新共同源码基础，
+不补写下列分段为完整 E1，也不代表两渠道终端实收或 M03 成品签收。
+
+| 来源与精确版本 | 本人实际验证与可引用证据 | 尚未验证 |
+| --- | --- | --- |
+| C [Draft PR #87](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/87) `7b758c3936a4ac57f9ec3936b57e8767d88031bc`，基于已合 PR #82 源码，目标 main，差异只含 6 个 C 文件 | 同 Connection 完整恢复证据复核和 CAS 租约、事务提交后锁外发送端口及回归已普通上传。Windows 项目隔离 Python3.14.3 聚焦 unittest **48/48**；Ruff check/format、两生产文件 mypy strict、diff check 通过。六项适用 Actions 均 success；[Backend 40334108491](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40334108491) **1435 passed/2 skipped/182 warnings**，新增领取 2 项和严格 PG 候选文件 5 项实际执行。 | A 尚须独立审 PR #87，更新共享 `check-gated-telemetry.ps1` 的旧 C 源 SHA pin 并在新头重跑门禁；未接 A 无人值守调度或真实 B 恢复 HTTP，2 skipped 不计通过。PR 保持 Draft，不自行合 main。 |
+| 本人 Windows 第二机**局部预检**，挂载上述 PR #87 源码 | 现有 Docker Linux server 29.9.2、Compose v5.6.1 已实际可用。唯一临时项目 `c87pg-92409dc0ce` 的 tmpfs PostgreSQL18 上，A04→A05→C01 空库升级成功；C `test_telemetry_gated_high_postgres_candidate.py` **5 passed/0 failed/0 skipped**。JUnit 仅本机保存、未上传，SHA256 `D090FD2C64AFEAE79BA8299BA361524EF0A00C7D715CDA041D2D598AD6663A62`（5 testcase、零失败/错误/跳过）。本次临时容器/网络已清理，测试用临时前端占位已移除。 | 运行时来自缓存 Python3.14.8 镜像 `sha256:67e2446f5680469f12806a03622d7f395d1977121ca962a234db0f33db63dd4f`，其来源标签是旧候选 `96afaab8ef5a26725a0fa31ff4ff3fc4983698bf`；新源码以只读挂载覆盖。**不是**最终同版镜像、运行包、浏览器/MQTT/HTTP 或第二机完整复现。 |
+| C/B 固定更正 JSON 在已合 A82 组合源 `2a3e2cf2b4ad83d226626acb4bcd358b27373ab5` | C wire 验证和 B `CandidateCreate` 解析后，双端摘要均为 `sha256:8c04fb17927df069a2a4bf02213f221a76af0fa62110313db07f34e566290dbf`；字段与失败边界已在 [B #8](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/8#issuecomment-6417741574) 本人确认。 | 这只是 DTO/摘要对拍；真实 B HTTP、同源重试、告警更正自动投递、SMTP/飞书终端实收仍未由此证明。 |
+
+下节保留同日较早各提交的原始记录；其中“Docker 不可用”“PR #82 待修”等
+只描述当时环境和头，不覆盖本检查点。完整 E1 继续按
+[#6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6)
+逐步实测，最终 M03 按 [#12](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/12)
+由三人分别核本人证据后签收。
+
 ## 2026-10-26 当前 C 恢复修复与更正投递（E1/M03 未签收）
 
 | 来源与精确版本 | 实际验证 | 尚未验证 |
