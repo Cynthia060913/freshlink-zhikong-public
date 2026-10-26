@@ -553,6 +553,11 @@ class AlertEventSummary(SQLModel):
 
     alert_event_id: uuid.UUID
     source_event_id: str
+    # Optional traceability link (#5 6394581672, A review 5644143081
+    # P2, PR #83): a data_quality correction names the original anomaly
+    # it corrects. Read-only display field — no state machine change,
+    # no history rewrite.
+    related_source_event_id: str | None
     kind: str
     severity: str | None
     warehouse_id: uuid.UUID | None
@@ -562,11 +567,6 @@ class AlertEventSummary(SQLModel):
     sampled_at: datetime
     value: float | None
     unit: str | None
-    # Optional traceability link (#5 6394581672, A review 5644143081
-    # P2): a data_quality correction names the original anomaly it
-    # corrects. Read-only display field — no state machine change,
-    # no history rewrite.
-    related_source_event_id: str | None = None
     status: AlertStatus
     created_at: datetime
 

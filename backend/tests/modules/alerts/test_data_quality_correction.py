@@ -83,12 +83,12 @@ def _require_disposable_pg() -> None:
         and url.database == "freshlink_test"
         and settings.PROJECT_NAME == "FreshLink-test"
     )
-    local_optin = (
+    local_opt_in = (
         os.getenv("B01_CORRECTION_TEST_PG") == "1"
         and url.host in {"localhost", "127.0.0.1", "test-db"}
         and url.database not in {"app", "postgres", "freshlink", "freshlink_test"}
     )
-    if not (hosted or local_docker or local_optin):
+    if not (hosted or local_docker or local_opt_in):
         raise RuntimeError("refusing non-disposable correction world")
 
 
@@ -395,6 +395,63 @@ class CorrectionContractCase(unittest.TestCase):
             )
         )
         self._related_kind_is_invalid_zero_write(humidity_source)
+
+    def test_non_temperature_correction_payload_is_invalid(self) -> None:
+        """PR #83 (C): the CORRECTION itself must also be a temperature
+        observation — a humidity-metric data_quality payload may not
+        correct a temperature anomaly."""
+
+        original = self._seed_original(resolved=False)
+        payload = self._correction(original)
+        payload.metric_code = "humidity"
+        payload.unit = "%RH"
+        receipt = self._receive(payload)
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        self.assertEqual(self._correction_rows(original), [])
+
+    def test_recovery_cannot_be_the_related_original(self) -> None:
+        original = self._seed_original(resolved=False)
+        recovery = self._recovery_payload(original)
+        self.assertEqual(str(self._receive(recovery).status), "accepted_new")
+        correction = self._correction(recovery.source_event_id)
+        receipt = self._receive(correction)
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        self.assertEqual(self._correction_rows(recovery.source_event_id), [])
+        self.assertEqual(self._transitions(original), ["resolved"])
+
+    def test_another_correction_cannot_be_the_related_original(self) -> None:
+        original = self._seed_original(resolved=False)
+        first = self._correction(original)
+        self.assertEqual(str(self._receive(first).status), "accepted_new")
+        second = self._correction(first.source_event_id)
+        receipt = self._receive(second)
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        self.assertEqual(self._correction_rows(first.source_event_id), [])
+        self.assertEqual(len(self._correction_rows(original)), 1)
+
+    def test_non_temperature_metric_cannot_be_the_related_original(self) -> None:
+        original = f"wrong-metric-{uuid.uuid4()}"
+        self.assertEqual(
+            str(
+                self._receive(
+                    _candidate(
+                        source_event_id=original,
+                        warehouse_id=self.wid,
+                        batch_id=self.bid,
+                        metric_code="humidity",
+                        unit="%RH",
+                    )
+                ).status
+            ),
+            "accepted_new",
+        )
+        receipt = self._receive(self._correction(original))
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        self.assertEqual(self._correction_rows(original), [])
 
     def test_other_kinds_still_reject_related_at_dto(self) -> None:
         with self.assertRaises(ValueError):

@@ -394,7 +394,7 @@ def _correction_related_check(session: Session, payload: CandidateCreate) -> str
     Late bad evidence for an already-accepted anomaly/recovery arrives
     as a data_quality candidate whose ``related_source_event_id`` names
     the original anomaly (F03 contract, #5 6394581672). The referenced
-    original must exist and belong to the SAME warehouse and batch —
+    original must be a temperature anomaly in the SAME warehouse and batch —
     the correction is about THAT anomaly's evidence, not another cold
     store's.
 
@@ -422,11 +422,9 @@ def _correction_related_check(session: Session, payload: CandidateCreate) -> str
         original.warehouse_id != payload.warehouse_id
         or original.batch_id != payload.batch_id
         or original.kind
-        not in (
-            str(CandidateKind.TEMPERATURE_HIGH),
-            str(CandidateKind.TEMPERATURE_LOW),
-        )
+        not in (str(CandidateKind.TEMPERATURE_HIGH), str(CandidateKind.TEMPERATURE_LOW))
         or original.metric_code != "temperature"
+        or payload.metric_code != "temperature"
     ):
         # The correction is about THAT anomaly's evidence: it must
         # name a TEMPERATURE anomaly in the same warehouse/batch —

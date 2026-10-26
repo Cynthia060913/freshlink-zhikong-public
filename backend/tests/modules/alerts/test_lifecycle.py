@@ -24,7 +24,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.api import deps as api_deps
-from app.modules.alerts.models import CandidateKind
+from app.modules.alerts.models import CandidateCreate, CandidateKind
 from app.modules.alerts.routes import router as alerts_router
 from tests.modules.alerts.test_pr10_boundary_regressions import _rc2
 
@@ -116,6 +116,82 @@ def _send_recovery(
 
 
 class LifecycleRouteCase(_IsolatedCase):
+    def test_authenticated_list_carries_correction_and_original_source_ids(
+        self,
+    ) -> None:
+        client = _client()
+        original = "anom-linked-list-1"
+        ids = _create_alert(client, source=original)
+        correction = _rc2(
+            source_event_id="corr-linked-list-1",
+            warehouse_id=uuid.UUID(ids["warehouse_id"]),
+            batch_id=uuid.UUID(ids["batch_id"]),
+            kind=CandidateKind.DATA_QUALITY,
+            value=None,
+            severity="info",
+            related_source_event_id=original,
+            evidence={"correction": "late invalid evidence"},
+        )
+        accepted = client.post("/candidates", json=correction.model_dump(mode="json"))
+        self.assertEqual(accepted.status_code, 201, accepted.text)
+        response = client.get("/alerts/")
+        self.assertEqual(response.status_code, 200, response.text)
+        by_source = {row["source_event_id"]: row for row in response.json()["data"]}
+        self.assertEqual(response.json()["count"], 2)
+        self.assertIsNone(by_source[original]["related_source_event_id"])
+        self.assertEqual(
+            by_source["corr-linked-list-1"]["related_source_event_id"], original
+        )
+
+    def test_correction_rejects_recovery_and_correction_targets_without_writes(
+        self,
+    ) -> None:
+        client = _client()
+        original = "anom-bad-link-1"
+        ids = _create_alert(client, source=original)
+        recovered = "recovered-bad-link-1"
+        self.assertEqual(
+            _send_recovery(client, ids, source=recovered, related=original).status_code,
+            201,
+        )
+
+        def correction(source: str, related: str) -> CandidateCreate:
+            return _rc2(
+                source_event_id=source,
+                warehouse_id=uuid.UUID(ids["warehouse_id"]),
+                batch_id=uuid.UUID(ids["batch_id"]),
+                kind=CandidateKind.DATA_QUALITY,
+                value=None,
+                severity="info",
+                related_source_event_id=related,
+                evidence={"correction": "late invalid evidence"},
+            )
+
+        wrong_recovery = client.post(
+            "/candidates",
+            json=correction("corr-bad-recovery-1", recovered).model_dump(mode="json"),
+        )
+        self.assertEqual(wrong_recovery.status_code, 422)
+        self.assertEqual(wrong_recovery.json()["reason_code"], "related_event_mismatch")
+        self.assertEqual(client.get("/alerts/").json()["count"], 1)
+
+        first = "corr-good-link-1"
+        self.assertEqual(
+            client.post(
+                "/candidates", json=correction(first, original).model_dump(mode="json")
+            ).status_code,
+            201,
+        )
+        wrong_correction = client.post(
+            "/candidates",
+            json=correction("corr-bad-correction-1", first).model_dump(mode="json"),
+        )
+        self.assertEqual(wrong_correction.status_code, 422)
+        self.assertEqual(
+            wrong_correction.json()["reason_code"], "related_event_mismatch"
+        )
+        self.assertEqual(client.get("/alerts/").json()["count"], 2)
+
     def test_status_starts_open_with_empty_history(self) -> None:
         client = _client()
         ids = _create_alert(client)
