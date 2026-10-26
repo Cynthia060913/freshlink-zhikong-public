@@ -17,8 +17,12 @@ async function run() {
   const commandPath = `/api/v1/devices/${actuatorId}/commands`
   let submitted
   let postCount = 0
+  const pageErrors = []
   try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+    context.on("page", (target) => target.on("pageerror", (error) => {
+      pageErrors.push({ name: error.name, message: error.message.slice(0, 1500) })
+    }))
     // Block outside origins; same-origin requests are NEVER fulfilled/mocked.
     await context.route("**/*", (route) => {
       const target = new URL(route.request().url())
@@ -302,6 +306,21 @@ async function run() {
       not_tested: ["concurrency (separate PG suite)", "C-triggered B anomaly/recovery", "two real notifications", "formal A/C migration chain", "full E1"],
     }, null, 2), { flag: "wx" })
     console.log("PASS real browser login/control/receipt/reload/ordinary-user refusal; no API mocks")
+  } catch (error) {
+    // All contexts here target the disposable origin and synthetic accounts.
+    // Preserve the actual rendered failure; never replace a failing check.
+    const pages = browser.contexts().flatMap((context) => context.pages())
+    const views = []
+    for (let index = 0; index < pages.length; index += 1) {
+      const target = pages[index]
+      if (!target.url().startsWith(url.origin + "/")) continue
+      views.push({ path: new URL(target.url()).pathname,
+        text: (await target.locator("body").innerText()).slice(0, 6000) })
+      await target.screenshot({ path: path.join(results, `failure-${index}.png`), fullPage: true })
+    }
+    fs.writeFileSync(path.join(results, "browser-failure.json"),
+      JSON.stringify({ pageErrors, views }, null, 2), { flag: "wx" })
+    throw error
   } finally {
     await browser.close()
   }
