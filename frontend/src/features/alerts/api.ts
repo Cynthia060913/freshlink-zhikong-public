@@ -18,7 +18,6 @@ export interface AlertRow {
   sampled_at: string
   value: number | null
   unit: string | null
-  related_source_event_id: string | null
   status: AlertState
   created_at: string
 }
