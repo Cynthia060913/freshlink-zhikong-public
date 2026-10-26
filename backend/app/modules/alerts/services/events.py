@@ -421,7 +421,18 @@ def _correction_related_check(session: Session, payload: CandidateCreate) -> str
     if (
         original.warehouse_id != payload.warehouse_id
         or original.batch_id != payload.batch_id
+        or original.kind
+        not in (
+            str(CandidateKind.TEMPERATURE_HIGH),
+            str(CandidateKind.TEMPERATURE_LOW),
+        )
+        or original.metric_code != "temperature"
     ):
+        # The correction is about THAT anomaly's evidence: it must
+        # name a TEMPERATURE anomaly in the same warehouse/batch —
+        # not a recovery (which is an ingestion record, not an
+        # alert), not a data_quality event, not a humidity anomaly
+        # (A review 5644143081 P1).
         return "related_event_mismatch"
     return None
 

@@ -193,6 +193,11 @@ export default function AlertsPage() {
                     </td>
                     <td className="max-w-48 break-all p-3 text-xs">
                       {row.source_event_id}
+                      {row.related_source_event_id && (
+                        <div className="mt-1 break-all text-muted-foreground">
+                          关联：{row.related_source_event_id}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3">
                       <Button

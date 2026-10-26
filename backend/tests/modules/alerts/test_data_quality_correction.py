@@ -294,6 +294,53 @@ class CorrectionContractCase(unittest.TestCase):
         self.assertEqual(str(receipt.status), "invalid")
         self.assertEqual(receipt.reason_code, "related_event_mismatch")
 
+    def _related_kind_is_invalid_zero_write(self, original: str) -> None:
+        """A review 5644143081 P1: the original must be a TEMPERATURE
+        anomaly — a recovery, a data_quality event or a humidity
+        anomaly can never be the subject of a correction; permanent
+        invalid, zero partial writes."""
+
+        before = len(self._correction_rows(original))
+        receipt = self._receive(self._correction(original))
+        self.assertEqual(str(receipt.status), "invalid")
+        self.assertEqual(receipt.reason_code, "related_event_mismatch")
+        with Session(engine) as session:
+            stored = session.exec(
+                select(AlertEvent).where(
+                    col(AlertEvent.source_event_id) == receipt.source_event_id
+                )
+            ).all()
+        self.assertEqual(stored, [])  # zero partial writes
+        self.assertEqual(len(self._correction_rows(original)), before)
+
+    def test_correction_of_a_recovery_is_invalid(self) -> None:
+        original = self._seed_original(resolved=False)
+        recovery = self._recovery_payload(original)
+        self._receive(recovery)
+        self._related_kind_is_invalid_zero_write(recovery.source_event_id)
+
+    def test_correction_of_a_correction_is_invalid(self) -> None:
+        original = self._seed_original(resolved=False)
+        first = self._correction(original)
+        self._receive(first)
+        self._related_kind_is_invalid_zero_write(first.source_event_id)
+
+    def test_correction_of_humidity_anomaly_is_invalid(self) -> None:
+        humidity_source = f"humidity-{uuid.uuid4()}"
+        self._receive(
+            _candidate(
+                source_event_id=humidity_source,
+                warehouse_id=self.wid,
+                batch_id=self.bid,
+                metric_code="humidity",
+                kind=CandidateKind.HUMIDITY_HIGH,
+                value=95.0,
+                unit="%RH",
+                evidence={"comparison": ">", "threshold": 90.0},
+            )
+        )
+        self._related_kind_is_invalid_zero_write(humidity_source)
+
     def test_other_kinds_still_reject_related_at_dto(self) -> None:
         with self.assertRaises(ValueError):
             _candidate(
@@ -310,6 +357,60 @@ class CorrectionContractCase(unittest.TestCase):
                 kind=CandidateKind.TEMPERATURE_RECOVERED,
                 rule_snapshot_id=uuid.UUID("aaaa1111-1111-4111-8111-111111111111"),
             )
+
+    # -- disposition list carries the optional link (A P2) -------------
+
+    def test_list_summary_carries_related_only_for_corrections(self) -> None:
+        from tests.modules.alerts.test_alerts_routes import _client
+
+        client = _client()
+        wid = client.post(
+            "/warehouses/", json={"code": "WHL", "name": "W"}
+        ).json()["id"]
+        bid = client.post(
+            f"/warehouses/{wid}/batches",
+            json={"code": "B001", "product": "x"},
+        ).json()["id"]
+        anomaly = {
+            "source_event_id": "list-anom-1",
+            "warehouse_id": wid,
+            "batch_id": bid,
+            "observation_ids": ["00000000-0000-4000-8000-0000000000aa"],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-25T08:00:00Z",
+            "value": 11.0,
+            "unit": "°C",
+            "kind": "temperature_high",
+            "severity": "warning",
+            "rule_version": "v1",
+        }
+        self.assertEqual(
+            client.post("/candidates", json=anomaly).status_code, 201
+        )
+        correction = {
+            "source_event_id": "list-correction-1",
+            "warehouse_id": wid,
+            "batch_id": bid,
+            "observation_ids": ["00000000-0000-4000-8000-0000000000ab"],
+            "metric_code": "temperature",
+            "sampled_at": "2026-10-25T09:00:00Z",
+            "value": None,
+            "kind": "data_quality",
+            "severity": "info",
+            "evidence": {"correction": "late invalid evidence"},
+            "related_source_event_id": "list-anom-1",
+        }
+        self.assertEqual(
+            client.post("/candidates", json=correction).status_code, 201
+        )
+        rows = client.get("/alerts/").json()["data"]
+        by_source = {row["source_event_id"]: row for row in rows}
+        self.assertEqual(
+            by_source["list-correction-1"]["related_source_event_id"],
+            "list-anom-1",
+        )
+        # Plain anomalies carry the optional field as None (no link).
+        self.assertIsNone(by_source["list-anom-1"]["related_source_event_id"])
 
     # -- idempotent replay and content conflict ------------------------
 
