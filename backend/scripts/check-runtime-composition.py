@@ -59,6 +59,9 @@ def run():
     prepare_recovery = os.environ.get("FRESHLINK_RECOVERY_PREPARATION_PROOF") == "1"
     continue_recovery = os.environ.get("FRESHLINK_RECOVERY_CONTINUATION_PROOF") == "1"
     watch_recovery = os.environ.get("FRESHLINK_RECOVERY_WATCH_PROOF") == "1"
+    linked_correction = os.environ.get("FRESHLINK_LINKED_CORRECTION_PROOF") == "1"
+    if linked_correction and not watch_recovery:
+        raise RuntimeError("Linked correction proof requires live recovery preparation")
     if continue_recovery and not prepare_recovery:
         raise RuntimeError("Continuation requires the explicit recovery proof")
     if watch_recovery and not continue_recovery:
@@ -383,6 +386,7 @@ def run():
             )
             prepared = False
             continued = False
+            corrected = False
             if prepare_recovery:
                 original_id = rows(outbox)[0]["source_event_id"]
                 # All three normal samples enter through authenticated MQTT and
@@ -602,6 +606,74 @@ def run():
                         if name in {"receive", "store", "evaluate", "deliver-high"}
                     )
                     continued = True
+                    if linked_correction:
+                        # A real conflicting replay reaches the C reception
+                        # path after B has already resolved this anomaly.
+                        damaged = json.loads(raw)
+                        damaged["metrics"][0]["value"] = 99
+                        publisher.publish(
+                            topic, json.dumps(damaged).encode(), qos=1
+                        ).wait_for_publish(5)
+
+                        def corrections():
+                            return [
+                                row
+                                for row in rows(outbox)
+                                if row["body"].get("kind") == "data_quality"
+                                and row["related_source_event_id"] == original_id
+                            ]
+
+                        wait_for(lambda: len(corrections()) == 1)
+                        held_correction = corrections()[0]
+                        assert (
+                            held_correction["state"],
+                            held_correction["attempt_count"],
+                        ) == (
+                            "held_contract",
+                            0,
+                        )
+                        sender = start(
+                            "deliver-correction",
+                            [
+                                "-m",
+                                "app.modules.iot.telemetry_service",
+                                "--role",
+                                "deliver-correction",
+                                "--config",
+                                str(config_file),
+                                "--confirm-correction-contract",
+                                "--max-seconds",
+                                "120",
+                            ],
+                            {
+                                "FRESHLINK_B_INTERNAL_ORIGIN": "http://127.0.0.1:18080",
+                                "FRESHLINK_B_SERVICE_BEARER": bearer,
+                            },
+                        )
+                        wait_for(lambda: corrections()[0]["state"] == "delivered")
+                        sender.terminate()
+                        assert sender.wait(timeout=12) == 0
+                        final_correction = corrections()[0]
+                        assert final_correction["body"] == held_correction["body"]
+                        assert (
+                            final_correction["body_sha256"]
+                            == held_correction["body_sha256"]
+                        )
+                        assert final_correction["attempt_count"] == 1
+                        assert port.lookup(original_id).alert_status == "resolved"
+                        readback = api.get(
+                            "/api/v1/candidates/by-source/"
+                            + str(final_correction["source_event_id"])
+                        )
+                        assert readback.status_code == 200
+                        assert readback.json()["related_source_event_id"] == str(
+                            original_id
+                        )
+                        assert readback.json()["kind"] == "data_quality"
+                        assert len(rows(AlertEvent.__table__)) == 3
+                        assert len(rows(AlertStatusTransition.__table__)) == 1
+                        assert rows(NotificationAttempt.__table__) == []
+                        corrected = True
             result = {
                 "phase": "actual_runtime_processes_tcp_b_csv_passed",
                 "source_revision": os.environ["GATED_SOURCE_REVISION"],
@@ -624,10 +696,13 @@ def run():
                 "new_mqtt_admission_refrozen_while_workers_live": continued,
                 "actual_recovery_http_and_resolved_readback": continued,
                 "actual_preparation_watch_restart": watch_recovery and continued,
+                "actual_late_mqtt_correction_background_tcp": corrected,
                 "notifications_sent": 0,
                 "complete_e1": False,
                 "not_tested": [
-                    "unattended recovery scheduling and late-evidence correction"
+                    "unattended recovery scheduling"
+                    if corrected
+                    else "unattended recovery scheduling and late-evidence correction"
                     if continued
                     else "recovery",
                     "notifications",

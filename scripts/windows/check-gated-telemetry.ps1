@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$AppImage='freshlink-app:p0',[switch]$ControlEntry,[switch]$RuntimeProcesses,[switch]$NotificationRunner,[switch]$RecoveryContinuation,[switch]$RecoveryPreparationWatch)
+param([string]$AppImage='freshlink-app:p0',[switch]$ControlEntry,[switch]$RuntimeProcesses,[switch]$NotificationRunner,[switch]$RecoveryContinuation,[switch]$RecoveryPreparationWatch,[switch]$LinkedCorrection)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $root=Get-FreshLinkRoot
@@ -12,7 +12,8 @@ $docker=$null
 $exitCode=1
 $cleanup=1
 try {
-    if(@($ControlEntry,$RuntimeProcesses,$NotificationRunner,$RecoveryContinuation,$RecoveryPreparationWatch).Where({$_}).Count -gt 1){throw 'Select one proof mode; results must not be conflated'}
+    if(@($ControlEntry,$RuntimeProcesses,$NotificationRunner,$RecoveryContinuation,$RecoveryPreparationWatch,$LinkedCorrection).Where({$_}).Count -gt 1){throw 'Select one proof mode; results must not be conflated'}
+    if($LinkedCorrection){$RecoveryPreparationWatch=$true}
     if($RecoveryPreparationWatch){$RecoveryContinuation=$true}
     Set-Location -LiteralPath $root
     $docker=Assert-FreshLinkDocker
@@ -20,9 +21,9 @@ try {
         & $docker image inspect $image --format '{{.Id}}'
         if($LASTEXITCODE){throw 'Required cached image missing; no automatic pulls'}
     }
-    # A60 reviewed C's projection/refreeze extension; retain the exact
-    # subtree identity gate, including the unchanged C01 proposal.
-    & git diff --quiet 0f346e9ec5be7ac3aef74fb114c1e87f98d9fa99 -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    # A62 integrates the exact C correction lease/wire/receipt port source.
+    # Keep the identity gate, including the unchanged C01 proposal.
+    & git diff --quiet a395bafae390bd0bd247fa6f33b2f0dc5474cb73 -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
     if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
     $revision=(& git rev-parse HEAD).Trim()
     if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}
@@ -40,6 +41,7 @@ try {
     if($RuntimeProcesses -or $RecoveryContinuation){$compose+=@('-f','compose.runtime-composition-tests.yml')}
     if($RecoveryContinuation){$compose+=@('-f','compose.recovery-continuation-tests.yml')}
     if($RecoveryPreparationWatch){$compose+=@('-f','compose.recovery-preparation-watch-tests.yml')}
+    if($LinkedCorrection){$compose+=@('-f','compose.linked-correction-tests.yml')}
     if($NotificationRunner){$compose+=@('-f','compose.notification-runtime-tests.yml')}
     & $docker @compose config --quiet
     if($LASTEXITCODE){throw 'Owned compose configuration invalid'}
@@ -57,6 +59,7 @@ try {
     if(($RuntimeProcesses -or $RecoveryContinuation) -and (($report.actual_runtime_processes -join ',') -ne 'receive,store,evaluate,deliver-high' -or -not $report.actual_tcp_http_api)){throw 'Runtime process/TCP proof incomplete'}
     if($RecoveryContinuation -and (-not $report.new_mqtt_admission_refrozen_while_workers_live -or -not $report.actual_recovery_http_and_resolved_readback)){throw 'Live recovery continuation proof incomplete'}
     if($RecoveryPreparationWatch -and -not $report.actual_preparation_watch_restart){throw 'Preparation watch/restart proof incomplete'}
+    if($LinkedCorrection -and -not $report.actual_late_mqtt_correction_background_tcp){throw 'Linked correction runtime proof incomplete'}
     if($NotificationRunner -and (-not $report.synthetic_sinks_only -or -not $report.actual_pg_dispatch_lease -or -not $report.restart_sends_only_missing_channel -or -not $report.third_delivery_process_no_resend -or $report.persistent_attempt_rows -ne 3)){throw 'Persistent synthetic notification proof incomplete'}
     if($ControlEntry -and -not $report.actual_control_and_subsequent_c_data.actual_control_process_entry){throw 'Control process entry was not exercised'}
     $exitCode=0
