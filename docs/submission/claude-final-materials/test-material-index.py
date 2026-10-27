@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """build-material-index.py 的必要小测试（只用标准库，在临时目录实跑）。
 
 覆盖：
@@ -14,7 +13,6 @@
 import hashlib
 import html
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,7 +24,9 @@ BUILD = os.path.join(HERE, "build-material-index.py")
 def run_build(root, manifest, out):
     return subprocess.run(
         [sys.executable, BUILD, "--root", root, "--manifest", manifest, "--out", out],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -45,7 +45,8 @@ def test_legal_chinese_space_hash():
         out = os.path.join(tmp, "out", "index.html")
         r = run_build(root, manifest, out)
         assert r.returncode == 0, r.stderr
-        html_text = open(out, encoding="utf-8").read()
+        with open(out, encoding="utf-8") as report:
+            html_text = report.read()
         expect = hashlib.sha256(content).hexdigest()
         assert expect in html_text, "sha256 未写入"
         assert "存在" in html_text
@@ -62,7 +63,8 @@ def test_missing_returns_nonzero_but_writes_html():
         out = os.path.join(tmp, "index.html")
         r = run_build(root, manifest, out)
         assert r.returncode != 0, "缺失文件应返回非零"
-        html_text = open(out, encoding="utf-8").read()
+        with open(out, encoding="utf-8") as report:
+            html_text = report.read()
         assert "missing" in html_text
         assert "not-there.bin" in html_text
         print("PASS 缺失文件非零退出且仍写报告")
@@ -97,7 +99,8 @@ def test_html_escape():
         out = os.path.join(tmp, "index.html")
         r = run_build(root, manifest, out)
         assert r.returncode == 0, r.stderr
-        html_text = open(out, encoding="utf-8").read()
+        with open(out, encoding="utf-8") as report:
+            html_text = report.read()
         assert html.escape("s<&>") in html_text
         assert "s<&>" not in html_text  # 原文未转义形式不应出现
         print("PASS HTML 特殊字符转义")

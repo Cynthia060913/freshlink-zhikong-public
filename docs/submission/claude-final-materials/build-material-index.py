@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """离线材料导航：显式根目录 + 相对文件清单 -> 离线 HTML 表格。
 
 仅用 Python 标准库。只处理使用者显式给定的根目录和相对文件列表，生成离线 HTML 表格：
@@ -42,9 +41,7 @@ def is_absolute_like(rel: str) -> bool:
     # 盘符：C:/ 或 C:\\
     if len(rel) >= 2 and rel[1] == ":" and rel[0].isalpha():
         return True
-    if os.path.isabs(rel):
-        return True
-    return False
+    return bool(os.path.isabs(rel))
 
 
 def validate_relative_path(rel: str) -> None:
@@ -100,9 +97,7 @@ def render_html(rows, out_abs: str, generated_meta: dict) -> str:
     lines = []
     lines.append("<!doctype html>")
     lines.append('<html lang="zh-CN"><head><meta charset="utf-8">')
-    lines.append(
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    )
+    lines.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
     lines.append("<title>材料文件与哈希清单</title>")
     lines.append(
         "<style>"
@@ -155,7 +150,7 @@ def load_manifest(manifest_path: str):
         data = json.load(f)
     files = data.get("files", [])
     if not isinstance(files, list):
-        raise ValueError("manifest 的 files 必须是列表")
+        raise TypeError("manifest 的 files 必须是列表")
     result = []
     for item in files:
         if isinstance(item, str):
@@ -163,7 +158,7 @@ def load_manifest(manifest_path: str):
         elif isinstance(item, dict):
             result.append({"path": item["path"], "source": item.get("source", "")})
         else:
-            raise ValueError("files 项必须是字符串或对象")
+            raise TypeError("files 项必须是字符串或对象")
     return result
 
 
@@ -189,7 +184,7 @@ def main(argv=None) -> int:
 
     try:
         entries = load_manifest(manifest_abs)
-    except (OSError, ValueError, json.JSONDecodeError) as e:
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
         print(f"读取清单失败：{e}", file=sys.stderr)
         return 2
 
@@ -202,37 +197,57 @@ def main(argv=None) -> int:
             target = safe_resolve(args.root, rel)
         except ValueError as e:
             print(f"拒绝路径 {rel!r}：{e}", file=sys.stderr)
-            rows.append({
-                "path": rel, "source": entry.get("source", ""),
-                "exists": False, "size": None, "sha256": "",
-                "error": str(e),
-            })
+            rows.append(
+                {
+                    "path": rel,
+                    "source": entry.get("source", ""),
+                    "exists": False,
+                    "size": None,
+                    "sha256": "",
+                    "error": str(e),
+                }
+            )
             rejected += 1
             continue
         if target is None:
             print(f"拒绝路径 {rel!r}：符号链接越界或解析失败", file=sys.stderr)
-            rows.append({
-                "path": rel, "source": entry.get("source", ""),
-                "exists": False, "size": None, "sha256": "",
-                "error": "越界",
-            })
+            rows.append(
+                {
+                    "path": rel,
+                    "source": entry.get("source", ""),
+                    "exists": False,
+                    "size": None,
+                    "sha256": "",
+                    "error": "越界",
+                }
+            )
             rejected += 1
             continue
         if os.path.isfile(target):
             size = os.path.getsize(target)
             digest = sha256_of(target)
-            rows.append({
-                "path": rel, "source": entry.get("source", ""),
-                "exists": True, "size": size, "sha256": digest,
-                "_abs": target,
-            })
+            rows.append(
+                {
+                    "path": rel,
+                    "source": entry.get("source", ""),
+                    "exists": True,
+                    "size": size,
+                    "sha256": digest,
+                    "_abs": target,
+                }
+            )
         else:
             missing += 1
             print(f"缺失文件：{rel}", file=sys.stderr)
-            rows.append({
-                "path": rel, "source": entry.get("source", ""),
-                "exists": False, "size": None, "sha256": "",
-            })
+            rows.append(
+                {
+                    "path": rel,
+                    "source": entry.get("source", ""),
+                    "exists": False,
+                    "size": None,
+                    "sha256": "",
+                }
+            )
 
     try:
         root_display = os.path.relpath(args.root, os.getcwd())
@@ -252,7 +267,9 @@ def main(argv=None) -> int:
     with open(out_abs, "x", encoding="utf-8") as f:
         f.write(html_text)
     print(f"HTML 已写入：{out_abs}")
-    print(f"存在 {meta['存在']} / 缺失 {missing} / 拒绝 {rejected}（共 {meta['总数']}）")
+    print(
+        f"存在 {meta['存在']} / 缺失 {missing} / 拒绝 {rejected}（共 {meta['总数']}）"
+    )
 
     if missing or rejected:
         return 1

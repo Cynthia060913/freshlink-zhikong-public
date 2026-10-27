@@ -27,8 +27,10 @@ def joined(lines):
     result = ""
     for line in lines:
         line = plain(line)
-        if result and re.search(r"[A-Za-z0-9]$", result) and re.match(
-            r"^[A-Za-z0-9]", line
+        if (
+            result
+            and re.search(r"[A-Za-z0-9]$", result)
+            and re.match(r"^[A-Za-z0-9]", line)
         ):
             result += " "
         result += line
@@ -91,7 +93,7 @@ def main():
         if not line:
             flush()
             kind = "normal"
-        elif line.startswith("# ") or line.startswith("## "):
+        elif line.startswith(("# ", "## ")):
             flush()
             title = line.startswith("# ")
             p = doc.add_paragraph() if title else doc.add_heading(level=2)
