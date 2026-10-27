@@ -18,8 +18,19 @@ async function run() {
   let submitted
   let postCount = 0
   const pageErrors = []
+  const recordVideo = process.env.CONTROL_BROWSER_RECORD_VIDEO === "1"
+  let recordingContext
+  let recordingPage
+  let proofPassed = false
+  const holdFrame = async () => {
+    if (recordVideo) await new Promise((resolve) => setTimeout(resolve, 3000))
+  }
   try {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+      ...(recordVideo ? { recordVideo: { dir: path.join(results, "video"), size: { width: 1280, height: 900 } } } : {}),
+    })
+    recordingContext = context
     context.on("page", (target) => target.on("pageerror", (error) => {
       pageErrors.push({ name: error.name, message: error.message.slice(0, 1500) })
     }))
@@ -29,6 +40,7 @@ async function run() {
       return target.origin === url.origin ? route.continue() : route.abort()
     })
     const page = await context.newPage()
+    recordingPage = page
     page.on("request", (request) => {
       if (new URL(request.url()).pathname === commandPath && request.method() === "POST") {
         postCount += 1
@@ -47,6 +59,7 @@ async function run() {
       return targetPage.getByRole("region", { name: "远程制冷控制", exact: true })
     }
     const panel = await login(page, "admin@example.com", "a01-disposable-admin-only")
+    await holdFrame()
     await expect(panel.getByRole("button", { name: "准备下发", exact: true })).toBeEnabled()
     await panel.getByRole("button", { name: "准备下发", exact: true }).click()
     assert.equal(postCount, 0)
@@ -74,6 +87,7 @@ async function run() {
     assert(detail.ack_received_at)
     await panel.getByRole("status").filter({ hasText: "设备回执：执行成功" }).scrollIntoViewIfNeeded()
     await page.screenshot({ path: path.join(results, "admin-real-ack.png"), fullPage: true })
+    await holdFrame()
     // Real same-ID HTTP replay must not create another command/execution.
     const replay = await context.request.post(`${origin}${commandPath}`, { headers, data: submitted })
     assert.equal(replay.status(), 201)
@@ -173,6 +187,7 @@ async function run() {
     await expect(page.getByRole("dialog").getByRole("region", { name: "状态迁移记录", exact: true }))
       .toContainText("待处理 → 已确认")
     await page.screenshot({ path: path.join(results, "alerts-admin-real-ack.png"), fullPage: true })
+    await holdFrame()
     const ackReplay = await context.request.post(`${origin}${ackPath}`, { headers })
     assert.equal(ackReplay.status(), 200)
     assert.equal((await ackReplay.json()).transition_created, false)
@@ -199,6 +214,7 @@ async function run() {
     await expect(page.getByRole("dialog").getByRole("region", { name: "状态迁移记录", exact: true }))
       .toContainText("已确认 → 已恢复", { timeout: 15000 })
     await page.screenshot({ path: path.join(results, "alerts-admin-real-resolved.png"), fullPage: true })
+    await holdFrame()
     // Same running combination: continuous actual MQTT/A inbox/C persistence
     // feeds the unmodified C page and actual authenticated snapshot/CSV routes.
     const sensorId = "11111111-1111-4111-8111-111111111111"
@@ -277,6 +293,7 @@ async function run() {
     assert.equal(deniedHistory.status(), 401)
     await anonymous.close()
     await page.screenshot({ path: path.join(results, "telemetry-real-history-raw-csv.png"), fullPage: true })
+    await holdFrame()
     fs.writeFileSync(path.join(results, "browser.json"), JSON.stringify({
       phase: "real_browser_http_mqtt_control_passed",
       command_id: submitted.command_id,
@@ -305,6 +322,7 @@ async function run() {
       no_mocked_api: true,
       not_tested: ["concurrency (separate PG suite)", "C-triggered B anomaly/recovery", "two real notifications", "formal A/C migration chain", "full E1"],
     }, null, 2), { flag: "wx" })
+    proofPassed = true
     console.log("PASS real browser login/control/receipt/reload/ordinary-user refusal; no API mocks")
   } catch (error) {
     // All contexts here target the disposable origin and synthetic accounts.
@@ -322,7 +340,29 @@ async function run() {
       JSON.stringify({ pageErrors, views }, null, 2), { flag: "wx" })
     throw error
   } finally {
-    await browser.close()
+    try {
+      if (recordVideo && recordingContext) {
+      await recordingContext.close()
+      if (recordingPage && proofPassed) {
+        const videoPath = await recordingPage.video().path()
+        const bytes = fs.readFileSync(videoPath)
+        fs.writeFileSync(path.join(results, "video-recording.json"), JSON.stringify({
+          phase: "actual_browser_recording_not_final_m05",
+          file: path.relative(results, videoPath),
+          bytes: bytes.length,
+          sha256: require("node:crypto").createHash("sha256").update(bytes).digest("hex"),
+          mocked_api: false,
+          synthetic_alert_input: true,
+          real_notification_receipts: false,
+          complete_e1: false,
+          final_video_acceptance: false,
+          note: "Actual isolated browser actions with disposable accounts. Alert recovery input is synthetic. See browser.json and server.json for the tested scope.",
+        }, null, 2), { flag: "wx" })
+      }
+      }
+    } finally {
+      await browser.close()
+    }
   }
 }
 run().catch((error) => {
