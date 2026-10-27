@@ -3,7 +3,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import paho.mqtt.client as mqtt
@@ -371,7 +371,7 @@ def test_retry_publish_queue_and_empty_outbox(
     )
 
 
-def test_pending_round_robin_transport_batch_bound(
+def test_pending_latest_first_transport_batch_bound(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     instance = runtime(tmp_path / "state.db")
@@ -381,13 +381,151 @@ def test_pending_round_robin_transport_batch_bound(
     instance.ready_sensor.set()
     publisher = MagicMock(side_effect=lambda *args, **kwargs: info(published=True))
     monkeypatch.setattr(instance.sensor, "publish", publisher)
-    for tick in range(3):
+    for tick in range(10):
         instance._publish_samples(tick)
     messages = [
         json.loads(call.args[1])["message_id"] for call in publisher.call_args_list
     ]
     assert len(set(messages)) == 40
     assert len(messages) == 40 and len(instance.plant.pending()) == 40
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_sample_replay_budget_is_shared_by_all_steps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, success: bool
+) -> None:
+    instance = runtime(tmp_path / "state.db")
+    start = datetime.now(UTC)
+    for index in range(100):
+        instance.plant.sample(start + timedelta(seconds=index + 1))
+    instance.ready_sensor.set()
+    publisher = MagicMock(
+        side_effect=lambda *args, **kwargs: info(
+            published=True,
+            code=mqtt.MQTT_ERR_SUCCESS if success else mqtt.MQTT_ERR_QUEUE_SIZE,
+        )
+    )
+    monkeypatch.setattr(instance.sensor, "publish", publisher)
+    for tick in range(200):
+        instance._publish_samples(10 + tick / 1000)
+    assert publisher.call_count == 4
+    instance._publish_samples(11)
+    assert publisher.call_count == 8
+    assert len(instance.plant.pending()) == 100  # no false storage ACK
+
+
+def test_fresh_samples_precede_fair_bounded_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    instance = runtime(tmp_path / "state.db")
+    start = datetime.now(UTC)
+    for index in range(12):
+        instance.plant.sample(start + timedelta(seconds=index + 1))
+    original = {sample.payload["message_id"] for sample in instance.plant.pending()}
+    instance.ready_sensor.set()
+    publisher = MagicMock(side_effect=lambda *args, **kwargs: info(published=True))
+    monkeypatch.setattr(instance.sensor, "publish", publisher)
+    for tick in range(3):
+        instance._publish_samples(tick)
+    assert publisher.call_count == 12
+    fresh = instance.plant.sample(start + timedelta(seconds=20))
+    publisher.reset_mock()
+    instance._publish_samples(20)
+    assert (
+        json.loads(publisher.call_args_list[0].args[1])["message_id"]
+        == (fresh.payload["message_id"])
+    )
+    for tick in range(30, 160, 10):
+        instance._publish_samples(tick)
+    replayed = {
+        json.loads(call.args[1])["message_id"] for call in publisher.call_args_list
+    }
+    assert original <= replayed
+    assert len(instance.plant.pending()) == 13
+
+
+def test_journal_retries_are_bounded_and_fair_while_new_samples_arrive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    instance = runtime(tmp_path / "state.db")
+    now = datetime.now(UTC)
+    for tick in range(8):
+        instance.plant.sample(now + timedelta(seconds=tick))
+    original = {item.payload["message_id"] for item in instance.plant.pending()}
+    counts: dict[str, int] = {}
+
+    def publish(_topic, payload, **_kwargs):
+        identifier = json.loads(payload)["message_id"]
+        counts[identifier] = counts.get(identifier, 0) + 1
+        return info(published=True)
+
+    instance.ready_sensor.set()
+    monkeypatch.setattr(instance.sensor, "publish", publish)
+    for tick in range(2):
+        instance._publish_samples(tick)
+    for tick in range(2, 100):
+        fresh = instance.plant.sample(now + timedelta(seconds=10 + tick))
+        for substep in range(10):
+            instance._publish_samples(tick + substep / 100)
+        assert counts[fresh.payload["message_id"]] == 1
+    retries = sum(count - 1 for count in counts.values())
+    assert retries <= 10
+    assert all(counts[identifier] >= 2 for identifier in original)
+    assert len(instance.plant.pending()) == 106
+
+
+def test_restart_sends_latest_sample_before_large_unconfirmed_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "state.db"
+    first = runtime(path)
+    now = datetime.now(UTC)
+    for tick in range(100):
+        first.plant.sample(now + timedelta(seconds=tick))
+    with patch("app.modules.iot.simulator_runtime.datetime") as clock:
+        clock.now.return_value = now + timedelta(seconds=100)
+        restarted = runtime(path)
+    fresh = restarted.plant.sample(now + timedelta(seconds=101))
+    restarted.ready_sensor.set()
+    publisher = MagicMock(side_effect=lambda *args, **kwargs: info(published=True))
+    monkeypatch.setattr(restarted.sensor, "publish", publisher)
+    restarted._publish_samples(200)
+    assert (
+        json.loads(publisher.call_args_list[0].args[1])["message_id"]
+        == fresh.payload["message_id"]
+    )
+    assert publisher.call_count == 4
+    assert len(restarted.plant.pending()) == 101
+
+
+def test_failed_retry_consumes_interval_and_does_not_starve_other_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    instance = runtime(tmp_path / "state.db")
+    now = datetime.now(UTC)
+    instance.plant.sample(now)
+    instance.plant.sample(now + timedelta(seconds=1))
+    instance.ready_sensor.set()
+    publisher = MagicMock(
+        side_effect=[
+            info(published=True),
+            info(published=True),
+            info(published=True, code=mqtt.MQTT_ERR_QUEUE_SIZE),
+            info(published=True),
+        ]
+    )
+    monkeypatch.setattr(instance.sensor, "publish", publisher)
+    instance._publish_samples(0)
+    instance._publish_samples(10)
+    instance._publish_samples(11)
+    assert publisher.call_count == 3
+    instance._publish_samples(20)
+    assert publisher.call_count == 4
+    assert (
+        json.loads(publisher.call_args_list[2].args[1])["message_id"]
+        != (json.loads(publisher.call_args_list[3].args[1])["message_id"])
+    )
+    assert len(instance.plant.pending()) == 2
 
 
 def test_start_and_run_cleanup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
