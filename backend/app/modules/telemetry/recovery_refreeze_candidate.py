@@ -6,6 +6,8 @@ this port never sends B HTTP, claims a lease, or changes frozen F03 content.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import timedelta
 from math import isfinite
@@ -36,6 +38,44 @@ class RecoveryRefreezeCandidate:
     reason: str = ""
 
 
+def _receipt_matches_admission(
+    entry, receipt, observation, *, device_id, warehouse_id
+) -> bool:
+    """Recheck both durable hashes before treating a replay as known evidence."""
+    raw_text = receipt["raw_text"]
+    received_text = receipt["received_at_utc"]
+    if (
+        not isinstance(raw_text, str)
+        or not isinstance(received_text, str)
+        or raw_text != observation["raw_text"]
+        or receipt["device_id"] != device_id
+        or receipt["warehouse_id"] != warehouse_id
+    ):
+        return False
+    receipt_digest = hashlib.sha256(
+        "\x00".join(
+            (raw_text, str(device_id), str(warehouse_id), received_text)
+        ).encode("utf-8")
+    ).hexdigest()
+    admission_digest = hashlib.sha256(
+        json.dumps(
+            [
+                str(entry["reception_id"]),
+                str(device_id),
+                str(warehouse_id),
+                _instant(received_text).isoformat(),
+                raw_text,
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return (
+        receipt["receipt_sha256"] == receipt_digest
+        and entry["fingerprint"] == admission_digest
+    )
+
+
 def refresh_pending_recovery_frontier_on_connection_candidate(
     connection: Connection,
     *,
@@ -48,9 +88,10 @@ def refresh_pending_recovery_frontier_on_connection_candidate(
 
     A pending recovery with attempt_count=0 may be renewed in the SAME epoch
     after every new admission is terminal and all new sensor evidence still
-    matches the frozen historical recovery rule. Any high, invalid, missing,
-    late, gap, epoch change or tampered frozen evidence stays held. Leased or
-    delivered work cannot be re-frozen. No network I/O under this lock.
+    matches the frozen historical recovery rule. A verified replay of an old,
+    already admitted high adds no new sensor evidence. Any new high, invalid,
+    missing, late, gap, epoch change or tampered evidence stays held. Leased
+    or delivered work cannot be re-frozen. No network I/O under this lock.
     """
     if not connection.in_transaction():
         raise ValueError("caller must own an open C transaction")
@@ -213,28 +254,91 @@ def refresh_pending_recovery_frontier_on_connection_candidate(
             receipt_at = _instant(receipt["received_at_utc"])
         except ValueError, TypeError, KeyError:
             return RecoveryRefreezeCandidate("held", "invalid_new_observation")
+        try:
+            receipt_matches = _receipt_matches_admission(
+                entry,
+                receipt,
+                observation,
+                device_id=device_id,
+                warehouse_id=warehouse_id,
+            )
+        except ValueError, TypeError, KeyError:
+            receipt_matches = False
+        if not receipt_matches:
+            return RecoveryRefreezeCandidate("held", "admission_receipt_mismatch")
         if (
             sample.device_id != device_id
             or sample.warehouse_id != warehouse_id
             or sample.quality != ("ok",)
             or sample.sampled_at is None
             or sample.temperature_c is None
-            or (
-                sample.temperature_c >= threshold
-                if comparison == "<"
-                else sample.temperature_c > threshold
-            )
         ):
             return RecoveryRefreezeCandidate("held", "new_evidence_not_recovered")
         if entry["outcome"] == "accepted_new":
             if (
+                sample.temperature_c >= threshold
+                if comparison == "<"
+                else sample.temperature_c > threshold
+            ):
+                return RecoveryRefreezeCandidate("held", "new_evidence_not_recovered")
+            if (
                 receipt_at != sample.received_at
-                or receipt["raw_text"] != observation["raw_text"]
                 or sample.sampled_at <= last_sampled
                 or sample.sampled_at - last_sampled > timedelta(seconds=max_gap)
             ):
                 return RecoveryRefreezeCandidate("held", "new_window_gap_or_reorder")
             last_sampled = sample.sampled_at
+        else:
+            # A duplicate can name an old hot observation. It adds no new
+            # sensor evidence only when its first accepted_new admission in
+            # this same epoch is still present and matches the saved raw.
+            witnesses = (
+                connection.execute(
+                    select(entries).where(
+                        entries.c.device_id == device_id,
+                        entries.c.stream_epoch == stream_epoch,
+                        entries.c.observation_id == entry["observation_id"],
+                        entries.c.outcome == "accepted_new",
+                        entries.c.admission_seq < entry["admission_seq"],
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            if len(witnesses) != 1:
+                return RecoveryRefreezeCandidate("held", "unverified_duplicate_origin")
+            witness = witnesses[0]
+            first_receipt = (
+                connection.execute(
+                    select(receptions).where(receptions.c.id == witness["reception_id"])
+                )
+                .mappings()
+                .one_or_none()
+            )
+            try:
+                witness_valid = (
+                    first_receipt is not None
+                    and first_receipt["outcome"] == "accepted_new"
+                    and first_receipt["observation_id"] == observation["id"]
+                    and _instant(first_receipt["received_at_utc"]) == sample.received_at
+                    and _receipt_matches_admission(
+                        witness,
+                        first_receipt,
+                        observation,
+                        device_id=device_id,
+                        warehouse_id=warehouse_id,
+                    )
+                )
+            except ValueError, TypeError, KeyError:
+                witness_valid = False
+            if not witness_valid:
+                return RecoveryRefreezeCandidate("held", "unverified_duplicate_origin")
+            if (
+                sample.temperature_c >= threshold
+                if comparison == "<"
+                else sample.temperature_c > threshold
+            ) and witness["admission_seq"] > frozen[3]:
+                return RecoveryRefreezeCandidate("held", "new_evidence_not_recovered")
     changed = connection.execute(
         update(outbox)
         .where(
