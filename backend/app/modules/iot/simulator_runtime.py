@@ -23,7 +23,7 @@ from paho.mqtt.reasoncodes import ReasonCode
 from paho.mqtt.subscribeoptions import SubscribeOptions
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.modules.iot.simulator import SimulatorRejected, SoftwarePlant
+from app.modules.iot.simulator import PlantSample, SimulatorRejected, SoftwarePlant
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,6 @@ class DeviceRuntime:
         self._heartbeat_due = 0.0
         self._telemetry: dict[UUID, tuple[mqtt.MQTTMessageInfo, float]] = {}
         self._acknowledgements: dict[UUID, mqtt.MQTTMessageInfo] = {}
-        self._pending_cursor = 0
         self._sample_publish_window = float("-inf")
         self._sample_publish_attempts = 0
         self._sample_retry_at = float("-inf")
@@ -309,20 +308,19 @@ class DeviceRuntime:
             self._sample_publish_attempts = 0
         if self._sample_publish_attempts >= 4:
             return
-        count = len(pending)
-        start = self._pending_cursor % count
-        ordered = list(enumerate(pending[start:] + pending[:start]))
+        ordered = list(enumerate(pending))
+
         # Latest never-sent data precedes the older journal tail, including after
         # a restart. Every remaining tail entry retains its bytes and a turn.
-        # Retry ordering has its own cursor, unaffected by fresh publications.
-        ordered.sort(
-            key=lambda entry: (
-                (1, 0)
-                if UUID(entry[1].payload["message_id"]) in self._telemetry
-                else (0, -((start + entry[0]) % count))
-            )
-        )
-        for offset, sample in ordered:
+        # Least-recently-attempted retry ordering cannot skip old entries
+        # forever as new samples extend the journal during an active round.
+        def priority(entry: tuple[int, PlantSample]) -> tuple[int, float]:
+            index, sample = entry
+            previous = self._telemetry.get(UUID(sample.payload["message_id"]))
+            return (1, previous[1]) if previous is not None else (0, -float(index))
+
+        ordered.sort(key=priority)
+        for _index, sample in ordered:
             identifier = UUID(sample.payload["message_id"])
             previous = self._telemetry.get(identifier)
             if previous is not None:
@@ -339,7 +337,6 @@ class DeviceRuntime:
                 # At most one journal retry per configured resend interval per
                 # device, not one retry per pending row per interval.
                 self._sample_retry_at = monotonic
-                self._pending_cursor = (start + offset + 1) % count
             info = self.sensor.publish(
                 f"freshlink/v1/devices/{self.settings.sensor_id}/telemetry",
                 sample.payload_text.encode(),
@@ -348,6 +345,10 @@ class DeviceRuntime:
             )
             if info.rc == mqtt.MQTT_ERR_SUCCESS:
                 self._telemetry[identifier] = (info, monotonic)
+            elif previous is not None:
+                # Even a failed retry yields a turn to other durable entries;
+                # retain its prior transport state and all journal bytes.
+                self._telemetry[identifier] = (previous[0], monotonic)
             if self._sample_publish_attempts >= 4:
                 break
         # Deliberately NO confirm_storage: server/C persistence is not connected.
