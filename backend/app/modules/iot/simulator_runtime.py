@@ -114,6 +114,7 @@ class DeviceRuntime:
         self._pending_cursor = 0
         self._sample_publish_window = float("-inf")
         self._sample_publish_attempts = 0
+        self._sample_retry_at = float("-inf")
 
     def _fail(self, reason: str) -> None:
         self.fatal_reason = reason
@@ -311,10 +312,15 @@ class DeviceRuntime:
         count = len(pending)
         start = self._pending_cursor % count
         ordered = list(enumerate(pending[start:] + pending[:start]))
-        # New observations precede retries; rotating the retry cursor keeps old
-        # durable samples eligible without starving current control evidence.
+        # Latest never-sent data precedes the older journal tail, including after
+        # a restart. Every remaining tail entry retains its bytes and a turn.
+        # Retry ordering has its own cursor, unaffected by fresh publications.
         ordered.sort(
-            key=lambda entry: UUID(entry[1].payload["message_id"]) in self._telemetry
+            key=lambda entry: (
+                (1, 0)
+                if UUID(entry[1].payload["message_id"]) in self._telemetry
+                else (0, -((start + entry[0]) % count))
+            )
         )
         for offset, sample in ordered:
             identifier = UUID(sample.payload["message_id"])
@@ -324,10 +330,16 @@ class DeviceRuntime:
                 if (
                     not info.is_published()
                     or monotonic - last_sent < self.settings.resend_period_seconds
+                    or monotonic - self._sample_retry_at
+                    < self.settings.resend_period_seconds
                 ):
                     continue
             self._sample_publish_attempts += 1
-            self._pending_cursor = (start + offset + 1) % count
+            if previous is not None:
+                # At most one journal retry per configured resend interval per
+                # device, not one retry per pending row per interval.
+                self._sample_retry_at = monotonic
+                self._pending_cursor = (start + offset + 1) % count
             info = self.sensor.publish(
                 f"freshlink/v1/devices/{self.settings.sensor_id}/telemetry",
                 sample.payload_text.encode(),

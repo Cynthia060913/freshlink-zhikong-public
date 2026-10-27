@@ -265,7 +265,7 @@ def test_dispatcher_drains_bounded_batch_before_waiting():
     ):
         worker.run()
     assert tick.call_count == 14
-    wait.assert_called_once_with(0.5)
+    wait.assert_called_once_with(0.01)
 
 
 @pytest.mark.parametrize("status", [None, "blocked", "retry"])

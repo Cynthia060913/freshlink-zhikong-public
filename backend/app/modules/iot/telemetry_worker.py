@@ -231,6 +231,7 @@ class TelemetryDeliveryWorker:
         while not self.stop_requested.is_set():
             if max_seconds is not None and time.monotonic() - start >= max_seconds:
                 break
+            delivered_batch = 0
             try:
                 # Drain ready work rather than sleeping after every row. Every
                 # claim retains its own transaction, lease and C receipt checks.
@@ -244,6 +245,7 @@ class TelemetryDeliveryWorker:
                     result = self.run_once()
                     if result is None or result.status != "delivered":
                         break
+                    delivered_batch += 1
             except Exception:
                 # DB failure retains durable leases/raw. Never print exception
                 # text, bypass C, reset budgets or report a successful delivery.
@@ -252,4 +254,12 @@ class TelemetryDeliveryWorker:
                 logger.warning("Telemetry delivery temporarily unavailable")
             if max_seconds is not None and time.monotonic() - start >= max_seconds:
                 break
-            self.stop_requested.wait(self.poll_seconds)
+            # Ready backlogs need a cooperative yield, not an idle polling
+            # delay after each full batch. Idle/error/blocked work still backs
+            # off for the configured period, with the original transaction cap.
+            pause = (
+                min(0.01, self.poll_seconds)
+                if delivered_batch == 14
+                else self.poll_seconds
+            )
+            self.stop_requested.wait(pause)
