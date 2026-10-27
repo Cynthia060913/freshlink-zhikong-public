@@ -12,6 +12,7 @@
 | --- | --- |
 | PR #92 只增加白名单诊断后的受控恢复，main0e 源码与镜像 | 专属空库 `gated-937aa510315241f892909558b4941ff5` 退出 1，仍停在 `stored_cooling` 的 25 秒检查；ACK 后最后 C 已存值 10.013366°C，设备模拟值约 9.681747°C。诊断 JSON SHA256 `F32A51B091D422D6EB637563FE4033A88F10A9996523227253AECDC8918DF746`；清理后专属容器/网络均 0。诊断只定位检查点，未证明根因，不能算受控恢复通过。见 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6446634862)。 |
 | main0e、固定镜像、另一随机专属空库、一次性普通用户浏览器 | 本人登录并看到 14 个仿真设备；执行器详情显示已存执行成功回执且普通用户不可下新命令。遥测历史默认快照 132 条，按一设备建快照 19 条；详情可看原始 JSON、质量及首次/两次同原文重复接收。最新数据过旧提示风险未知。告警列表 3 条，详情普通用户只读。CSV 按钮已点，但浏览器没有返回可核对文件，**14 列/19 行未实测**；API 403 未另测。测试 UI、临时库和网络已按专属标签清理为 0；不代表完整 E1。见 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6447295714)。 |
+| main0e 同镜像另一次 CSV/权限补核尝试 | 新随机专属空库 `owned-review-ff87baf169dd4162b93ef29d4a077469` 的 14 设备夹具在 `wait_for(drained)` 超时退出 1，尚未打开页面或执行 CSV/API 检查。保留前一轮已过交互分段，不把它与本次失败拼为一次通过；未反复重跑旧 main。失败项目容器/网络回读均 0，未外发通知。见 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6447709022)。 |
 | C 旧高温原文重复续验，精确修复 `18a0f4ad4920e511d96388cd826527c8c4d777aa` | 本人 Windows 第二机以项目 Python 3.14 镜像、随机 PG18/tmpfs、唯一迁移至 C01，相关严格 PG 文件 **5 passed、0 skipped、2 warnings**；覆盖旧高温确证重复可续验、坏摘要/历史原文/伪重复拒绝，且新高温、gap/epoch、领取和冻结正文不变原断言保留。Ruff 与暂存安全检查通过，清理后容器/网络 0；同 SHA 六项适用远端 Actions 完成成功。这是专项候选，A 尚须在同版组合重跑 10°C→8°C 持续采集自然恢复及失败路径。见 [C #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6447282052)。 |
 
 其他成员证据仍按其本人 SHA 和环境引用，不与以上结果求和。双渠道同来源
