@@ -103,9 +103,33 @@ def test_html_escape():
         print("PASS HTML 特殊字符转义")
 
 
+def test_existing_output_and_source_are_never_overwritten():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "root")
+        os.makedirs(root)
+        source = os.path.join(root, "keep.txt")
+        with open(source, "w", encoding="utf-8") as f:
+            f.write("ORIGINAL_KEEP")
+        manifest = os.path.join(tmp, "m.json")
+        with open(manifest, "w", encoding="utf-8") as f:
+            f.write('{"files":[{"path":"keep.txt"}]}')
+        result = run_build(root, manifest, source)
+        assert result.returncode == 2
+        with open(source, encoding="utf-8") as f:
+            assert f.read() == "ORIGINAL_KEEP"
+        output = os.path.join(tmp, "existing.html")
+        with open(output, "w", encoding="utf-8") as f:
+            f.write("EXISTING_REPORT")
+        assert run_build(root, manifest, output).returncode == 2
+        with open(output, encoding="utf-8") as f:
+            assert f.read() == "EXISTING_REPORT"
+        print("PASS 已有输入/输出零覆盖")
+
+
 if __name__ == "__main__":
     test_legal_chinese_space_hash()
     test_missing_returns_nonzero_but_writes_html()
     test_reject_traversal_and_abs()
     test_html_escape()
+    test_existing_output_and_source_are_never_overwritten()
     print("ALL TESTS PASSED")

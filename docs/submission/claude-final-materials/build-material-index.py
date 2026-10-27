@@ -180,6 +180,9 @@ def main(argv=None) -> int:
 
     manifest_abs = os.path.abspath(args.manifest)
     out_abs = os.path.abspath(args.out)
+    if os.path.lexists(out_abs):
+        print("拒绝：输出文件已存在，不覆盖已有成果", file=sys.stderr)
+        return 2
     if out_abs == manifest_abs:
         print("拒绝：输出位置覆盖输入清单", file=sys.stderr)
         return 2
@@ -246,7 +249,7 @@ def main(argv=None) -> int:
     out_dir = os.path.dirname(out_abs)
     if out_dir and not os.path.isdir(out_dir):
         os.makedirs(out_dir, exist_ok=True)
-    with open(out_abs, "w", encoding="utf-8") as f:
+    with open(out_abs, "x", encoding="utf-8") as f:
         f.write(html_text)
     print(f"HTML 已写入：{out_abs}")
     print(f"存在 {meta['存在']} / 缺失 {missing} / 拒绝 {rejected}（共 {meta['总数']}）")

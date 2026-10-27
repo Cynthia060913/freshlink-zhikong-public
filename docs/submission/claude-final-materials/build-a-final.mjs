@@ -216,7 +216,7 @@ const presentation = Presentation.create({
       "展示层：React/TypeScript/Vite，公共认证与导航",
       "HTTP 层：FastAPI，总入口一次挂载 API_V1_STR",
       "A 入口：注册、心跳在线、MQTT 接纳、控制回执、A→B 投递",
-      "B 规则告警：批次、版本化规则、异常事件、通知 attempt",
+      "B 告警：批次与版本化规则、异常事件、通知 attempt",
       "C 数据质量：raw/质量、历史、固定快照 CSV、评价与 outbox",
       "存储：PostgreSQL 业务库 + Mosquitto 消息路由",
     ]),
@@ -279,7 +279,7 @@ const presentation = Presentation.create({
   textBox(s, {
     left: 72, top: 120, width: 1136, height: 40,
     fontSize: 21, color: C.body,
-    paragraphs: "main0e 受保护恢复：提交成功且连接释放后才 CAS 领取、fenced 回执，重启不重发。",
+    paragraphs: "同一事务内 CAS 领取 → 提交并释放连接 → 锁外发送与回执；重启不重发。",
   });
 
   const values = [
@@ -394,7 +394,7 @@ const presentation = Presentation.create({
     paragraphs: bullets([
       "SMTP 与飞书手机端两渠道授权实收",
       "同一冻结版本完整 E1 与最终第二机复现",
-      "C 自动恢复与多批高温业务收尾",
+      "已证分段的同版联合验收与材料收尾",
       "M01—M05 汇编与实际投递",
     ]),
   });
@@ -482,7 +482,7 @@ try {
 } catch (e) {
   finalizerError = String(e);
   console.error("FINALIZER_FAILED:", finalizerError);
-  await (await PresentationFile.exportPptx(presentation)).save(FINAL_PPTX);
+  throw new Error("Presentation validation failed; candidate retained, final output not accepted", { cause: e });
 }
 
 const summary = {

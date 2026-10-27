@@ -17,6 +17,10 @@
 
 ## 2. 四项交付与每文件哈希
 
+下表保留Claude原始交付`1ab7a9d`的历史哈希。A复核后修订的当前成品、
+实际渲染与工具安全检查见`A-REVIEW-RESULT.md`及重新生成的`MATERIAL-INDEX.html`；
+不能用下表旧值验证修订版。
+
 | 任务 | 文件 | 字节 | SHA256 |
 |---|---|---|---|
 | 一 | `A-FINAL-COMPONENT.pptx` | 515945 | `28f16cfb23f0bfd86f7c9b58c38c879981442bfa7a569abf697024456aeb7def` |
