@@ -22,9 +22,9 @@ try {
         & $docker image inspect $image --format '{{.Id}}'
         if($LASTEXITCODE){throw 'Required cached image missing; no automatic pulls'}
     }
-    # A62 integrates the exact C correction lease/wire/receipt port source.
-    # Keep the identity gate, including the unchanged C01 proposal.
-    & git diff --quiet 121550c468520adbbe7f35a9e286304e915d4bec -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    # Reviewed C18a adds strict admission/receipt proof for known old replays.
+    # Keep the full C subtree identity gate and the unchanged C01 proposal.
+    & git diff --quiet 18a0f4ad4920e511d96388cd826527c8c4d777aa -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
     if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
     $revision=(& git rev-parse HEAD).Trim()
     if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}

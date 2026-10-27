@@ -1,5 +1,184 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-28 C 第二机交互与旧高温重传修复（待同版自然恢复）
+
+本节更新以下带日期的旧状态。共同运行基线仍为
+`0e508d147517f81dfe2b9245c45c0c0e30076592`；C 新修复已在本人分支
+`18a0f4ad4920e511d96388cd826527c8c4d777aa` 上传到
+[PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)，**未合 main**。
+因此本节的第二机页面结果属 main0e，C 修复专项属新 C 头，两者不可合称同一发布版。
+
+| 对象与输入 | 本人实际结果、证据与限制 |
+| --- | --- |
+| PR #92 只增加白名单诊断后的受控恢复，main0e 源码与镜像 | 专属空库 `gated-937aa510315241f892909558b4941ff5` 退出 1，仍停在 `stored_cooling` 的 25 秒检查；ACK 后最后 C 已存值 10.013366°C，设备模拟值约 9.681747°C。诊断 JSON SHA256 `F32A51B091D422D6EB637563FE4033A88F10A9996523227253AECDC8918DF746`；清理后专属容器/网络均 0。诊断只定位检查点，未证明根因，不能算受控恢复通过。见 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6446634862)。 |
+| main0e、固定镜像、另一随机专属空库、一次性普通用户浏览器 | 本人登录并看到 14 个仿真设备；执行器详情显示已存执行成功回执且普通用户不可下新命令。遥测历史默认快照 132 条，按一设备建快照 19 条；详情可看原始 JSON、质量及首次/两次同原文重复接收。最新数据过旧提示风险未知。告警列表 3 条，详情普通用户只读。CSV 按钮已点，但浏览器没有返回可核对文件，**14 列/19 行未实测**；API 403 未另测。测试 UI、临时库和网络已按专属标签清理为 0；不代表完整 E1。见 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6447295714)。 |
+| main0e 同镜像另一次 CSV/权限补核尝试 | 新随机专属空库 `owned-review-ff87baf169dd4162b93ef29d4a077469` 的 14 设备夹具在 `wait_for(drained)` 超时退出 1，尚未打开页面或执行 CSV/API 检查。保留前一轮已过交互分段，不把它与本次失败拼为一次通过；未反复重跑旧 main。失败项目容器/网络回读均 0，未外发通知。见 [E1 #6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6447709022)。 |
+| C 旧高温原文重复续验，精确修复 `18a0f4ad4920e511d96388cd826527c8c4d777aa` | 本人 Windows 第二机以项目 Python 3.14 镜像、随机 PG18/tmpfs、唯一迁移至 C01，相关严格 PG 文件 **5 passed、0 skipped、2 warnings**；覆盖旧高温确证重复可续验、坏摘要/历史原文/伪重复拒绝，且新高温、gap/epoch、领取和冻结正文不变原断言保留。Ruff 与暂存安全检查通过，清理后容器/网络 0；同 SHA 六项适用远端 Actions 完成成功。这是专项候选，A 尚须在同版组合重跑 10°C→8°C 持续采集自然恢复及失败路径。见 [C #9](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6447282052)。 |
+
+其他成员证据仍按其本人 SHA 和环境引用，不与以上结果求和。双渠道同来源
+实收的最终核销、完整 E1、冻结版第二机全部项目与参赛投递均需另行签收。
+
+## 2026-10-27 C 第二机同版续验：14 设备分段通过，受控恢复未通过
+
+在独立干净检出 `0e508d147517f81dfe2b9245c45c0c0e30076592` 上，先对项目固定的
+`eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`
+做官方仓库只读 manifest 核验，再按**该精确摘要**显式拉取一次。下载后 `image inspect`
+回报相同 RepoDigest、image ID `sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`
+及 `linux/amd64`；应用镜像 ID、来源 label 与离线包清单仍吻合。没有改脚本的摘要门禁，
+也没有让验证脚本自动拉取依赖。此步骤解决了离线归档在本机丢失 RepoDigest 引用的缺口。
+
+使用同版应用标签运行 `check-gated-fleet.ps1`，本人第二台 Windows 电脑的随机专属项目
+`gated-fleet-6d91ae8e296f4d898066b2882b81304c` **退出码 0**。真实临时 PG 的
+Alembic 链升至 C01 且检查无待升级操作；结果 `gated-fleet.json` SHA256
+`4ed5789be22f3aac7b0d7c063e637be39ba3ad65b953bcecee8a94fb47b40898`：
+两冷库、三批、14 逻辑设备，7 条采集流有 C 持久数据、7 个执行器有实际执行 ACK
+与后续降温采样、14 个设备离线后重新在线；设备运行时重启保留执行次数，C 历史恢复
+并续收 7 流；两库同筛选快照 CSV 分别 81/57 行。三批高温候选经鉴权 **ASGI
+TestClient** 送 B，不是实际 TCP 或真实通知。`cleanup.json` SHA256
+`b4c7dc3a04dfb8c9083e41301f70591dc7154fa0104c17f8485eb14e4481e8ee`
+记录 test_exit=0、owned_cleanup_ok=true；随后按该 Compose 标签独立查询，容器和网络均为 0。
+
+接着运行 `check-gated-telemetry.ps1 -GuardedRecovery`。首跑项目
+`gated-f30d2711406c48d5b2d0148213783f27` **退出码 1**，`runner.log`
+SHA256 `a2297b050e42d162c02af37abcbbc607a31139161b75130718d954c823ec5586`。
+失败在 `check-gated-telemetry.py:265` 的 `wait_for(cooled)`：已收到命令执行 ACK，
+再等 25 秒仍没有满足“ACK/新规则以后且较基线降温 0.02°C”的 C 已存观测。
+同一临时设备 SQLite 只读回看为执行次数 1、制冷开启、当前模拟温度约 9.677°C、
+已生成 52 条采样；这只能证明设备侧运行，**不能证明后续 C 持久化检查点通过**。
+为判断可重复性，在源码/镜像不变、资源清理后仅复跑一次：项目
+`gated-08c280f2714e4728b4d66d48f83bee9f` 也 **退出码 1**，同样停在
+`wait_for(cooled)`；`runner.log` SHA256
+`051f3228cdacd87b305e7c05d4ab227717f16f153ef9f4b267831a05524c9934`。
+第二次设备仍执行 1 次、降至约 9.680°C 并生成 52 条模拟采样。两次
+`cleanup.json` 都记载 `owned_cleanup_ok=true`，其 SHA256 依次为
+`fadbc175262226ca6e490e40970e46e1c067206d23c883421195c2158ba1cbc3`、
+`5fb04d3d76c6caf30ab930b6782921ea5ff61a39df3603aa9885641e6187219d`；
+按两个项目标签再次查容器和网络均为 0。临时原始日志及 SQLite 只留忽略的本机 `work/`，
+不上传。停止重复运行，交 A 按此固定检查点分析；不改超时、断言或 C 身份门禁掩盖失败。
+
+因此 C 第二机**已过默认 CMD/真实 HTTP 和 14 设备分段，未过 GuardedRecovery**。
+普通用户浏览器登录/页面点击、两渠道终端实收、同一场景完整 E1、最终冻结/参赛签收
+继续标为未测或未完成。上节“固定摘要引用缺失、后两段未运行”仅记录本次续验之前
+的首段状态，以本节的后续实测为准。
+
+## 2026-10-27 C 第二机同版制品接收与首段实测
+
+本机独立干净检出、共同 main 均核为
+`0e508d147517f81dfe2b9245c45c0c0e30076592`。已私下收到
+`FreshLink-main0e-second-machine-candidate.zip`，包长 `715,730,853` 字节，
+SHA256 `9be5310a1bbc919251f1adc0379d72a5952c33f39a688e53648e1c3e48405720`。
+在新目录解包，逐件核对清单中 9 个文件的字节数及 SHA256，全部一致；
+其中源码 ZIP SHA256 为 `c9730ff2e201820f71ce019fbc0462a8af287c8a566e0a0f29e770f9d06e3a88`，
+应用镜像归档为 `f7a5e3d5221404ffa90b4ed8011947fb37bb445b1a4b54d89346e8e19bc0b806`，
+依赖镜像归档为 `ed1f0cb65f854baae187cc09b452b048772e265f7842639cbfec783b7e6b585a`。
+导入镜像后，应用镜像 ID 为
+`sha256:c9a6ee33c6a89083c2efb1565b437d859d5069e8aa37f040f23be5972a385254`，
+`linux/amd64` 和来源 label 均与上述 main 完整 SHA 一致。导入没有启动容器；
+旧工作区、数据库和镜像标签未覆盖。
+
+在此独立 C 电脑，用项目 `check-application-candidate.ps1` 对新专属项目/空库运行
+**无应用源码挂载的默认 CMD 镜像与真实 HTTP** 验证，退出码 0。
+证据 `application-http.json` SHA256
+`1ae883954691d1bc8e5281beb39a92c89139b636810fcdd67a4acc6b9d43c16b`：
+编译 HTML/JS、健康检查、匿名 401、管理员真实登录、注册 201/未知风险、
+重复 409 且总数仍为一、保存详情均通过。Alembic 在本次临时 PG 中升至 C01。
+`image-cleanup.json` SHA256
+`7b1b05c7166b4e95f42944522a38e89ef265bab08d6700e6071bb5e40fc164aa`
+记载 proof/cleanup 退出码均 0；再次按该专属 Compose project 查询容器和网络，
+结果均为空。原本已有的 Docker 实例和数据未清理。
+
+**首段当时的缺口（已由上节续验更新）：**导入的 Mosquitto 镜像 ID 确为
+`sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`，
+但其 `RepoDigests=[]`，脚本要求的固定
+`eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`
+引用在此 Docker 存储中 `image inspect` 返回 `No such image`。因此不能放宽身份检查
+去报 fleet/guarded recovery 成功；当时仍待固定引用的安全取得方式。
+普通用户浏览器登录、设备/历史同筛选 CSV、ACK 与追溯亦未在此机操作。
+本首段仅证明 C 第二机同版制品与默认 CMD/HTTP 冒烟，不是完整第二机验收、
+完整 E1 或两渠道实收。
+
+## 2026-10-27 收件前交接检查点（历史状态，已由上节更新）
+
+共同 main 与 C 本机新建的独立干净检出均为
+`0e508d147517f81dfe2b9245c45c0c0e30076592`；原 C 分支与旧包未改。
+[A 在 #6 指定](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6420809608)
+的同版源码 ZIP 为 `3,273,358` 字节、SHA256
+`c9730ff2e201820f71ce019fbc0462a8af287c8a566e0a0f29e770f9d06e3a88`；
+应用镜像归档为 `540,475,904` 字节、SHA256
+`f7a5e3d5221404ffa90b4ed8011947fb37bb445b1a4b54d89346e8e19bc0b806`；
+目标镜像 ID 为 `sha256:c9a6ee33c6a89083c2efb1565b437d859d5069e8aa37f040f23be5972a385254`。
+这些是 **A 提供的预期值**，C 机器尚未收到该批文件，不能记成 C 已验 hash 或镜像身份。
+本机只读核查 Docker Linux engine `29.9.2`、缓存 `postgres:18`、无运行中容器；
+目标应用镜像和固定 digest Mosquitto 未缓存。接收/依赖缺口已在
+[#6 C 接收状态](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6433195778)
+直接请求 A 私下交付。未下载、导入、启动或触碰旧 Docker 数据。
+
+[A #7 同版记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/7#issuecomment-6421017446)
+报告其运行机默认 CMD HTTP、两库三批 14 设备分段与第二轮真实浏览器验证通过，
+并保留首轮历史分页 `socket hang up`/worker 失败；这些属于 A 环境，不计作 C 第二机实测。
+本机下一步在收到原件后逐件验长度/SHA256/ID/label，使用专属空库依次运行无源码挂载
+默认 CMD、fleet 与 guarded recovery，检查清理；普通用户浏览器操作仍须另验。
+两通知真实实收与同一场景完整 E1 仍未签收。
+
+## 2026-10-26 第二机接收预检（未执行冻结同版复现）
+
+本机是 C 使用的独立 Windows 电脑，系统版本 `10.0.26100.0`。在只读、
+不改系统配置的核验中，已安装的 Docker Desktop CLI 回报 Docker `29.9.2`、
+Compose `5.6.1`，引擎 `OSType=linux`；C 盘当时可用 `47,926,599,680` 字节。
+普通受限执行会话无法直接运行该 CLI；从已安装的用户目录在允许的进程中只读核验成功。
+这证明本机具备接收并尝试运行候选的环境，不证明应用已启动或通过第二机业务验收。
+
+旧附件 `FreshLink-second-machine-candidate-96afaab8ef5a-812eea5.zip`
+在本机存在，长度 `755,924,625` 字节；其名称指向旧 `96afaab8…` 候选，
+不作为当前共同 main `0e508d147517f81dfe2b9245c45c0c0e30076592` 的同版制品，
+也没有导入或覆盖现有实例。A 尚未在共同入口指定与最终冻结完整 SHA 对应的
+源码 ZIP、镜像归档、manifest 和逐件 SHA256，故本轮没有对最终包执行校验、
+导入、启动、登录、设备在线、采集/CSV、控制 ACK 或异常追溯；均为**未测**。
+取得 A 的私下指定制品后，C 只在独立配置和隔离资源上逐项复现，并将失败及清理
+记录在 E1 #6，不复制 A 的数据库、配置或秘密。
+
+## 2026-10-26 夜间续证：受保护恢复发送已审，E1 仍未签收
+
+共同 main 后续已升至 `0e508d147517f81dfe2b9245c45c0c0e30076592`。A 的
+[PR #88](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/88)
+精确头 `9e27e52879f1e0d725950edee4aa53971d97a048` 共 13 文件，已合入该 main；
+C 已对完整范围提交[正式 APPROVE](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/88#pullrequestreview-5653861150)。
+本机对 6 个 C 文件与原辅助 PR #87 逐字比对为零差异，C 生产子树/C01 对原 C
+`121550c468520adbbe7f35a9e286304e915d4bec` 身份检查也为零差异；
+PR #87 因被 #88 覆盖而关闭，未合并或删除分支。A 已将旧固定 SHA pin 更新为
+上述 C 原头。C 原分支随后正常合入新 main，无强推；当前 PR #11 与 main 的
+三点差异只剩本报告一份 C 文档，不再重复合入已发布的业务文件。
+
+本人 Windows 项目隔离 Python 3.14.3 对 #88 精确源码运行相关 unittest 29 项，
+**22 passed / 7 skipped / 0 failure**；跳过项需 PostgreSQL 条件，不能记为通过。
+`git diff --check` 通过。同头七项适用 Actions 全部 success；
+[Backend run 40340621960](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40340621960)
+日志为 **1444 passed / 2 skipped / 182 warnings**。A 在 A65 记录的 73 项 PG 专项、
+本地整仓 1446/0 和真实 MQTT/PG/TCP 独立恢复进程属于 A 的环境与证据，C 本机
+没有重跑该完整链。代码合并不等于两渠道终端实收、完整 E1 或最终
+第二机验收；已有 attempt 后新前沿仍可能保守 held。下一次采证须等 A 固定同版源码、
+镜像和离线包校验值后，在本 Windows 第二机实际启动并记录登录、采集、CSV、控制
+ACK 与清理；未跑的步骤继续标未测。
+
+## 2026-10-26 当晚较早检查点（M03/E1 未签收）
+
+共同 [S0 #5](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5) 已关闭；
+A 的 [PR #82](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/82)
+当时已合入 main `296d4cb1a844b8eb9cd93d8506a142581921bda4`。这只更新当时共同源码基础，
+不补写下列分段为完整 E1，也不代表两渠道终端实收或 M03 成品签收。
+
+| 来源与精确版本 | 本人实际验证与可引用证据 | 尚未验证 |
+| --- | --- | --- |
+| C [Draft PR #87](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/87) `7b758c3936a4ac57f9ec3936b57e8767d88031bc`，基于已合 PR #82 源码，目标 main，差异只含 6 个 C 文件 | 同 Connection 完整恢复证据复核和 CAS 租约、事务提交后锁外发送端口及回归已普通上传。Windows 项目隔离 Python3.14.3 聚焦 unittest **48/48**；Ruff check/format、两生产文件 mypy strict、diff check 通过。六项适用 Actions 均 success；[Backend 40334108491](https://github.com/Cynthia060913/freshlink-zhikong-public/actions/runs/40334108491) **1435 passed/2 skipped/182 warnings**，新增领取 2 项和严格 PG 候选文件 5 项实际执行。 | A 尚须独立审 PR #87，更新共享 `check-gated-telemetry.ps1` 的旧 C 源 SHA pin 并在新头重跑门禁；未接 A 无人值守调度或真实 B 恢复 HTTP，2 skipped 不计通过。PR 保持 Draft，不自行合 main。 |
+| 本人 Windows 第二机**局部预检**，挂载上述 PR #87 源码 | 现有 Docker Linux server 29.9.2、Compose v5.6.1 已实际可用。唯一临时项目 `c87pg-92409dc0ce` 的 tmpfs PostgreSQL18 上，A04→A05→C01 空库升级成功；C `test_telemetry_gated_high_postgres_candidate.py` **5 passed/0 failed/0 skipped**。JUnit 仅本机保存、未上传，SHA256 `D090FD2C64AFEAE79BA8299BA361524EF0A00C7D715CDA041D2D598AD6663A62`（5 testcase、零失败/错误/跳过）。本次临时容器/网络已清理，测试用临时前端占位已移除。 | 运行时来自缓存 Python3.14.8 镜像 `sha256:67e2446f5680469f12806a03622d7f395d1977121ca962a234db0f33db63dd4f`，其来源标签是旧候选 `96afaab8ef5a26725a0fa31ff4ff3fc4983698bf`；新源码以只读挂载覆盖。**不是**最终同版镜像、运行包、浏览器/MQTT/HTTP 或第二机完整复现。 |
+| C/B 固定更正 JSON 在已合 A82 组合源 `2a3e2cf2b4ad83d226626acb4bcd358b27373ab5` | C wire 验证和 B `CandidateCreate` 解析后，双端摘要均为 `sha256:8c04fb17927df069a2a4bf02213f221a76af0fa62110313db07f34e566290dbf`；字段与失败边界已在 [B #8](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/8#issuecomment-6417741574) 本人确认。 | 这只是 DTO/摘要对拍；真实 B HTTP、同源重试、告警更正自动投递、SMTP/飞书终端实收仍未由此证明。 |
+
+下节保留同日较早各提交的原始记录；其中“Docker 不可用”“PR #82 待修”等
+只描述当时环境和头，不覆盖本检查点。完整 E1 继续按
+[#6](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6)
+逐步实测，最终 M03 按 [#12](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/12)
+由三人分别核本人证据后签收。
+
 ## 2026-10-26 当前 C 恢复修复与更正投递（E1/M03 未签收）
 
 | 来源与精确版本 | 实际验证 | 尚未验证 |
