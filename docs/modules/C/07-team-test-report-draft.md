@@ -1,8 +1,31 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-28 C 第二机与新共同基线（待同版自然恢复）
+
+共同 main `81eb3d3a1ef4c62f3dd449d7df14a4ef41fa513e` 已合入 A 的
+PR #93。C 在干净本人分支同步此 main，组合源码精确提交
+`a3737f6fcebb39888884f541f178257254600534`，相对 main 只剩两份 C
+源码/测试和两份 C 文档。Windows 第二机使用该检出，通过只读挂载业务源码、
+旧 main0e 标签的已核验应用镜像仅提供 Python 3.14 依赖；业务身份以本次
+`source` 字段为准，不能把依赖镜像标签误记为本次业务版本。
+
+在随机独立 PostgreSQL 18 tmpfs 与内部 MQTT 网络，C 恢复严格 PG 专项
+`test_telemetry_gated_high_postgres_candidate.py` **5 passed / 0 skipped / 2 warnings**。
+随后运行共同 `check-gated-fleet.ps1 -Sustained`，181.94 秒分段退出 0、
+`passed=true`：两库三批、14 逻辑设备、七条实际采集流，36 个采样快照的
+最大待入账数 8、最大流滞后 2，全部 gap 原因为空；两库同筛选快照 CSV
+脚本分别回报 654/488 行，三批高温经 B ASGI HTTP 分段记录。结果
+`fleet-sustained.json` SHA256
+`550D64537F228FFADA9DFCF28D37EF08D33EBC95B4AB009AC19F418A832691B4`，
+`gated-fleet.json` SHA256
+`07419C22D4F2DF2D0F62B25BEE617B04D0FE12C6657499BC1FE3C117B3FFF331`。
+本轮 `notifications_sent=0`、`complete_e1=false`，没有运行 10°C→8°C
+采集不停自然恢复，也未取得浏览器下载 CSV 文件；专属项目容器/网络回读均 0。
+此前旧 main0e 的 `wait_for(drained)` 失败保留在下表，不作为新组合失败。
+
 ## 2026-10-28 C 第二机交互与旧高温重传修复（待同版自然恢复）
 
-本节更新以下带日期的旧状态。共同运行基线仍为
+本节记录以下带日期的旧状态，当时共同运行基线为
 `0e508d147517f81dfe2b9245c45c0c0e30076592`；C 新修复已在本人分支
 `18a0f4ad4920e511d96388cd826527c8c4d777aa` 上传到
 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)，**未合 main**。
