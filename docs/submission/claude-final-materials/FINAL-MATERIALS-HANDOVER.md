@@ -51,12 +51,13 @@
 
 ## 4. 渲染与视觉状态（诚实边界）
 
-- PPTX 逐页 PNG 已生成；**本会话视图工具未能显示这些 PNG，未做逐页人工像素视觉复核**，
-  结构/几何由 finalizer 自动检查作为“无溢出/重叠”证据，不以像素检查冒充人工视觉通过。
-  最终请在 PowerPoint 打开复核。
-- DOCX 未做页面渲染：文档 skill 的 `render_docx.py` 依赖 LibreOffice `soffice.exe`，
-  本机缺失（`FileNotFoundError: LibreOffice soffice.exe was not found on PATH`），
-  按任务书不安装依赖，**DOCX 标记“渲染未验收”**，仅保留可编辑稿与结构检查。
+- Claude 初交时：PPTX 已生成逐页 PNG，但其视图工具不能显示，故当时未做逐页视觉复核；
+  finalizer 的结构/几何检查不能代替人工查看。
+- Claude 初交时：DOCX 的 `render_docx.py` 因缺 LibreOffice 而未渲染，彼时“渲染未验收”
+  是历史状态，没有安装依赖。
+- A 后续实测状态：PPT 六页已逐页查看，改动页重新渲染复核；DOCX 通过现有 Word 独立
+  隐藏实例只读导出 PDF、Poppler 转页，全部四页已查看。当前可供 B 汇编。
+  此为 Word 实际排版检查，不是 LibreOffice 成功。详见 [A复核结果](A-REVIEW-RESULT.md)。
 
 ## 5. 未测 / 真实缺口（不写成通过）
 

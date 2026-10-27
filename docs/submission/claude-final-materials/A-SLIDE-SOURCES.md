@@ -39,6 +39,7 @@
 - 已运行 finalizer：package integrity、layout geometry（bullet/heading fit、16:9 尺寸）、
   字体（Microsoft YaHei）、可再导入均通过，0 finding / 0 warning；1 张原生可编辑表格（第 4 页）、
   3 张真实嵌入图、每页讲稿存在。
-- 逐页 PNG 已导出到本地 `work/claude-final-materials/png/`。本会话视图工具未能显示渲染 PNG，
-  未做逐页人工像素视觉复核；结构/几何由 finalizer 自动检查作为“无溢出/重叠”证据，
-  不以像素检查冒充人工视觉通过。最终由 A 在 PowerPoint 中打开复核。
+- Claude 初交时：逐页 PNG 已导出，但其视图工具不能显示，故当时未完成逐页视觉复核；
+  当时的 finalizer 结构/几何检查不能代替人工查看。
+- A 后续实测状态：已逐页查看六页，修订的2/4/6页重新渲染并复看；finalizer 检查亦通过。
+  当前可供 B 汇编，具体来源、工具与边界见 [A复核结果](A-REVIEW-RESULT.md)。
