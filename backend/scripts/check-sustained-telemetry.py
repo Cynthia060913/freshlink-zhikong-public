@@ -190,7 +190,20 @@ def run():
                     ],
                     extra,
                 )
-            device = DeviceRuntime(
+            quiesce = threading.Event()
+            sampling_paused = threading.Event()
+
+            class DrainableProofDevice(DeviceRuntime):
+                def step(self, *, now, monotonic):
+                    # The proof pauses new sampling in its owner thread before
+                    # stopping MQTT. Product stop() still preserves any unsent
+                    # journal tail for a later restart; it does not drain it.
+                    if quiesce.is_set():
+                        self._sample_due = float("inf")
+                        sampling_paused.set()
+                    super().step(now=now, monotonic=monotonic)
+
+            device = DrainableProofDevice(
                 RuntimeSettings(
                     **common,
                     sensor_username="test-sensor",
@@ -239,9 +252,9 @@ def run():
                 if errors or any(child.poll() is not None for _, child, _ in children):
                     raise RuntimeError("Sustained role exited")
                 time.sleep(5)
-            device.stop_requested.set()
-            thread.join(12)
-            assert not thread.is_alive() and not errors
+            report["checkpoint"] = "quiesce_sampling_and_drain_transport"
+            quiesce.set()
+            assert sampling_paused.wait(2)
             expected = {
                 UUID(sample.payload["message_id"]) for sample in device.plant.pending()
             }
@@ -249,6 +262,9 @@ def run():
                 lambda: expected == {row["message_id"] for row in rows(observations)},
                 25,
             )
+            device.stop_requested.set()
+            thread.join(12)
+            assert not thread.is_alive() and not errors
             wait(
                 lambda: (
                     rows(streams)[0]["admitted_seq"]
@@ -265,12 +281,17 @@ def run():
                 stored_unique_samples=len(saved),
                 durable_device_samples=len(expected),
                 all_sample_ids_preserved=True,
+                proof_sampling_quiesced_before_transport_stop=True,
                 frontier_gap_reason=rows(streams)[0]["gap_reason"],
                 frontier_caught_up=True,
                 peak_pending_admissions=peak,
             )
     except BaseException as error:
         report.update(phase="failed", error_type=type(error).__name__)
+        report["failure_frontiers"] = [
+            {key: row[key] for key in ("admitted_seq", "settled_through", "gap_reason")}
+            for row in rows(streams)
+        ]
         raise
     finally:
         for worker in workers:
