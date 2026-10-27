@@ -62,6 +62,7 @@ def run():
     from app.modules.iot.high_evaluation_worker import GatedHighWorker
     from app.modules.iot.models import Device
     from app.modules.iot.simulator_fleet import FleetSettings, SimulatorFleet
+    from app.modules.iot.stream_frontier_models import streams
     from app.modules.iot.telemetry_inbox_models import inbox
     from app.modules.iot.telemetry_storage_bridge import GatedTelemetrySink
     from app.modules.iot.telemetry_worker import (
@@ -92,12 +93,17 @@ def run():
         module.require_empty_test_business(connection)
     target = Path("/results/gated-fleet.json")
     require(not target.exists(), "refusing evidence overwrite")
+    sustained = os.getenv("FRESHLINK_FLEET_SUSTAINED_PROOF") == "1"
+    require(
+        not Path("/results/fleet-sustained.json").exists(),
+        "refusing sustained evidence overwrite",
+    )
     errors, workers, threads = [], [], []
 
     def launch(worker):
         def execute():
             try:
-                worker.run(max_seconds=75)
+                worker.run(max_seconds=450 if sustained else 75)
             except Exception as error:
                 errors.append(type(worker).__name__ + ":" + type(error).__name__)
 
@@ -282,7 +288,7 @@ def run():
             delivery = TelemetryDeliveryWorker(
                 engine,
                 GatedTelemetrySink(engine, frontier_epochs=epochs),
-                poll_seconds=0.1,
+                poll_seconds=0.5 if sustained else 0.1,
                 frontier_epochs=epochs,
             )
             fleet = SimulatorFleet(configuration, password_for=passwords.__getitem__)
@@ -300,6 +306,80 @@ def run():
                 )
 
             wait_for(online_and_saved)
+            if sustained:
+                sustained_start = time.monotonic()
+                snapshots = []
+                passed_sustained = False
+                try:
+                    while time.monotonic() - sustained_start < 180:
+                        require(not errors, "sustained workers healthy")
+                        with engine.connect() as connection:
+                            frontiers = list(
+                                connection.execute(select(streams)).mappings()
+                            )
+                        require(len(frontiers) == 7, "all seven verified streams")
+                        lags = [
+                            row["admitted_seq"] - row["settled_through"]
+                            for row in frontiers
+                        ]
+                        values = saved()
+                        snapshot = {
+                            "seconds": round(time.monotonic() - sustained_start, 2),
+                            "stored": len(values),
+                            "total_pending_admissions": sum(lags),
+                            "max_stream_lag": max(lags),
+                            "frontier_gap_reasons": [
+                                row["gap_reason"] for row in frontiers
+                            ],
+                            "per_sensor_stored": {
+                                str(sensor): sum(
+                                    row["device_id"] == sensor for row in values
+                                )
+                                for sensor in bindings
+                            },
+                        }
+                        snapshots.append(snapshot)
+                        sys.stdout.write(json.dumps(snapshot) + "\n")
+                        sys.stdout.flush()
+                        require(
+                            not any(row["gap_reason"] for row in frontiers),
+                            "no frontier gap during sustained fleet",
+                        )
+                        require(
+                            sum(lags) < 900, "bounded aggregate pending below refusal"
+                        )
+                        time.sleep(5)
+                    require(online_and_saved(), "all fourteen devices still online")
+                    require(
+                        all(
+                            count >= 100
+                            for count in snapshots[-1]["per_sensor_stored"].values()
+                        ),
+                        "every sensor has sustained new samples",
+                    )
+                    passed_sustained = True
+                finally:
+                    Path("/results/fleet-sustained.json").write_text(
+                        json.dumps(
+                            {
+                                "source": os.environ["GATED_FLEET_SOURCE"],
+                                "passed": passed_sustained,
+                                "seconds": round(time.monotonic() - sustained_start, 2),
+                                "warehouses": 2,
+                                "batches": 3,
+                                "logical_devices": 14,
+                                "sensors": 7,
+                                "sample_period_seconds": 1,
+                                "resend_period_seconds": 10,
+                                "delivery_poll_seconds": 0.5,
+                                "notifications_sent": 0,
+                                "complete_e1": False,
+                                "snapshots": snapshots,
+                            },
+                            indent=2,
+                        ),
+                        encoding="utf-8",
+                    )
             before = {
                 device_id: sorted(
                     [row for row in saved() if row["device_id"] == device_id],
@@ -623,6 +703,7 @@ def run():
                 "warehouses": [str(value) for value in warehouses],
                 "batches": [str(value) for value in batches],
                 "logical_devices": 14,
+                "sustained_180_seconds": sustained,
                 "registered_ids_are_explicit_acl_fixtures": True,
                 "actual_c01_alembic_no_test_ddl": True,
                 "online_devices": 14,
