@@ -1,5 +1,28 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-27 同版交接检查点（第二机业务复现未开始）
+
+共同 main 与 C 本机新建的独立干净检出均为
+`0e508d147517f81dfe2b9245c45c0c0e30076592`；原 C 分支与旧包未改。
+[A 在 #6 指定](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6420809608)
+的同版源码 ZIP 为 `3,273,358` 字节、SHA256
+`c9730ff2e201820f71ce019fbc0462a8af287c8a566e0a0f29e770f9d06e3a88`；
+应用镜像归档为 `540,475,904` 字节、SHA256
+`f7a5e3d5221404ffa90b4ed8011947fb37bb445b1a4b54d89346e8e19bc0b806`；
+目标镜像 ID 为 `sha256:c9a6ee33c6a89083c2efb1565b437d859d5069e8aa37f040f23be5972a385254`。
+这些是 **A 提供的预期值**，C 机器尚未收到该批文件，不能记成 C 已验 hash 或镜像身份。
+本机只读核查 Docker Linux engine `29.9.2`、缓存 `postgres:18`、无运行中容器；
+目标应用镜像和固定 digest Mosquitto 未缓存。接收/依赖缺口已在
+[#6 C 接收状态](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6433195778)
+直接请求 A 私下交付。未下载、导入、启动或触碰旧 Docker 数据。
+
+[A #7 同版记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/7#issuecomment-6421017446)
+报告其运行机默认 CMD HTTP、两库三批 14 设备分段与第二轮真实浏览器验证通过，
+并保留首轮历史分页 `socket hang up`/worker 失败；这些属于 A 环境，不计作 C 第二机实测。
+本机下一步在收到原件后逐件验长度/SHA256/ID/label，使用专属空库依次运行无源码挂载
+默认 CMD、fleet 与 guarded recovery，检查清理；普通用户浏览器操作仍须另验。
+两通知真实实收与同一场景完整 E1 仍未签收。
+
 ## 2026-10-26 第二机接收预检（未执行冻结同版复现）
 
 本机是 C 使用的独立 Windows 电脑，系统版本 `10.0.26100.0`。在只读、
