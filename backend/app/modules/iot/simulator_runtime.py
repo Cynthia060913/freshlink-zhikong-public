@@ -112,6 +112,8 @@ class DeviceRuntime:
         self._telemetry: dict[UUID, tuple[mqtt.MQTTMessageInfo, float]] = {}
         self._acknowledgements: dict[UUID, mqtt.MQTTMessageInfo] = {}
         self._pending_cursor = 0
+        self._sample_publish_window = float("-inf")
+        self._sample_publish_attempts = 0
 
     def _fail(self, reason: str) -> None:
         self.fatal_reason = reason
@@ -292,11 +294,29 @@ class DeviceRuntime:
         pending = self.plant.pending()
         if not pending:
             return
+        pending_ids = {UUID(sample.payload["message_id"]) for sample in pending}
+        self._telemetry = {
+            identifier: state
+            for identifier, state in self._telemetry.items()
+            if identifier in pending_ids
+        }
+        # The journal has no C storage confirmation channel yet. Therefore its
+        # replay rate must not grow with the number of unconfirmed samples.
+        # Count failed publish calls too; frequent step() calls cannot bypass it.
+        if monotonic - self._sample_publish_window >= 1:
+            self._sample_publish_window = monotonic
+            self._sample_publish_attempts = 0
+        if self._sample_publish_attempts >= 4:
+            return
         count = len(pending)
         start = self._pending_cursor % count
-        ordered = pending[start:] + pending[:start]
-        attempted = 0
-        for sample in ordered:
+        ordered = list(enumerate(pending[start:] + pending[:start]))
+        # New observations precede retries; rotating the retry cursor keeps old
+        # durable samples eligible without starving current control evidence.
+        ordered.sort(
+            key=lambda entry: UUID(entry[1].payload["message_id"]) in self._telemetry
+        )
+        for offset, sample in ordered:
             identifier = UUID(sample.payload["message_id"])
             previous = self._telemetry.get(identifier)
             if previous is not None:
@@ -306,6 +326,8 @@ class DeviceRuntime:
                     or monotonic - last_sent < self.settings.resend_period_seconds
                 ):
                     continue
+            self._sample_publish_attempts += 1
+            self._pending_cursor = (start + offset + 1) % count
             info = self.sensor.publish(
                 f"freshlink/v1/devices/{self.settings.sensor_id}/telemetry",
                 sample.payload_text.encode(),
@@ -314,16 +336,8 @@ class DeviceRuntime:
             )
             if info.rc == mqtt.MQTT_ERR_SUCCESS:
                 self._telemetry[identifier] = (info, monotonic)
-                attempted += 1
-            if attempted >= 16:
+            if self._sample_publish_attempts >= 4:
                 break
-        self._pending_cursor = (start + 16) % count
-        pending_ids = {UUID(sample.payload["message_id"]) for sample in pending}
-        self._telemetry = {
-            identifier: state
-            for identifier, state in self._telemetry.items()
-            if identifier in pending_ids
-        }
         # Deliberately NO confirm_storage: server/C persistence is not connected.
 
     def _heartbeat(self, now: datetime) -> None:

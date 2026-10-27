@@ -171,7 +171,7 @@ class TelemetryReceiver(HeartbeatWorker):
 
 
 class TelemetryDeliveryWorker:
-    """One claim per tick, no in-memory payload queue; caller owns the engine.
+    """Bounded claim batches, no in-memory payload queue; caller owns the engine.
 
     The injected C adapter must impose its own finite query/network timeouts.
     It must return only after its durable commit; arbitrary callables are not
@@ -232,11 +232,24 @@ class TelemetryDeliveryWorker:
             if max_seconds is not None and time.monotonic() - start >= max_seconds:
                 break
             try:
-                self.run_once()
+                # Drain ready work rather than sleeping after every row. Every
+                # claim retains its own transaction, lease and C receipt checks.
+                # Fourteen is bounded by the supported logical device scope.
+                for _ in range(14):
+                    if self.stop_requested.is_set() or (
+                        max_seconds is not None
+                        and time.monotonic() - start >= max_seconds
+                    ):
+                        break
+                    result = self.run_once()
+                    if result is None or result.status != "delivered":
+                        break
             except Exception:
                 # DB failure retains durable leases/raw. Never print exception
                 # text, bypass C, reset budgets or report a successful delivery.
                 self.failures += 1
                 self.last_status = "storage_unavailable"
                 logger.warning("Telemetry delivery temporarily unavailable")
+            if max_seconds is not None and time.monotonic() - start >= max_seconds:
+                break
             self.stop_requested.wait(self.poll_seconds)

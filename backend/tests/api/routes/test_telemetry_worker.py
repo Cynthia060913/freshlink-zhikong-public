@@ -251,6 +251,69 @@ def test_dispatcher_transient_failure_is_sanitized_and_stoppable(caplog):
         tick.assert_not_called()
 
 
+def test_dispatcher_drains_bounded_batch_before_waiting():
+    worker = TelemetryDeliveryWorker(MagicMock(), MagicMock())
+    with (
+        patch.object(
+            worker, "run_once", return_value=InboxResult("delivered", uuid4())
+        ) as tick,
+        patch.object(
+            worker.stop_requested,
+            "wait",
+            side_effect=lambda _: worker.stop_requested.set(),
+        ) as wait,
+    ):
+        worker.run()
+    assert tick.call_count == 14
+    wait.assert_called_once_with(0.5)
+
+
+@pytest.mark.parametrize("status", [None, "blocked", "retry"])
+def test_dispatcher_backs_off_when_no_ready_delivery(status):
+    worker = TelemetryDeliveryWorker(MagicMock(), MagicMock())
+    result = None if status is None else InboxResult(status, uuid4())
+    with (
+        patch.object(worker, "run_once", return_value=result) as tick,
+        patch.object(
+            worker.stop_requested,
+            "wait",
+            side_effect=lambda _: worker.stop_requested.set(),
+        ),
+    ):
+        worker.run()
+    tick.assert_called_once()
+
+
+def test_dispatcher_honors_stop_between_claims():
+    worker = TelemetryDeliveryWorker(MagicMock(), MagicMock())
+
+    def finish_one():
+        worker.stop_requested.set()
+        return InboxResult("delivered", uuid4())
+
+    with patch.object(worker, "run_once", side_effect=finish_one) as tick:
+        worker.run()
+    tick.assert_called_once()
+
+
+def test_dispatcher_honors_deadline_between_claims():
+    worker = TelemetryDeliveryWorker(MagicMock(), MagicMock())
+    elapsed = [0.0]
+
+    def finish_one():
+        elapsed[0] += 0.1
+        return InboxResult("delivered", uuid4())
+
+    with (
+        patch(MODULE + "time.monotonic", side_effect=lambda: elapsed[0]),
+        patch.object(worker, "run_once", side_effect=finish_one) as tick,
+        patch.object(worker.stop_requested, "wait") as wait,
+    ):
+        worker.run(max_seconds=0.25)
+    assert tick.call_count == 3
+    wait.assert_not_called()
+
+
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf")])
 def test_invalid_run_or_poll_config_rejected(value):
     with pytest.raises(ValueError):
