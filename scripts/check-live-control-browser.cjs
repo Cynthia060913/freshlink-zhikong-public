@@ -342,23 +342,23 @@ async function run() {
   } finally {
     try {
       if (recordVideo && recordingContext) {
-      await recordingContext.close()
-      if (recordingPage && proofPassed) {
-        const videoPath = await recordingPage.video().path()
-        const bytes = fs.readFileSync(videoPath)
-        fs.writeFileSync(path.join(results, "video-recording.json"), JSON.stringify({
-          phase: "actual_browser_recording_not_final_m05",
-          file: path.relative(results, videoPath),
-          bytes: bytes.length,
-          sha256: require("node:crypto").createHash("sha256").update(bytes).digest("hex"),
-          mocked_api: false,
-          synthetic_alert_input: true,
-          real_notification_receipts: false,
-          complete_e1: false,
-          final_video_acceptance: false,
-          note: "Actual isolated browser actions with disposable accounts. Alert recovery input is synthetic. See browser.json and server.json for the tested scope.",
-        }, null, 2), { flag: "wx" })
-      }
+        await recordingContext.close()
+        if (recordingPage && proofPassed) {
+          const videoPath = await recordingPage.video().path()
+          const bytes = fs.readFileSync(videoPath)
+          fs.writeFileSync(path.join(results, "video-recording.json"), JSON.stringify({
+            phase: "actual_browser_recording_not_final_m05",
+            file: path.relative(results, videoPath),
+            bytes: bytes.length,
+            sha256: require("node:crypto").createHash("sha256").update(bytes).digest("hex"),
+            mocked_api: false,
+            synthetic_alert_input: true,
+            real_notification_receipts: false,
+            complete_e1: false,
+            final_video_acceptance: false,
+            note: "Actual isolated browser actions with disposable accounts. Alert recovery input is synthetic. See browser.json and server.json for the tested scope.",
+          }, null, 2), { flag: "wx" })
+        }
       }
     } finally {
       await browser.close()
