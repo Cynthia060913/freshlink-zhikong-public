@@ -1,6 +1,42 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
-## 2026-10-27 同版交接检查点（第二机业务复现未开始）
+## 2026-10-27 C 第二机同版制品接收与首段实测
+
+本机独立干净检出、共同 main 均核为
+`0e508d147517f81dfe2b9245c45c0c0e30076592`。已私下收到
+`FreshLink-main0e-second-machine-candidate.zip`，包长 `715,730,853` 字节，
+SHA256 `9be5310a1bbc919251f1adc0379d72a5952c33f39a688e53648e1c3e48405720`。
+在新目录解包，逐件核对清单中 9 个文件的字节数及 SHA256，全部一致；
+其中源码 ZIP SHA256 为 `c9730ff2e201820f71ce019fbc0462a8af287c8a566e0a0f29e770f9d06e3a88`，
+应用镜像归档为 `f7a5e3d5221404ffa90b4ed8011947fb37bb445b1a4b54d89346e8e19bc0b806`，
+依赖镜像归档为 `ed1f0cb65f854baae187cc09b452b048772e265f7842639cbfec783b7e6b585a`。
+导入镜像后，应用镜像 ID 为
+`sha256:c9a6ee33c6a89083c2efb1565b437d859d5069e8aa37f040f23be5972a385254`，
+`linux/amd64` 和来源 label 均与上述 main 完整 SHA 一致。导入没有启动容器；
+旧工作区、数据库和镜像标签未覆盖。
+
+在此独立 C 电脑，用项目 `check-application-candidate.ps1` 对新专属项目/空库运行
+**无应用源码挂载的默认 CMD 镜像与真实 HTTP** 验证，退出码 0。
+证据 `application-http.json` SHA256
+`1ae883954691d1bc8e5281beb39a92c89139b636810fcdd67a4acc6b9d43c16b`：
+编译 HTML/JS、健康检查、匿名 401、管理员真实登录、注册 201/未知风险、
+重复 409 且总数仍为一、保存详情均通过。Alembic 在本次临时 PG 中升至 C01。
+`image-cleanup.json` SHA256
+`7b1b05c7166b4e95f42944522a38e89ef265bab08d6700e6071bb5e40fc164aa`
+记载 proof/cleanup 退出码均 0；再次按该专属 Compose project 查询容器和网络，
+结果均为空。原本已有的 Docker 实例和数据未清理。
+
+**后续两段未运行：**导入的 Mosquitto 镜像 ID 确为
+`sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`，
+但其 `RepoDigests=[]`，脚本要求的固定
+`eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`
+引用在此 Docker 存储中 `image inspect` 返回 `No such image`。因此不能放宽身份检查
+去报 fleet/guarded recovery 成功；待 A 指定能保留固定引用的安全交付或获取办法后续跑。
+普通用户浏览器登录、设备/历史同筛选 CSV、ACK 与追溯亦未在此机操作。
+本首段仅证明 C 第二机同版制品与默认 CMD/HTTP 冒烟，不是完整第二机验收、
+完整 E1 或两渠道实收。
+
+## 2026-10-27 收件前交接检查点（历史状态，已由上节更新）
 
 共同 main 与 C 本机新建的独立干净检出均为
 `0e508d147517f81dfe2b9245c45c0c0e30076592`；原 C 分支与旧包未改。
