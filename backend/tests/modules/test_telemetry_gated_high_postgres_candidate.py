@@ -17,6 +17,7 @@ from app.modules.iot.stream_frontier import (
 )
 from app.modules.iot.stream_frontier_models import entries
 from app.modules.telemetry.candidate_preview import build_candidate_preview
+from app.modules.telemetry.envelope_preview import prepare_receptions
 from app.modules.telemetry.f03_body_candidate import f03_digest_candidate
 from app.modules.telemetry.multi_batch_candidate import (
     stage_gated_multi_batch_candidate,
@@ -51,6 +52,8 @@ from app.modules.telemetry.rule_evaluation_candidate import (
     stage_gated_high_candidate,
 )
 from app.modules.telemetry.storage_candidate import (
+    _content_digest,
+    _receipt_digest,
     evaluation_jobs,
     ingest_observation_on_connection_candidate,
     metadata,
@@ -537,6 +540,56 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
                     version=3,
                 )
             )
+        # The original high was durably accepted before the recovery froze.
+        # Its later exact replay must not become a newly sampled high.
+        with store.engine.begin() as connection:
+            anomaly_text = connection.scalar(
+                select(observations.c.raw_text).where(observations.c.id == anomaly_id)
+            )
+        first_high = receive_telemetry(
+            topic=f"freshlink/v1/devices/{store.device_id}/telemetry",
+            payload=anomaly_text.encode(),
+            context=DeviceContext(store.device_id, store.warehouse_id),
+            received_at=NOW,
+        )
+        first_view = prepare_receptions([first_high])[0]
+        assert admit(store, first_high).status == "queued"
+        with store.engine.begin() as connection:
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == anomaly_id)
+                .values(content_sha256=_content_digest(first_view))
+            )
+            connection.execute(
+                receptions.insert().values(
+                    id=first_high.reception_id,
+                    observation_id=anomaly_id,
+                    device_id=store.device_id,
+                    warehouse_id=store.warehouse_id,
+                    received_at_utc=first_view["trusted"]["received_at"],
+                    raw_text=anomaly_text,
+                    receipt_sha256=_receipt_digest(first_view),
+                    outcome="accepted_new",
+                    reason="",
+                )
+            )
+            first_entry = (
+                connection.execute(
+                    select(entries).where(
+                        entries.c.reception_id == first_high.reception_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            record_terminal(
+                connection,
+                reception_id=first_high.reception_id,
+                fingerprint=first_entry["fingerprint"],
+                epoch=store.epoch,
+                outcome="accepted_new",
+                observation_id=anomaly_id,
+            )
         assert (
             stage_f03_candidate(
                 store.engine,
@@ -621,6 +674,74 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
                 transaction.rollback()
                 return result
 
+        assert tentative_claim().status == "claimed"
+        repeated_high = receive_telemetry(
+            topic=f"freshlink/v1/devices/{store.device_id}/telemetry",
+            payload=anomaly_text.encode(),
+            context=DeviceContext(store.device_id, store.warehouse_id),
+            received_at=NOW + timedelta(minutes=4),
+        )
+        assert admit(store, repeated_high).status == "queued"
+        with store.engine.begin() as connection:
+            repeated = ingest_observation_on_connection_candidate(
+                connection, repeated_high
+            )
+            assert repeated.status == "accepted_duplicate"
+            repeated_entry = (
+                connection.execute(
+                    select(entries).where(
+                        entries.c.reception_id == repeated_high.reception_id
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            record_terminal(
+                connection,
+                reception_id=repeated_high.reception_id,
+                fingerprint=repeated_entry["fingerprint"],
+                epoch=store.epoch,
+                outcome="accepted_duplicate",
+                observation_id=anomaly_id,
+            )
+        with store.engine.begin() as connection:
+            connection.execute(
+                update(receptions)
+                .where(receptions.c.id == repeated_high.reception_id)
+                .values(receipt_sha256="0" * 64)
+            )
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **ready_args
+            ) == RecoveryRefreezeCandidate("held", "admission_receipt_mismatch")
+            connection.execute(
+                update(receptions)
+                .where(receptions.c.id == repeated_high.reception_id)
+                .values(
+                    receipt_sha256=_receipt_digest(
+                        prepare_receptions([repeated_high])[0]
+                    )
+                )
+            )
+            connection.execute(
+                update(receptions)
+                .where(receptions.c.id == first_high.reception_id)
+                .values(raw_text="tampered historical raw")
+            )
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **ready_args
+            ) == RecoveryRefreezeCandidate("held", "unverified_duplicate_origin")
+            connection.execute(
+                update(receptions)
+                .where(receptions.c.id == first_high.reception_id)
+                .values(raw_text=anomaly_text)
+            )
+        with store.engine.begin() as connection:
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **ready_args
+            ) == RecoveryRefreezeCandidate("refrozen")
+        assert check_recovery_freshness_candidate(
+            store.engine, **ready_args
+        ).status == ("ready_at_check")
         assert tentative_claim().status == "claimed"
         # A stored source can become inconsistent with its preserved raw
         # sample without changing the immutable F03 body or frozen frontier.
@@ -931,6 +1052,31 @@ def test_recovery_freeze_and_a_revision_commit_together_on_real_pg(store):
             assert refresh_pending_recovery_frontier_on_connection_candidate(
                 connection, **ready_args
             ) == RecoveryRefreezeCandidate("held", "new_evidence_not_recovered")
+            new_high_entry = (
+                connection.execute(
+                    select(entries)
+                    .where(
+                        entries.c.device_id == store.device_id,
+                    )
+                    .order_by(entries.c.admission_seq.desc())
+                    .limit(1)
+                )
+                .mappings()
+                .one()
+            )
+            connection.execute(
+                update(entries)
+                .where(entries.c.reception_id == new_high_entry["reception_id"])
+                .values(outcome="accepted_duplicate")
+            )
+            connection.execute(
+                update(receptions)
+                .where(receptions.c.id == new_high_entry["reception_id"])
+                .values(outcome="accepted_duplicate")
+            )
+            assert refresh_pending_recovery_frontier_on_connection_candidate(
+                connection, **ready_args
+            ) == RecoveryRefreezeCandidate("held", "unverified_duplicate_origin")
         assert check_recovery_freshness_candidate(store.engine, **ready_args) == (
             RecoveryFreshnessCandidate("held", "stale_frozen_frontier")
         )
