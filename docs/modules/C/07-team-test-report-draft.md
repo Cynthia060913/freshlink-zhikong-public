@@ -1,5 +1,48 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-27 C 第二机同版续验：14 设备分段通过，受控恢复未通过
+
+在独立干净检出 `0e508d147517f81dfe2b9245c45c0c0e30076592` 上，先对项目固定的
+`eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`
+做官方仓库只读 manifest 核验，再按**该精确摘要**显式拉取一次。下载后 `image inspect`
+回报相同 RepoDigest、image ID `sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`
+及 `linux/amd64`；应用镜像 ID、来源 label 与离线包清单仍吻合。没有改脚本的摘要门禁，
+也没有让验证脚本自动拉取依赖。此步骤解决了离线归档在本机丢失 RepoDigest 引用的缺口。
+
+使用同版应用标签运行 `check-gated-fleet.ps1`，本人第二台 Windows 电脑的随机专属项目
+`gated-fleet-6d91ae8e296f4d898066b2882b81304c` **退出码 0**。真实临时 PG 的
+Alembic 链升至 C01 且检查无待升级操作；结果 `gated-fleet.json` SHA256
+`4ed5789be22f3aac7b0d7c063e637be39ba3ad65b953bcecee8a94fb47b40898`：
+两冷库、三批、14 逻辑设备，7 条采集流有 C 持久数据、7 个执行器有实际执行 ACK
+与后续降温采样、14 个设备离线后重新在线；设备运行时重启保留执行次数，C 历史恢复
+并续收 7 流；两库同筛选快照 CSV 分别 81/57 行。三批高温候选经鉴权 **ASGI
+TestClient** 送 B，不是实际 TCP 或真实通知。`cleanup.json` SHA256
+`b4c7dc3a04dfb8c9083e41301f70591dc7154fa0104c17f8485eb14e4481e8ee`
+记录 test_exit=0、owned_cleanup_ok=true；随后按该 Compose 标签独立查询，容器和网络均为 0。
+
+接着运行 `check-gated-telemetry.ps1 -GuardedRecovery`。首跑项目
+`gated-f30d2711406c48d5b2d0148213783f27` **退出码 1**，`runner.log`
+SHA256 `a2297b050e42d162c02af37abcbbc607a31139161b75130718d954c823ec5586`。
+失败在 `check-gated-telemetry.py:265` 的 `wait_for(cooled)`：已收到命令执行 ACK，
+再等 25 秒仍没有满足“ACK/新规则以后且较基线降温 0.02°C”的 C 已存观测。
+同一临时设备 SQLite 只读回看为执行次数 1、制冷开启、当前模拟温度约 9.677°C、
+已生成 52 条采样；这只能证明设备侧运行，**不能证明后续 C 持久化检查点通过**。
+为判断可重复性，在源码/镜像不变、资源清理后仅复跑一次：项目
+`gated-08c280f2714e4728b4d66d48f83bee9f` 也 **退出码 1**，同样停在
+`wait_for(cooled)`；`runner.log` SHA256
+`051f3228cdacd87b305e7c05d4ab227717f16f153ef9f4b267831a05524c9934`。
+第二次设备仍执行 1 次、降至约 9.680°C 并生成 52 条模拟采样。两次
+`cleanup.json` 都记载 `owned_cleanup_ok=true`，其 SHA256 依次为
+`fadbc175262226ca6e490e40970e46e1c067206d23c883421195c2158ba1cbc3`、
+`5fb04d3d76c6caf30ab930b6782921ea5ff61a39df3603aa9885641e6187219d`；
+按两个项目标签再次查容器和网络均为 0。临时原始日志及 SQLite 只留忽略的本机 `work/`，
+不上传。停止重复运行，交 A 按此固定检查点分析；不改超时、断言或 C 身份门禁掩盖失败。
+
+因此 C 第二机**已过默认 CMD/真实 HTTP 和 14 设备分段，未过 GuardedRecovery**。
+普通用户浏览器登录/页面点击、两渠道终端实收、同一场景完整 E1、最终冻结/参赛签收
+继续标为未测或未完成。上节“固定摘要引用缺失、后两段未运行”仅记录本次续验之前
+的首段状态，以本节的后续实测为准。
+
 ## 2026-10-27 C 第二机同版制品接收与首段实测
 
 本机独立干净检出、共同 main 均核为
@@ -26,12 +69,12 @@ SHA256 `9be5310a1bbc919251f1adc0379d72a5952c33f39a688e53648e1c3e48405720`。
 记载 proof/cleanup 退出码均 0；再次按该专属 Compose project 查询容器和网络，
 结果均为空。原本已有的 Docker 实例和数据未清理。
 
-**后续两段未运行：**导入的 Mosquitto 镜像 ID 确为
+**首段当时的缺口（已由上节续验更新）：**导入的 Mosquitto 镜像 ID 确为
 `sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`，
 但其 `RepoDigests=[]`，脚本要求的固定
 `eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408`
 引用在此 Docker 存储中 `image inspect` 返回 `No such image`。因此不能放宽身份检查
-去报 fleet/guarded recovery 成功；待 A 指定能保留固定引用的安全交付或获取办法后续跑。
+去报 fleet/guarded recovery 成功；当时仍待固定引用的安全取得方式。
 普通用户浏览器登录、设备/历史同筛选 CSV、ACK 与追溯亦未在此机操作。
 本首段仅证明 C 第二机同版制品与默认 CMD/HTTP 冒烟，不是完整第二机验收、
 完整 E1 或两渠道实收。
