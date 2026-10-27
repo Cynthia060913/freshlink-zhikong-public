@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$AppImage='freshlink-app:p0')
+param([string]$AppImage='freshlink-app:p0',[switch]$Sustained)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $root=Get-FreshLinkRoot
@@ -35,12 +35,19 @@ try {
     & $docker @compose up -d --wait --pull never test-db broker
     if($LASTEXITCODE){throw 'Owned services failed'}
     $runner=$project+'-runner'
-    & $docker @compose run --name $runner --no-deps --pull never test-runner
+    $runArgs=@('run','--name',$runner,'--no-deps','--pull','never')
+    if($Sustained){$runArgs+=@('--env','FRESHLINK_FLEET_SUSTAINED_PROOF=1')}
+    $runArgs+=@('test-runner')
+    & $docker @compose @runArgs
     $runExit=$LASTEXITCODE
     & $docker logs $runner 2>&1|Tee-Object -FilePath (Join-Path $out 'runner.log')
     if($runExit){throw 'Actual fleet integration failed; evidence retained'}
     $result=Get-Content -LiteralPath (Join-Path $out 'gated-fleet.json') -Raw|ConvertFrom-Json
     if($result.source -ne $source -or $result.phase -ne 'gated_14_device_storage_control_segment_not_E1' -or $result.complete_e1 -or $result.notifications_sent -ne 0){throw 'Wrong proof source/scope'}
+    if($Sustained){
+        $load=Get-Content -LiteralPath (Join-Path $out 'fleet-sustained.json') -Raw|ConvertFrom-Json
+        if(-not $load.passed -or -not $result.sustained_180_seconds -or $load.source -ne $source -or $load.seconds -lt 180 -or $load.logical_devices -ne 14 -or $load.notifications_sent -ne 0 -or $load.complete_e1){throw 'Sustained fleet proof incomplete'}
+    }
     if((git rev-parse HEAD).Trim() -ne $source -or (git status --porcelain)){throw 'Source changed during proof'}
     $code=0
     Write-Output ('PASS gated 2 warehouses/3 batches/14-device storage+control segment: '+$out)
