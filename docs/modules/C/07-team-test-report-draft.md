@@ -1,5 +1,21 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-29 发布离线入口：C 第二机浏览器与停机验收
+
+| 项目 | 本人实际结果与边界 |
+| --- | --- |
+| 来源/环境 | 外层交付提交 `03b60028517b4a2d63dcfb41ab2c620b832967b7`；应用镜像 `e7fffd61c199234918dcf1713cc1f3dd6ce78c51`；C 的 Windows 第二机、已有 Docker Desktop Linux amd64、PowerShell 7.6.5。新空数据库、随机项目，无源码挂载、无真实通知。不是后来的 main `9978f0f0e7f36372f2e151e9859ca01ed7cdb37a` 再出包。 |
+| 制品完整性 | ZIP 719157924 字节、SHA256 `632ee61c5bfb070ca5f423a06778259e256c773b3318006bc41dcee8095fdd57`；包内 manifest SHA256 `609b072f373b1db3abb717427dbb05c5987c45a0b0caef941f160d0751ba7c7c`；只校验脚本 PASS 后才显式启动五分钟窗口。 |
+| 浏览器业务 | 管理员实际登录；设备页 14 台仿真设备在线。一次开启制冷命令 `6047b9e1-fb76-4753-ba3b-357eab13b78a` 从排队变为 MQTT 接受、设备 executed ACK，发送尝试 1；随后同设备传感器新增采样 `2026-10-28T16:49:54.947922Z`、接收 `16:49:55.055275Z`、6.104996 °C 的已存观测。时间顺序不单独证明控制因果。 |
+| 页面/CSV 对拍 | 按一设备建立一次固定快照，页面总数 257；本人遍历 13 页共 257 行。浏览器按钮实际下载的 `observations.csv` 为 63387 字节、14 列、257 行、257 个互异观测 ID、仅该筛选设备；SHA256 `1f27794f72609f8008a5629c6daf3255c002a24e1d48fa7c86d6bf5c674e95d7`。逐行核对全部页面：设备 ID、采样/接收 UTC 和规范化温度顺序相同。此项确为浏览器下载文件，区别于 10 月 28 日旧分段的 API 保存文件。 |
+| 权限/退出/清理 | 匿名 GET 历史接口实际 401。本轮仅有临时管理员账号，普通用户写入 403 **未测**；旧分段普通用户 403 证据不冒充此次重跑。`interactive-runtime.json` 为 `bounded_demo_completed`，receive/store/evaluate/deliver-high 四子进程退出码均 0，线程清理正常、worker_errors 空；包内专用停机后本轮容器 0、网络 0，专属数据库卷与结果保留。没有 prune、删旧库或发通知。 |
+
+证据与操作边界见 [C #9 完整实测](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6475341383)。
+此行核销外层离线交互入口的第二机范围；自然 180 秒持续恢复、本包普通用户
+写入 403、最新 main 的新镜像、真实通知新发送和最终投稿均未由此证明。
+[A 一库同事件 E1 签收](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6459911129)
+使用另一独立试验库，双渠道终端实收由队长本人确认，不能和本次入口运行拼成一次试验。
+
 ## 2026-10-28 C 第二机 PR #94 精确候选与普通用户验收
 
 共同 [PR #94](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/94)
