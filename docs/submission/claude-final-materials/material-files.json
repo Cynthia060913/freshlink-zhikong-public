@@ -1,0 +1,71 @@
+{
+  "说明": "显式文件列表；对实际文件字节生成hash。不是验收状态，也不包含索引自身以避免循环。",
+  "files": [
+    {
+      "path": "A-FINAL-COMPONENT.pptx",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "A-REVIEW-RESULT.md",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "A-SLIDE-SOURCES.md",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "A-TECHNICAL-APPENDIX.docx",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "A-TECHNICAL-APPENDIX.md",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "build-a-appendix.py",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "build-a-final.mjs",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "build-material-index.py",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "CURRENT-ARCHITECTURE-e7.pdf",
+      "source": "A current e7 supplement"
+    },
+    {
+      "path": "CURRENT-ARCHITECTURE-e7.png",
+      "source": "A current e7 supplement"
+    },
+    {
+      "path": "CURRENT-ARCHITECTURE-e7.tex",
+      "source": "A current e7 supplement"
+    },
+    {
+      "path": "CURRENT-EVIDENCE-e7.md",
+      "source": "A current e7 supplement"
+    },
+    {
+      "path": "FINAL-MATERIALS-HANDOVER.md",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "material-files.example.json",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "test-material-index.py",
+      "source": "A main0e historical component"
+    },
+    {
+      "path": "material-files.json",
+      "source": "Explicit input list for current local material index"
+    }
+  ],
+  "生成方式": "在本目录运行 python build-material-index.py --root . --manifest material-files.json --out MATERIAL-INDEX.new.html；输出不覆盖原文件，核对后替换索引。",
+  "正式包边界": "本索引只校验本目录文件；最终提交包须按实际打包字节另生并核对总清单，不继承旧索引或仅Git blob的哈希。"
+}

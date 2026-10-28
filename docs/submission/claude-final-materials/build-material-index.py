@@ -254,6 +254,8 @@ def main(argv=None) -> int:
     except ValueError:
         root_display = os.path.abspath(args.root)
     meta = {
+        "字节口径": "对显式根目录中的实际文件逐字节计算，不做换行或文本规范化",
+        "检出约束": "本目录文本由 .gitattributes 固定 LF；复制或重新打包后仍须按实际字节重生清单",
         "root": root_display,
         "总数": len(rows),
         "存在": sum(1 for r in rows if r.get("exists")),
