@@ -184,6 +184,48 @@ class PendingScanCase(unittest.TestCase):
             session.commit()
         self.assertNotIn(event_id, _pending())
 
+    def test_unfinished_send_intent_holds_channel_not_pending(self) -> None:
+        # A review 5682106843: a send started (pre-send intent row
+        # persisted) but its final state was never persisted — audit
+        # write failure or crash. The unfinished intent is a
+        # cross-process hold: the event is NOT re-picked after a
+        # restart, so the possibly-sent message is never blindly
+        # duplicated; a human reads the attempt trail instead.
+        event_id = _commit_event(source=f"run-intent-{uuid.uuid4()}")
+        with Session(engine) as session:
+            session.add(
+                NotificationAttempt(
+                    alert_event_id=event_id,
+                    channel=NotificationKind.SMTP_EMAIL.value,
+                    outcome="send_intent",
+                    delivered=False,
+                    detail="dispatch intent recorded before network send",
+                )
+            )
+            session.add(
+                _seed_attempt(event_id, NotificationKind.APP_PUSH.value, delivered=True)
+            )
+            session.commit()
+        self.assertNotIn(event_id, _pending())
+
+    def test_unfinished_intent_on_one_channel_keeps_other_owed(self) -> None:
+        # The intent hold is per-channel: SMTP held, APP_PUSH missing
+        # entirely -> the event stays pending and the cycle completes
+        # only APP_PUSH.
+        event_id = _commit_event(source=f"run-intent2-{uuid.uuid4()}")
+        with Session(engine) as session:
+            session.add(
+                NotificationAttempt(
+                    alert_event_id=event_id,
+                    channel=NotificationKind.SMTP_EMAIL.value,
+                    outcome="send_intent",
+                    delivered=False,
+                    detail="dispatch intent recorded before network send",
+                )
+            )
+            session.commit()
+        self.assertIn(event_id, _pending())
+
     def test_unknown_hold_on_one_channel_keeps_other_owed(self) -> None:
         # The hold is per-channel: SMTP held, APP_PUSH still owed ->
         # the event stays pending and the cycle completes only APP_PUSH.

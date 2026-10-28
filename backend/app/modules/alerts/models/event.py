@@ -607,11 +607,17 @@ class NotificationAttempt(SQLModel, table=True):
     rows are append-only.
 
     ``outcome`` normally carries the four ``DeliveryOutcome`` values;
-    the dispatch layer additionally persists the fixed sentinel
-    ``acceptance_unknown`` when a send's acceptance could not be proven
-    (connection broke mid-DATA): such a channel is held for manual
-    verification and is never auto-resent by the dedup guard or the
-    pending scan (C review 5678438821).
+    the dispatch layer additionally persists two fixed sentinels. A row
+    created as ``send_intent`` is the pre-send dispatch intent
+    ("预占"): written in its own transaction BEFORE any network call,
+    then completed forward one-way (exact row id, unfinished state
+    only) to the final result; an UNFINISHED ``send_intent`` row means
+    the send started but its final state was never persisted — every
+    later dispatch and pending scan holds the channel for manual
+    verification instead of resending (A review 5682106843). A row
+    completed as ``acceptance_unknown`` means the send's acceptance
+    could not be proven (connection broke mid-DATA): such a channel is
+    likewise held and never auto-resent (C review 5678438821).
     """
 
     __tablename__ = "alerts_notification_attempt"

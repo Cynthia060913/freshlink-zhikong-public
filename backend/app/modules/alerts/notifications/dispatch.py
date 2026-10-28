@@ -10,17 +10,28 @@
 2. **渠道选择**（:func:`build_transports`）：只收集**已配置**的渠道
    （SMTP 由 settings、飞书由环境变量）；未配置的渠道静默跳过，
    由调用方通过 ``DispatchReport`` 看到实际发送了哪些渠道。
-3. **有界重试**：仅对 ``transient_failure`` / ``timeout`` 重试，
+3. **发送前持久意图（durability guard，A review 5682106843）**：每次
+   网络外发**之前**，先在独立事务里持久化一行
+   ``send_intent``（派发意图/预占）attempt 行；**该行写失败则本次
+   零发送**（provider 调用为 0——保护都没落库，就没有外发资格）。
+   发送返回后按**精确意图行 ID + 未完成状态条件**把该行单向完成
+   （``send_intent`` → 最终结果，绝不改写任何已完成行）。完成写失败、
+   结果不明（``acceptance_unknown``）或进程中断都会留下未完成的
+   ``send_intent`` 行——它对所有进程可见，去重守卫与 pending 扫描把
+   该渠道保持为待人工核验，后续运行**保守暂停、不自动补发**。
+4. **有界重试**：仅对 ``transient_failure`` / ``timeout`` 重试，
    ``permanent_failure`` 与 ``accepted_by_service`` 终止；接受无法证实
    的中断（DATA 阶段连接断开，``acceptance_unknown``）**绝不**自动重试，
-   同次派发与后续运行都把该渠道保持为待人工核验；每次尝试
-   （含失败）都追加一行 attempt 记录，重试间隔为指数退避与
-   ``Retry-After`` 取大、并以 ``max_delay_s`` 封顶。
-4. **Attempt 持久化**：默认写入调用方 session，但插入在 SAVEPOINT
+   同次派发与后续运行都把该渠道保持为待人工核验；重试间隔为指数退避与
+   ``Retry-After`` 取大、并以 ``max_delay_s`` 封顶。每次尝试=一行
+   ``send_intent`` 行被单向完成为最终结果，行数与真实外发次数一致。
+5. **Attempt 持久化**：默认写入调用方 session，但插入在 SAVEPOINT
    内——记录失败只回滚该插入，**绝不**rollback 调用方的业务事务；
    构造时传 ``attempt_session_factory`` 则用独立 session 提交（推荐，
-   供 :func:`dispatch_committed_event` 使用）。记录失败不中断派发，
-   只在结果 detail 上如实标注。
+   供 :func:`dispatch_committed_event` 与 runner 使用）。跨进程持久的
+   发送前保护只在独立 session（factory）模式下成立：共享 session 模式
+   的意图行随调用方事务提交/回滚，不具跨进程耐久性，如实作为非发行
+   形态记录。
 5. **同源去重（best-effort，非并发恰好一次）**：同一告警事件 + 同一
    渠道若已有 ``delivered`` 的 attempt 记录、或已有
    ``acceptance_unknown``（接受未证实，待人工核验）的 attempt 记录，
@@ -71,7 +82,6 @@ from .transport import (
 
 _DISPATCH_TIMEZONE = ZoneInfo("Asia/Shanghai")
 _MAX_DELAY_S = 30.0
-_UNPERSISTED_SUFFIX = " [attempt record NOT persisted]"
 
 _KIND_LABELS: dict[str, str] = {
     "temperature_high": "温度超上限",
@@ -102,6 +112,18 @@ _RETRYABLE_OUTCOMES = frozenset(
 # (C review 5678438821). The DeliveryOutcome four-value contract is
 # unchanged; this value lives only in the attempt-audit column.
 ACCEPTANCE_UNKNOWN_OUTCOME = "acceptance_unknown"
+
+# Persistent pre-send dispatch intent ("预占", A review 5682106843):
+# written in its own transaction BEFORE any network call; a send may
+# only proceed once this row is durably committed. After the transport
+# returns, the SAME row is completed forward — only by exact row id and
+# only from the unfinished state — into the final outcome. Any crash,
+# unknown result, or failed write-back leaves the row as send_intent:
+# a cross-process hold that the dedup guard and pending scan treat as
+# "held for manual verification", so later runs never auto-resend.
+SEND_INTENT_OUTCOME = "send_intent"
+_INTENT_DETAIL = "dispatch intent recorded before network send"
+_INTENT_HOLD_SUFFIX = " [send_intent hold retained; manual verification required]"
 
 
 def format_alert_time(moment: datetime) -> str:
@@ -301,11 +323,12 @@ class AlertNotificationDispatcher:
         """Channels this event must NOT be auto-sent to again.
 
         A channel is settled when a delivered attempt exists (dedup
-        guard) OR an ``acceptance_unknown`` attempt exists: an
-        unproven acceptance must never be answered with an automatic
-        re-send, in this dispatch or any later run (C review
-        5678438821) — the attempt trail holds the channel for manual
-        verification instead.
+        guard), an ``acceptance_unknown`` attempt exists (unproven
+        acceptance — never answered with an automatic re-send, in this
+        dispatch or any later run, C review 5678438821), OR an
+        unfinished ``send_intent`` row exists (the send started but its
+        final state was never persisted — hold for manual verification,
+        A review 5682106843).
         """
         statement = (
             select(NotificationAttempt.channel)
@@ -313,7 +336,8 @@ class AlertNotificationDispatcher:
             .where(
                 or_(
                     col(NotificationAttempt.delivered).is_(True),
-                    NotificationAttempt.outcome == ACCEPTANCE_UNKNOWN_OUTCOME,
+                    col(NotificationAttempt.outcome) == ACCEPTANCE_UNKNOWN_OUTCOME,
+                    col(NotificationAttempt.outcome) == SEND_INTENT_OUTCOME,
                 )
             )
         )
@@ -332,23 +356,41 @@ class AlertNotificationDispatcher:
         transport: NotificationTransport,
         envelope: NotificationEnvelope,
     ) -> NotificationResult:
-        result = self._send_once(transport, envelope)
-        result = self._record_attempt(session, event, result)
         attempt_no = 1
-        # acceptance_unknown is NEVER retried, not even within the
-        # bounded budget: an unproven acceptance plus a re-send is the
-        # duplicate-notification scenario this layer exists to prevent
-        # (C review 5678438821).
-        while (
-            result.outcome in _RETRYABLE_OUTCOMES
-            and not result.acceptance_unknown
-            and attempt_no < self._max_attempts
-        ):
+        while True:
+            result = self._guarded_send(session, event, transport, envelope)
+            # acceptance_unknown is NEVER retried, not even within the
+            # bounded budget: an unproven acceptance plus a re-send is
+            # the duplicate-notification scenario this layer exists to
+            # prevent (C review 5678438821).
+            if not (
+                result.outcome in _RETRYABLE_OUTCOMES
+                and not result.acceptance_unknown
+                and attempt_no < self._max_attempts
+            ):
+                return result
             self._sleep(self._next_delay(attempt_no, result.retry_after_s))
             attempt_no += 1
-            result = self._send_once(transport, envelope)
-            result = self._record_attempt(session, event, result)
-        return result
+
+    def _guarded_send(
+        self,
+        session: Session,
+        event: AlertEvent,
+        transport: NotificationTransport,
+        envelope: NotificationEnvelope,
+    ) -> NotificationResult:
+        """One intent-guarded send: durable pre-send intent first —
+        if that persistence fails, ZERO provider calls happen (A
+        review 5682106843: no intent, no send)."""
+        intent_id = self._persist_intent(session, event, transport)
+        if intent_id is None:
+            return self._failure_result(
+                transport.kind,
+                DeliveryOutcome.TRANSIENT_FAILURE,
+                "dispatch_intent_not_persisted",
+            )
+        result = self._send_once(transport, envelope)
+        return self._complete_intent(session, intent_id, result)
 
     def _next_delay(self, completed_attempt: int, retry_after_s: float | None) -> float:
         delay = self._base_delay_s * float(2 ** (completed_attempt - 1))
@@ -356,26 +398,28 @@ class AlertNotificationDispatcher:
             delay = max(delay, retry_after_s)
         return min(delay, self._max_delay_s)
 
-    def _record_attempt(
-        self, session: Session, event: AlertEvent, result: NotificationResult
-    ) -> NotificationResult:
-        # An acceptance-unknown send persists the fixed sentinel outcome
-        # (not a retryable classification) so later dispatches and
-        # pending scans hold the channel instead of re-sending (C
-        # review 5678438821); delivered stays False — unknown is never
-        # recorded as accepted.
+    def _persist_intent(
+        self, session: Session, event: AlertEvent, transport: NotificationTransport
+    ) -> uuid.UUID | None:
+        """Durably record the pre-send dispatch intent, or return None.
+
+        Independent-session mode (the release path): the intent row is
+        COMMITTED in its own transaction before any network call, so a
+        crash after this point leaves a cross-process hold. Shared-
+        session mode: the row joins the caller's transaction via a
+        SAVEPOINT (best-effort, non-durable — documented boundary).
+
+        A failure here must never poison the caller's business
+        transaction; the caller answers None with zero provider calls.
+        """
+        intent_id = uuid.uuid4()
         row = NotificationAttempt(
+            id=intent_id,
             alert_event_id=event.id,
-            channel=result.transport.value,
-            outcome=(
-                ACCEPTANCE_UNKNOWN_OUTCOME
-                if result.acceptance_unknown
-                else result.outcome.value
-            ),
-            delivered=result.delivered,
-            detail=result.detail or None,
-            server_response=result.server_response,
-            retry_after_s=result.retry_after_s,
+            channel=transport.kind.value,
+            outcome=SEND_INTENT_OUTCOME,
+            delivered=False,
+            detail=_INTENT_DETAIL,
         )
         if self._attempt_session_factory is not None:
             try:
@@ -383,22 +427,76 @@ class AlertNotificationDispatcher:
                     attempt_session.add(row)
                     attempt_session.commit()
             except Exception:
-                return dataclasses.replace(
-                    result, detail=result.detail + _UNPERSISTED_SUFFIX
-                )
-            return result
-        # Shared-session mode: the row joins the caller's transaction,
-        # but a failed insert must NOT poison the caller's business
-        # work — the insert runs inside a SAVEPOINT so only the attempt
-        # row rolls back (A review 6320881681: a shared-session
-        # rollback would undo the whole outer transaction).
+                return None
+            return intent_id
         try:
             with session.begin_nested():
                 session.add(row)
                 session.flush()
         except Exception:
+            return None
+        return intent_id
+
+    def _complete_intent(
+        self, session: Session, intent_id: uuid.UUID, result: NotificationResult
+    ) -> NotificationResult:
+        """Complete the pre-send intent forward, one-way only.
+
+        The update is guarded by exact row id AND the unfinished state
+        (``outcome == send_intent`` and not delivered): completed rows
+        are never rewritten (A review 5682106843). An acceptance-unknown
+        result completes the row to the fixed ``acceptance_unknown``
+        sentinel (never a retryable classification, C review
+        5678438821; delivered stays False — unknown is never recorded
+        as accepted). If the completion write itself fails, the row
+        STAYS ``send_intent``: the channel is held for manual
+        verification by every later dispatch and pending scan instead
+        of being blindly resent.
+        """
+        final_outcome = (
+            ACCEPTANCE_UNKNOWN_OUTCOME
+            if result.acceptance_unknown
+            else result.outcome.value
+        )
+        if self._attempt_session_factory is not None:
+            try:
+                with self._attempt_session_factory() as attempt_session:
+                    row = attempt_session.get(NotificationAttempt, intent_id)
+                    if (
+                        row is None
+                        or row.outcome != SEND_INTENT_OUTCOME
+                        or row.delivered
+                    ):
+                        # Never rewrite a completed (or unknown-state) row.
+                        return result
+                    row.outcome = final_outcome
+                    row.delivered = result.delivered
+                    row.detail = result.detail or None
+                    row.server_response = result.server_response
+                    row.retry_after_s = result.retry_after_s
+                    attempt_session.commit()
+            except Exception:
+                return dataclasses.replace(
+                    result, detail=result.detail + _INTENT_HOLD_SUFFIX
+                )
+            return result
+        try:
+            with session.begin_nested():
+                row = session.get(NotificationAttempt, intent_id)
+                if (
+                    row is not None
+                    and row.outcome == SEND_INTENT_OUTCOME
+                    and not row.delivered
+                ):
+                    row.outcome = final_outcome
+                    row.delivered = result.delivered
+                    row.detail = result.detail or None
+                    row.server_response = result.server_response
+                    row.retry_after_s = result.retry_after_s
+                session.flush()
+        except Exception:
             return dataclasses.replace(
-                result, detail=result.detail + _UNPERSISTED_SUFFIX
+                result, detail=result.detail + _INTENT_HOLD_SUFFIX
             )
         return result
 
