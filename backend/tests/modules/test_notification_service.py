@@ -83,3 +83,50 @@ def test_interruption_is_nonzero_and_engine_disposed(harness):
     run.return_value = [RunnerCycleReport(interrupted="lease_busy")]
     assert service.main(["--config", str(path)]) == 1
     assert connection.dispose.call_count == 1
+
+
+@pytest.mark.parametrize("mode", [[], ["--continuous"]])
+@pytest.mark.parametrize(
+    "recipients",
+    [
+        ["first@example.com", "second@example.com"],
+        ["first@example.com", "first@example.com"],
+    ],
+)
+def test_release_refuses_multiple_smtp_recipients_before_connection_or_worker(
+    harness, mode, recipients, capsys
+):
+    path, create, _, run = harness
+    path.write_text(json.dumps({"recipients": recipients}))
+    assert service.main(["--config", str(path), "--send", *mode]) == 2
+    create.assert_not_called()
+    run.assert_not_called()
+    output = capsys.readouterr()
+    assert all(value not in output.out + output.err for value in recipients)
+
+
+def test_multiple_recipients_remain_available_in_non_sending_preview(harness):
+    path, _, _, run = harness
+    path.write_text(
+        json.dumps({"recipients": ["first@example.com", "second@example.com"]})
+    )
+    assert service.main(["--config", str(path)]) == 0
+    assert run.call_args.kwargs["dry_run"] is True
+    assert run.call_args.kwargs["recipients"] == (
+        "first@example.com",
+        "second@example.com",
+    )
+
+
+def test_smtp_release_guard_does_not_block_push_only_dispatch(harness, monkeypatch):
+    path, _, _, run = harness
+    path.write_text(
+        json.dumps({"recipients": ["first@example.com", "second@example.com"]})
+    )
+    monkeypatch.setattr(
+        service,
+        "build_transports",
+        lambda: [SimpleNamespace(kind=NotificationKind.APP_PUSH)],
+    )
+    assert service.main(["--config", str(path), "--send"]) == 0
+    assert run.call_args.kwargs["dry_run"] is False

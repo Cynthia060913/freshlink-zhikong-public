@@ -55,11 +55,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = read_config(args.config)
         transports = build_transports()
-        if (
-            any(t.kind is NotificationKind.SMTP_EMAIL for t in transports)
-            and not config.recipients
+        if any(t.kind is NotificationKind.SMTP_EMAIL for t in transports) and (
+            not config.recipients or (args.send and len(config.recipients) != 1)
         ):
-            raise ValueError("SMTP recipients required")
+            # This release is verified for one explicitly consented mailbox.
+            # Refuse unsupported partial-recipient dispatch BEFORE connecting
+            # to the DB or entering a provider worker. Dry-run stays useful
+            # for inspecting a future multi-recipient configuration.
+            raise ValueError("SMTP send requires one release recipient")
         if args.send and not transports:
             raise ValueError("no configured channel")
         if application_engine.dialect.name != "postgresql":
