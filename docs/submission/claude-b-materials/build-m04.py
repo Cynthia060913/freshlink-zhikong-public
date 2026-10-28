@@ -30,6 +30,7 @@ OUT = (
     REPO / "docs" / "submission" / "claude-b-materials" / "M04-PRESENTATION-DRAFT.pptx"
 )
 DESIGN = REPO / "docs" / "submission" / "design"
+MATERIALS = REPO / "docs" / "submission" / "claude-b-materials"
 
 # Only decks with a verified provenance may be used as the package
 # skeleton. SHA-256 values were computed from the files A delivered /
@@ -41,6 +42,12 @@ KNOWN_SOURCES: dict[str, str] = {
     # A-DEMO-COMPONENT.pptx, A 早期演示组件（M04 现稿构建来源）。
     "3044ffdfc9b9f7036babd784bbf1ff763773f2be65686c86f9e5095ed6c0158f": "A-DEMO-COMPONENT.pptx",
 }
+
+# Current architecture image (A's e7-based diagram, PR #89 head
+# b4d8c28, taken into B's assets verbatim). Verified before any output
+# is written (A handover #8 2026-10-28, CURRENT-EVIDENCE-e7.md).
+ARCH_ASSET = MATERIALS / "assets" / "CURRENT-ARCHITECTURE-e7.png"
+ARCH_ASSET_SHA256 = "81a7cbf11cd689891663211ed83991c746ffbdefe32f7befc1c0488a9e4778f8"
 
 FONT = "Microsoft YaHei"
 INK = "0F172A"
@@ -222,8 +229,41 @@ def bullets(
     return textbox(sp_id, "bullets", x, y, cx, cy, paras)
 
 
-ARCH = DESIGN / "tikz_architecture.png"
+def _verified_arch_asset() -> Path:
+    """Verify the tracked architecture asset before writing any output.
+
+    The image is A's e7-based current architecture diagram (PR #89 head
+    b4d8c28, copied verbatim into assets/ with its provenance recorded
+    in M03 §2). A wrong or silently substituted image would put an
+    unverified diagram into the deck, so a mismatch fails loudly (exit
+    2) before the output file is touched.
+    """
+
+    if not ARCH_ASSET.is_file():
+        print(
+            f"ERROR: architecture asset not found: {ARCH_ASSET}\n"
+            "expected the tracked copy of CURRENT-ARCHITECTURE-e7.png "
+            "(PR #89 b4d8c28)",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    digest = hashlib.sha256(ARCH_ASSET.read_bytes()).hexdigest()
+    if digest != ARCH_ASSET_SHA256:
+        print(
+            "ERROR: architecture asset SHA-256 mismatch:\n"
+            f"expected {ARCH_ASSET_SHA256}\nactual   {digest}\n"
+            "refusing to build with an unverified diagram; if A reissued "
+            "the image, verify the new hash and update ARCH_ASSET_SHA256",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    print(f"architecture asset verified: sha256={digest}")
+    return ARCH_ASSET
+
+
+ARCH = _verified_arch_asset()
 ER_B = DESIGN / "tikz_er_b.png"
+
 
 # ---- slide definitions -------------------------------------------------
 
@@ -259,7 +299,7 @@ slides.append(
                 )
                 + para(
                     run(
-                        "材料基准：共同 main 319aa63（材料稿；冻结候选确定后逐节复核）",
+                        "材料基准：共同 main 319aa63（= 一库 E1 实测来源 e7fffd61，全 Git 树一致）",
                         1300,
                         color=SUB,
                     ),
@@ -378,7 +418,7 @@ slides.append(
                 emu(5.0),
             )
         ),
-        slide_rels(LAYOUT_RID, {"Rarch100": "/ppt/media/tikz_architecture.png"}),
+        slide_rels(LAYOUT_RID, {"Rarch100": "/ppt/media/current_architecture_e7.png"}),
     )
 )
 
@@ -540,13 +580,13 @@ slides.append(
                     ),
                     ("双渠道实收状态（如实）", WARN, "1", 1500),
                     (
-                        "• 飞书手机端：持有人在受控单一事件实测确认实收；SMTP：一次发送遇 SSL 意外 EOF，终端实收待核、未补发",
+                        "• 一库同版同事件 E1（#6 6459911129）：SMTP 与飞书各一次、两服务接受，队长本人确认邮件与手机飞书均收到、来源 ID 一致（d89c0bf9）",
                         WARN,
                         "0",
                         1300,
                     ),
                     (
-                        "• 服务接受不写成实收；输出字段固定 terminal_receipt_confirmed=False；完整双渠道 E1 未完成",
+                        "• 服务接受 ≠ 终端实收仍分记；旧 10-27 SSL EOF 为历史未补发；本段演示环境 dry-run，不展示发送画面",
                         WARN,
                         "0",
                         1300,
@@ -571,13 +611,13 @@ slides.append(
                 [
                     ("B 模块与全量回归", INK, "1", 1500),
                     (
-                        "• 真实 PG 18 / Python 3.14 本机隔离实例（main 319aa63 + PR #96 5fa963c）：告警套件 400 passed / 2 skipped（PG opt-in）/ 15 subtests",
+                        "• 真实 PG 18 / Python 3.14 本机隔离实例（main 319aa63，= 一库 E1 实测来源 e7fffd61，全树一致）：告警与更正契约 21 条回归已随 main 合入",
                         BODY,
                         "0",
                         1350,
                     ),
                     (
-                        "• 更正契约 21 条回归（含双连接锁交错：更正排队于原异常行锁后不回退并发提交的 resolved），已随 main 319aa63 合入",
+                        "• PR #96 SMTP 阶段诊断为待审增量（候选历史，不并入冻结主线成绩）：告警套件 410 passed / 2 skipped / 15 subtests",
                         BODY,
                         "0",
                         1350,
@@ -590,26 +630,26 @@ slides.append(
                     ),
                     ("A/C 组合证据", INK, "1", 1500),
                     (
-                        "• A45 精确 4792ac3：后端 1216 testcase / 0 失败错误跳过 / 92%；A46 精确 62bb2ef：14 设备组合链见第 4 页",
+                        "• 一库同版同事件 E1（#6 6459911129）：双渠道终端实收由队长本人确认；浏览器 281 行 14 列 CSV 与 15 页 ID 一致；普通用户 POST 403",
                         BODY,
                         "0",
                         1350,
                     ),
                     (
-                        "• C 第二机（PR #11 精确 0db9402）：默认 CMD/HTTP 与 14 设备分段通过；GuardedRecovery 降温检查两次失败、未最终签收（并列如实）",
+                        "• C 第二机（干净检出 e7fffd61）：默认 CMD 无源码挂载 HTTP 通过、14 设备夹具；HTTP CSV 10 行 14 列；API 文件 ≠ 浏览器下载（如实）",
                         BODY,
                         "0",
                         1350,
                     ),
                     (
-                        "• A 通知实测：飞书手机端实收由 A 本人确认；SMTP 一次 SSL 意外 EOF、实收待核、未补发（#8 6440797666）",
+                        "• A 离线入口（PR #95 cdb7d95）：14 在线设备、CSV 15 行全 ID、无网络 PG 重启回读 1202 条",
                         BODY,
                         "0",
                         1350,
                     ),
                     ("边界（如实）", WARN, "1", 1500),
                     (
-                        "• 以上为隔离回归与受控分段，不是业务现场验收次数；完整同版 E1、最终第二机、SMTP 实收未完成",
+                        "• 以上为隔离回归与受控分段，不是业务现场验收次数；第二机 180s sustained、浏览器下载核验、最终第二机/M01—M05 总签收未完成；旧 0db9402 失败与旧 10-27 SSL EOF 为有日期历史",
                         WARN,
                         "0",
                         1300,
@@ -634,7 +674,7 @@ slides.append(
                 [
                     ("限制（不写成完成）", INK, "1", 1500),
                     (
-                        "• 飞书手机实收已确认（A 本人）；SMTP 实收待核未补发；C GuardedRecovery 两次降温检查失败、未最终签收",
+                        "• 双渠道终端实收已由队长本人在一库同版 E1 确认（#6 6459911129）；E1 出口 ≠ 最终第二机总签收/投稿",
                         BODY,
                         "0",
                         1300,
@@ -646,7 +686,7 @@ slides.append(
                         1300,
                     ),
                     (
-                        "• WH1 多批告警评价 hold；模拟数据不宣称真实品质实验；冻结候选后逐节复核",
+                        "• WH1 多批告警评价 hold；第二机自然持续恢复与浏览器下载核验未测；模拟数据不宣称真实品质实验",
                         BODY,
                         "0",
                         1300,
@@ -694,6 +734,8 @@ ARGS = _parse_args()
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
 src = _open_source(ARGS.input)
+
+
 KEEP = {
     "ppt/theme/theme1.xml",
     "ppt/slideMasters/slideMaster1.xml",
@@ -716,7 +758,7 @@ KEEP = {
     "_rels/.rels",
 }
 MEDIA = {
-    "ppt/media/tikz_architecture.png": ARCH.read_bytes(),
+    "ppt/media/current_architecture_e7.png": ARCH.read_bytes(),
     "ppt/media/tikz_er_b.png": ER_B.read_bytes(),
 }
 
