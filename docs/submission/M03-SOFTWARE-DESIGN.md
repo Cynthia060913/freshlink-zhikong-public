@@ -148,7 +148,7 @@ integrity 失败回读已存行再分类（`_insert_event`）。瞬时存储失�
   留一条迁移、恢复不回退已确认（main 上回归位于
   `tests/modules/alerts/test_recovery_candidates.py` 等；SQLite 不作锁证据）。
 
-### 5.4 关联数据质量更正（F03 契约，PR #80 待审增量）
+### 5.4 关联数据质量更正（F03 契约，PR #80/#83 已合入冻结基线）
 
 晚到坏证据以 `kind=data_quality` 候选 + `related_source_event_id`（指向
 原异常 `source_event_id`）表达（#5 6394581672）：
@@ -180,8 +180,10 @@ integrity 失败回读已存行再分类（`_insert_event`）。瞬时存储失�
   独立 attempt session 提交（或在 SAVEPOINT 内），**审计失败绝不 rollback
   业务事务**，只在结果 detail 如实标注。
 - **同源去重**：同一 (事件, 渠道) 已有 delivered 记录、或已有
-  `acceptance_unknown`（接受未证实，待人工核验）记录则跳过；去重查询自身
-  失败时**保守 fail-closed 零发送**（`dedup_error=True`）。
+  `acceptance_unknown`（**PR #96 待审候选**语义：接受未证实，待人工核验）
+  记录则跳过；去重查询自身失败时**保守 fail-closed 零发送**
+  （`dedup_error=True`）。冻结 main `319aa63`（= e7fffd61）现行为仅按
+  delivered 去重。
 - **渠道隔离**：单渠道违反契约只影响该渠道，异常文本/URL 不入库（固定
   错误码）。
 - **只消费已提交事件**：`dispatch_committed_event` 在业务事务提交后由
@@ -192,20 +194,32 @@ integrity 失败回读已存行再分类（`_insert_event`）。瞬时存储失�
   accepted 上报**并如实标注"terminal receipt unconfirmed; do not
   auto-retry"——绝不降级为可重试的"未送达"而诱发重复发送；收尾异常时
   已取得的部分拒收结果**原样保留**在 `recipient_outcomes`（原 4xx/5xx
-  分类，已接受者不重发，审计不写成"全部接受"）。DATA 返回前的连接类中断
+  分类，已接受者不重发，审计不写成"全部接受"）。**如实边界**：数据库
+  无逐收件人结构列，未被接受的对象（如 450）暂无自动补发路径；正式
+  发行入口按 PR #97（A 候选）限定单个已授权邮箱，多收件人为明确排除的
+  非发行场景，低层适配器保留原始逐收件人语义但按候选边界如实记录。
+  DATA 返回前的连接类中断
   则打上结构化 `acceptance_unknown` 标志：结果如实 `delivered=False`、
   同次派发**不重试**，attempt 行以固定哨兵值 `acceptance_unknown` 落库，
-  去重守卫与 pending 扫描把该渠道保持为**待人工核验**——跨派发与重启都
-  不自动补发（四值 `DeliveryOutcome` 契约不变）。失败 detail 只含固定
-  前缀、阶段与数字回复码，异常文本/完整响应/地址/凭据一律不入库。
+  去重守卫与 pending 扫描把该渠道保持为**待人工核验**——在 attempt 行
+  **成功持久化**的前提下跨派发与重启都不自动补发（四值
+  `DeliveryOutcome` 契约不变）。**如实边界**：候选头 `dd2bf38` 的顺序仍
+  是"先外发、后尽力写 attempt"，若该次审计写入失败则本轮无任何 hold
+  记录、后续运行可能再发——此故障窗口已由 A 故障注入复现（review
+  5682106843），**尚未修复**，不能写成已解决；修复按 PR #96 新头实际
+  结果更新。失败 detail 只含固定前缀、阶段与数字回复码，异常文本/完整
+  响应/地址/凭据一律不入库。
 
 ### 5.6 持久派发 runner（`notifications/runner.py`）
 
 - **Pending 规则**：事件 pending ⇔ 至少一个配置渠道既缺 delivered 尝试行
-  也缺 `acceptance_unknown`（接受未证实，待人工核验——不自动补发）尝试行，
-  总尝试数 < `max_attempts_per_event`（12），最新尝试早于
-  `min_attempt_age_s`（60s，重启不清零的持久退避——预算在表里，不在内存）；
-  oldest-first，部分送达的只补缺失渠道，不重复打扰。
+  也缺 `acceptance_unknown` 尝试行（**PR #96 待审候选**语义：接受未证实、
+  待人工核验；同样以该行**成功持久化**为前提，审计写失败窗口在候选头
+  `dd2bf38` 尚未修复，见 §5.5 如实边界），总尝试数 <
+  `max_attempts_per_event`（12），最新尝试早于 `min_attempt_age_s`
+  （60s，重启不清零的持久退避——预算在表里，不在内存）；oldest-first，
+  部分送达的只补缺失渠道，不重复打扰。冻结 main `319aa63` 现行 pending
+  规则只按 delivered 判定。
 - **单派发互斥**：`_DispatchLease` 在**专用连接**上持 PG session 级
   advisory lock（不进业务事务、不占告警行锁）；第二实例拿到锁即返回
   `interrupted="lease_busy"` 零发送；连接死亡 PG 自动放锁；每 cycle ping，
