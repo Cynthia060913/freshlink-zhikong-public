@@ -5,9 +5,16 @@
 1. 成功返回 — ``accepted_by_service`` / ``delivered=True``；
 2. 异常 — ``transient_failure``（连接拒绝 / 断开 / 4yz / HELO 拒收 / DATA 拒收）；
 3. 超时 — ``timeout`` / ``retry_after_s`` 非空；
-4. 失败结果格式 — 5yz / 拒收 / 认证错 → ``permanent_failure``，包含 code/error；
+4. 失败结果格式 — 5yz / 拒收 / 认证错 → ``permanent_failure``，包含 code/stage；
    部分拒收（``SMTPRecipientsRefused``）同样按 ``permanent_failure`` 处理，
-   ``detail`` 列出被拒地址。
+   地址只在结构化 ``recipient_outcomes`` 中（free-text ``detail`` 不含地址，
+   A queue P1 #8 6440797666）。
+
+阶段诊断负向用例（A queue P1：模拟 SMTP 复现四类场景）：
+发送前失败（stage=connect）、DATA 已接受但 QUIT/收尾异常
+（→ ``accepted_by_service`` + ``post_send_cleanup``，绝不报可重试的
+"未送达"）、认证失败（stage=auth，无密码/异常文本入库）、
+DATA 阶段中断（acceptance 如实 unknown）。
 
 同时验证：构造参数校验（空 host / 空 from_email / 零 port →
 ``ValueError``）、空收件人、错误的 envelope.kind、auth 凭据、
@@ -39,6 +46,11 @@ class _State:
     login_raises: BaseException | None = None
     login_called_with: tuple[str, str] | None = None
     partial_refused: dict[str, tuple[int, bytes]] | None = None
+    # QUIT / connection teardown failure AFTER send_message returned
+    # (e.g. an SSL unexpected EOF during ``__exit__``).
+    exit_raises: BaseException | None = None
+    # NOOP probe failure (the transport swallows this one itself).
+    noop_raises: BaseException | None = None
 
 
 class MockSMTP:
@@ -72,6 +84,8 @@ class MockSMTP:
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        if MockSMTP.state.exit_raises is not None:
+            raise MockSMTP.state.exit_raises
         return None
 
     def starttls(self, keyfile: str | None = None, certfile: str | None = None) -> None:
@@ -97,6 +111,8 @@ class MockSMTP:
         # Stand-in for smtplib.SMTP.noop() → (code, message).
         # Used by SMTPTransport to populate server_response with the
         # actual post-send server reply (not a hard-coded 250).
+        if MockSMTP.state.noop_raises is not None:
+            raise MockSMTP.state.noop_raises
         return (250, b"OK")
 
     def quit(self) -> None:
@@ -592,8 +608,9 @@ class SMTPTransportLoginCase(unittest.TestCase):
 class SMTPTransportRecipientsRefusedCase(unittest.TestCase):
     def test_recipients_refused_yields_permanent(self) -> None:
         # smtplib.SMTPRecipientsRefused stores refused recipients as
-        # {addr: (code, msg)} — the transport must surface every
-        # refused address in ``detail``.
+        # {addr: (code, msg)} — every refused address must surface in
+        # the STRUCTURED ``recipient_outcomes`` (A queue P1: the
+        # free-text ``detail`` stays address-free).
         refused_map = {
             "bad@example.com": (550, b"mailbox not found"),
             "alsobad@example.com": (550, b"unknown user"),
@@ -602,8 +619,12 @@ class SMTPTransportRecipientsRefusedCase(unittest.TestCase):
         result = SMTPTransport(_config(), _factory()).send(_envelope())
         self.assertFalse(result.delivered)
         self.assertEqual(result.outcome, DeliveryOutcome.PERMANENT_FAILURE)
-        self.assertIn("bad@example.com", result.detail)
-        self.assertIn("alsobad@example.com", result.detail)
+        self.assertIn("recipients refused", result.detail)
+        self.assertIn("count=2", result.detail)
+        self.assertNotIn("@example.com", result.detail)
+        by_addr = {r.address: r for r in result.recipient_outcomes}
+        self.assertEqual(by_addr["bad@example.com"].code, 550)
+        self.assertEqual(by_addr["alsobad@example.com"].code, 550)
 
 
 class SMTPTransportPartialRefusedCase(unittest.TestCase):
@@ -646,8 +667,10 @@ class SMTPTransportPartialRefusedCase(unittest.TestCase):
         self.assertFalse(result.delivered)
         self.assertEqual(result.outcome, DeliveryOutcome.PERMANENT_FAILURE)
         self.assertIsNone(result.retry_after_s)
-        self.assertIn("dead@example.com", result.detail)
-        self.assertIn("550", result.detail)
+        self.assertIn("recipients refused", result.detail)
+        self.assertNotIn("@example.com", result.detail)
+        by_addr = {r.address: r for r in result.recipient_outcomes}
+        self.assertEqual(by_addr["dead@example.com"].code, 550)
 
     def test_partial_refused_4xx_yields_transient(self) -> None:
         MockSMTP.state = _State(
@@ -666,7 +689,8 @@ class SMTPTransportPartialRefusedCase(unittest.TestCase):
         self.assertFalse(result.delivered)
         self.assertEqual(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
         self.assertEqual(result.retry_after_s, 30.0)
-        self.assertIn("busy@example.com", result.detail)
+        self.assertIn("recipients refused", result.detail)
+        self.assertNotIn("@example.com", result.detail)
 
     def test_partial_refused_mixed_4xx_5xx_yields_permanent(self) -> None:
         """Any permanent 5yz in the refused set wins over transient
@@ -692,8 +716,8 @@ class SMTPTransportPartialRefusedCase(unittest.TestCase):
         # retryable; per-recipient records carry the permanent flag.
         self.assertEqual(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
         self.assertEqual(result.retry_after_s, 30.0)
-        self.assertIn("busy@example.com", result.detail)
-        self.assertIn("dead@example.com", result.detail)
+        self.assertIn("count=2", result.detail)
+        self.assertNotIn("@example.com", result.detail)
         by_addr = {r.address: r for r in result.recipient_outcomes}
         self.assertTrue(by_addr["busy@example.com"].refused)
         self.assertTrue(by_addr["busy@example.com"].retriable)
@@ -1152,6 +1176,93 @@ class SMTPTransportPartialAcceptRecordsTestCase(unittest.TestCase):
         self.assertTrue(dead.refused)
         self.assertFalse(dead.retriable)  # 5yz → permanent
         self.assertIn("never re-send accepted", result.detail)
+
+
+class SMTPTransportStageDiagnosticsCase(unittest.TestCase):
+    """A queue P1 (#8 6440797666): simulated-SMTP negative tests for the
+    four fixed scenarios. ``detail`` must carry the fixed stage tag and
+    reply codes only — never exception text, addresses or credentials —
+    and a failure AFTER DATA acceptance must never be reported as a
+    retryable "undelivered" result (duplicate-send hazard, observed live
+    once as an SSL unexpected EOF after DATA)."""
+
+    def test_failure_before_connect_reports_connect_stage(self) -> None:
+        MockSMTP.state = _State(connect_raises=ConnectionResetError("nope"))
+        result = SMTPTransport(_config(), _factory()).send(_envelope())
+        self.assertEqual(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
+        self.assertIn("stage=connect", result.detail)
+        # No exception text, no addresses.
+        self.assertNotIn("nope", result.detail)
+        self.assertNotIn("@", result.detail)
+
+    def test_auth_failure_reports_auth_stage_without_secrets(self) -> None:
+        MockSMTP.state = _State(
+            login_raises=smtplib.SMTPAuthenticationError(535, b"creds invalid")
+        )
+        cfg = SMTPConfig(
+            host="smtp.example.com",
+            port=587,
+            timeout_seconds=2.0,
+            use_tls=True,
+            from_email="bot@example.com",
+            username="bot@example.com",
+            password="placeholder-not-a-real-secret",
+        )
+        result = SMTPTransport(cfg, _factory()).send(_envelope())
+        self.assertEqual(result.outcome, DeliveryOutcome.PERMANENT_FAILURE)
+        self.assertIn("stage=auth", result.detail)
+        self.assertIn("535", result.detail)
+        # No password, no exception text, no server dialogue.
+        self.assertNotIn("placeholder-not-a-real-secret", result.detail)
+        self.assertNotIn("creds invalid", result.detail)
+        self.assertIsNone(result.server_response)
+
+    def test_data_accepted_then_exit_raises_is_accepted_not_retryable(self) -> None:
+        # DATA accepted, then the ``with`` teardown (QUIT/SSL EOF) blows
+        # up. The message is on the wire: outcome must be
+        # ACCEPTED_BY_SERVICE with the terminal receipt marked
+        # unconfirmed — never a TRANSIENT/TIMEOUT "undelivered" result
+        # that would invite a duplicate send.
+        MockSMTP.state = _State(exit_raises=ConnectionResetError("ssl eof"))
+        result = SMTPTransport(_config(), _factory()).send(_envelope())
+        self.assertTrue(result.delivered)
+        self.assertEqual(result.outcome, DeliveryOutcome.ACCEPTED_BY_SERVICE)
+        self.assertIn("post_send_cleanup", result.detail)
+        self.assertIn("terminal receipt unconfirmed", result.detail)
+        self.assertIn("do not auto-retry", result.detail)
+        self.assertNotIn("ssl eof", result.detail)
+        self.assertIsNone(result.server_response)
+        self.assertEqual(len(MockSMTP.sent_messages), 1)
+
+    def test_data_accepted_then_exit_timeout_is_accepted_not_retryable(self) -> None:
+        # Teardown hanging must not downgrade to TIMEOUT either.
+        MockSMTP.state = _State(exit_raises=TimeoutError("quit never answered"))
+        result = SMTPTransport(_config(), _factory()).send(_envelope())
+        self.assertTrue(result.delivered)
+        self.assertEqual(result.outcome, DeliveryOutcome.ACCEPTED_BY_SERVICE)
+        self.assertIn("post_send_cleanup", result.detail)
+
+    def test_interrupted_during_data_reports_unknown_acceptance(self) -> None:
+        # send_message raised mid-DATA: acceptance is genuinely unknown
+        # and the detail says so honestly (stage=data +
+        # data_acceptance=unknown), instead of a hard "delivered=False".
+        MockSMTP.state = _State(send_raises=ConnectionResetError("eof mid-data"))
+        result = SMTPTransport(_config(), _factory()).send(_envelope())
+        self.assertFalse(result.delivered)
+        self.assertEqual(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
+        self.assertIn("stage=data", result.detail)
+        self.assertIn("data_acceptance=unknown", result.detail)
+        self.assertNotIn("eof mid-data", result.detail)
+
+    def test_noop_raises_after_data_still_accepted(self) -> None:
+        # NOOP probe failure after DATA is already swallowed by the
+        # transport: accepted, server_response=None, no exception text.
+        MockSMTP.state = _State(noop_raises=smtplib.SMTPServerDisconnected("gone"))
+        result = SMTPTransport(_config(), _factory()).send(_envelope())
+        self.assertTrue(result.delivered)
+        self.assertEqual(result.outcome, DeliveryOutcome.ACCEPTED_BY_SERVICE)
+        self.assertIsNone(result.server_response)
+        self.assertNotIn("gone", result.detail)
 
 
 if __name__ == "__main__":
