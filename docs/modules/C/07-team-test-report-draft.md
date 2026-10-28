@@ -26,8 +26,12 @@
 文件已经核验**。另以同普通用户 HTTP 获取同设备固定快照及 CSV 文件，
 结果 200、10 行、14 列，全部属于筛选设备；该 API 文件 SHA256
 `23CA765A87769081F63DE19DAD512BC25A26FFDD9DBF2CE28C555D1939994614`。
+随后只读复核保留的同一 CSV 原文件：10 个互异的 `observation_id`，仅
+一个设备，行数、列数与 SHA256 均与首次记录一致。原快照响应仅保留
+`total=10`，没有保存完整 ID 列表；一次性 PG 已清理，故本机**未证明
+快照与 CSV 的全部 ID 集合相等**，也未核验浏览器管理的下载文件。
 普通用户 POST 告警确认返回 403，匿名 CSV 返回 401。页面操作与 API
-文件分别记账。证据见 [E1 #6 本人记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6449022153)。
+文件分别记账。证据见 [E1 #6 本人记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6449022153)与[保存制品补核](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6461583849)。
 
 本次专属 UI/PG/MQTT 容器及网络清理后均余 0，无真实通知。PR #94
 随后合入 main `319aa6363d921922070b4330bf74e344a8b0c1bb`，但本试验
