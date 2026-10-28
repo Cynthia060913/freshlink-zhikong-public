@@ -178,6 +178,13 @@ integrity 失败回读已存行再分类（`_insert_event`）。瞬时存储失�
   错误码）。
 - **只消费已提交事件**：`dispatch_committed_event` 在业务事务提交后由
   worker 调用；网络与退避 sleep 不进业务事务、行锁或 HTTP 请求内。
+- **SMTP 固定阶段诊断**（PR #96）：适配器以封闭枚举 `SMTPStage`
+  （connect/tls/auth/data/post_send_cleanup）记录停止阶段；`DATA` 被服务器
+  接受后（`send_message` 返回）的**任何收尾异常（QUIT/SSL EOF 等）按
+  accepted 上报**并如实标注"terminal receipt unconfirmed; do not
+  auto-retry"——绝不降级为可重试的"未送达"而诱发重复发送；DATA 返回前
+  中断则标注 `data_acceptance=unknown`。失败 detail 只含固定前缀、阶段与
+  数字回复码，异常文本/完整响应/地址/凭据一律不入库。
 
 ### 5.6 持久派发 runner（`notifications/runner.py`）
 
