@@ -14,7 +14,9 @@ Durability properties (no new framework, no new tables, no migration):
   channel still lacks a delivered attempt row. A restart re-picks it;
   the dispatcher's per-channel dedup guard completes only the missing
   channels, so a partially delivered event is finished, never
-  duplicated.
+  duplicated. A channel with an ``acceptance_unknown`` attempt
+  (acceptance unproven) is held for manual verification instead of
+  being re-picked — no automatic resend after a restart.
 - **Single-dispatcher mutex**: :class:`_DispatchLease` holds a
   session-scoped PG advisory lock (``pg_try_advisory_lock``) on a
   DEDICATED lease connection that runs no business transaction and
@@ -74,6 +76,7 @@ from sqlmodel import Session, col, func, select
 from app.modules.alerts.models.event import AlertEvent, NotificationAttempt
 
 from .dispatch import (
+    ACCEPTANCE_UNKNOWN_OUTCOME,
     DispatchReport,
     build_transports,
     dispatch_committed_event,
@@ -134,6 +137,12 @@ def pending_alert_event_ids(
     attempts yet are always eligible). Partially delivered events stay
     pending: the dispatcher's dedup guard completes only the missing
     channels.
+
+    A channel with an ``acceptance_unknown`` attempt (acceptance could
+    not be proven — connection broke mid-DATA) is held for manual
+    verification and does NOT make the event pending again: an
+    unproven acceptance must never be answered with an automatic
+    re-send after a restart (C review 5678438821).
     """
 
     if min_attempt_age_s < 0:
@@ -142,18 +151,29 @@ def pending_alert_event_ids(
         channels = tuple(kind.value for kind in NotificationKind)
     if not channels:
         return []
-    # Delivered on EVERY configured channel == nothing left to send.
+    # Settled on EVERY configured channel == nothing left to send.
     # Per-channel (not per-event) so partially delivered events stay
-    # pending and get completed, not duplicated.
-    delivered_everywhere = and_(
+    # pending and get completed, not duplicated. Settled = delivered
+    # OR acceptance-unknown (held for manual verification, never
+    # auto-resent).
+    settled_everywhere = and_(
         *(
-            select(NotificationAttempt.id)
-            .where(
-                col(NotificationAttempt.alert_event_id) == col(AlertEvent.id),
-                col(NotificationAttempt.channel) == channel,
-                col(NotificationAttempt.delivered).is_(True),
+            or_(
+                select(NotificationAttempt.id)
+                .where(
+                    col(NotificationAttempt.alert_event_id) == col(AlertEvent.id),
+                    col(NotificationAttempt.channel) == channel,
+                    col(NotificationAttempt.delivered).is_(True),
+                )
+                .exists(),
+                select(NotificationAttempt.id)
+                .where(
+                    col(NotificationAttempt.alert_event_id) == col(AlertEvent.id),
+                    col(NotificationAttempt.channel) == channel,
+                    NotificationAttempt.outcome == ACCEPTANCE_UNKNOWN_OUTCOME,
+                )
+                .exists(),
             )
-            .exists()
             for channel in channels
         )
     )
@@ -175,7 +195,7 @@ def pending_alert_event_ids(
     statement = (
         select(AlertEvent.id)
         .where(
-            ~delivered_everywhere,
+            ~settled_everywhere,
             attempt_count < max_attempts_per_event,
             backoff_elapsed,
         )

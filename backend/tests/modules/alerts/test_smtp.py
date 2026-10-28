@@ -1191,6 +1191,9 @@ class SMTPTransportStageDiagnosticsCase(unittest.TestCase):
         result = SMTPTransport(_config(), _factory()).send(_envelope())
         self.assertEqual(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
         self.assertIn("stage=connect", result.detail)
+        # Nothing was sent, so acceptance is known (refused/not sent) —
+        # the dispatcher may retry within its budget.
+        self.assertFalse(result.acceptance_unknown)
         # No exception text, no addresses.
         self.assertNotIn("nope", result.detail)
         self.assertNotIn("@", result.detail)
@@ -1250,9 +1253,68 @@ class SMTPTransportStageDiagnosticsCase(unittest.TestCase):
         result = SMTPTransport(_config(), _factory()).send(_envelope())
         self.assertFalse(result.delivered)
         self.assertEqual(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
+        # Structured hold flag (C review 5678438821): dispatch must not
+        # auto-retry this result, same run or later runs.
+        self.assertTrue(result.acceptance_unknown)
         self.assertIn("stage=data", result.detail)
         self.assertIn("data_acceptance=unknown", result.detail)
         self.assertNotIn("eof mid-data", result.detail)
+
+    def test_timeout_during_data_is_unknown_too(self) -> None:
+        # Same hold for a mid-DATA timeout: the request may have gone
+        # through, so the result is flagged unknown, not retryable-safe.
+        MockSMTP.state = _State(send_raises=TimeoutError("data no reply"))
+        result = SMTPTransport(_config(), _factory()).send(_envelope())
+        self.assertFalse(result.delivered)
+        self.assertEqual(result.outcome, DeliveryOutcome.TIMEOUT)
+        self.assertTrue(result.acceptance_unknown)
+        self.assertIn("data_acceptance=unknown", result.detail)
+
+    def test_server_reply_4xx_during_data_is_known_refusal_not_unknown(self) -> None:
+        # A server reply code means the server DID answer: the refusal
+        # is known and classified — the retry budget still applies, and
+        # acceptance is NOT flagged unknown.
+        MockSMTP.state = _State(
+            send_raises=smtplib.SMTPResponseException(450, b"mailbox busy")
+        )
+        result = SMTPTransport(_config(), _factory()).send(_envelope())
+        self.assertEqual(result.outcome, DeliveryOutcome.TRANSIENT_FAILURE)
+        self.assertFalse(result.acceptance_unknown)
+        self.assertIn("code=450", result.detail)
+
+    def test_partial_refused_then_teardown_failure_preserves_outcomes(self) -> None:
+        # Two recipients, one 450-refused (send_message returned the
+        # refusal mapping), then teardown blows up: the refusal must
+        # survive — accepted recipients are never re-sent (delivered
+        # keeps dedup settled) and the refused one keeps its original
+        # 4xx classification in recipient_outcomes. The audit must NOT
+        # read "every recipient accepted" (C review 5678438821).
+        MockSMTP.state = _State(
+            partial_refused={"refused@example.com": (450, b"busy")},
+            exit_raises=ConnectionResetError("ssl eof"),
+        )
+        envelope = NotificationEnvelope(
+            source_event_id=uuid.uuid4(),
+            kind=NotificationKind.SMTP_EMAIL,
+            subject="test subject",
+            body_text="hello",
+            recipients=("accepted@example.com", "refused@example.com"),
+        )
+        result = SMTPTransport(_config(), _factory()).send(envelope)
+        self.assertEqual(result.outcome, DeliveryOutcome.ACCEPTED_BY_SERVICE)
+        self.assertTrue(result.delivered)
+        by_addr = {o.address: o for o in result.recipient_outcomes}
+        self.assertEqual(len(result.recipient_outcomes), 2)
+        self.assertTrue(by_addr["refused@example.com"].refused)
+        self.assertEqual(by_addr["refused@example.com"].code, 450)
+        self.assertTrue(by_addr["refused@example.com"].retriable)
+        self.assertFalse(by_addr["accepted@example.com"].refused)
+        self.assertIn("count=1", result.detail)
+        self.assertIn("do not auto-retry", result.detail)
+        # Address hygiene unchanged: addresses stay in the structured
+        # outcomes only, never in the persisted detail text.
+        self.assertNotIn("@example.com", result.detail)
+        self.assertNotIn("ssl eof", result.detail)
 
     def test_noop_raises_after_data_still_accepted(self) -> None:
         # NOOP probe failure after DATA is already swallowed by the

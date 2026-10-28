@@ -605,6 +605,13 @@ class NotificationAttempt(SQLModel, table=True):
     Written by the dispatch layer after a transport returns a
     :class:`~app.modules.alerts.notifications.transport.NotificationResult`;
     rows are append-only.
+
+    ``outcome`` normally carries the four ``DeliveryOutcome`` values;
+    the dispatch layer additionally persists the fixed sentinel
+    ``acceptance_unknown`` when a send's acceptance could not be proven
+    (connection broke mid-DATA): such a channel is held for manual
+    verification and is never auto-resent by the dedup guard or the
+    pending scan (C review 5678438821).
     """
 
     __tablename__ = "alerts_notification_attempt"

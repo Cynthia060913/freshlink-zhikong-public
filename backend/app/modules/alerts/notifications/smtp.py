@@ -284,12 +284,17 @@ class SMTPTransport(NotificationTransport):
             # Python 3.10+ TimeoutError is OSError subclass — must be
             # before the generic OSError catch.
             if data_accepted:
-                return self._accepted_with_cleanup_failure()
+                return self._accepted_with_cleanup_failure(envelope, partial_refused)
+            # Interrupted mid-DATA: the request already left the wire,
+            # so acceptance cannot be proven either way — flag it and
+            # let dispatch hold the channel instead of auto-retrying
+            # (C review 5678438821).
             return NotificationResult(
                 attempt_id=uuid.uuid4(),
                 transport=self.kind,
                 outcome=DeliveryOutcome.TIMEOUT,
                 delivered=False,
+                acceptance_unknown=stage is SMTPStage.DATA,
                 detail=(
                     f"timeout stage={stage.value} data_acceptance=unknown"
                     if stage is SMTPStage.DATA
@@ -299,12 +304,13 @@ class SMTPTransport(NotificationTransport):
             )
         except smtplib.SMTPServerDisconnected:
             if data_accepted:
-                return self._accepted_with_cleanup_failure()
+                return self._accepted_with_cleanup_failure(envelope, partial_refused)
             return NotificationResult(
                 attempt_id=uuid.uuid4(),
                 transport=self.kind,
                 outcome=DeliveryOutcome.TRANSIENT_FAILURE,
                 delivered=False,
+                acceptance_unknown=stage is SMTPStage.DATA,
                 detail=(
                     f"server disconnected stage={stage.value} data_acceptance=unknown"
                     if stage is SMTPStage.DATA
@@ -368,23 +374,29 @@ class SMTPTransport(NotificationTransport):
             smtp_code = getattr(exc, "smtp_code", None)
             outcome, retry_after_s = _classify_smtp_error(smtp_code)
             if data_accepted:
-                return self._accepted_with_cleanup_failure()
+                return self._accepted_with_cleanup_failure(envelope, partial_refused)
+            # A server reply code means the server DID answer — the
+            # refusal is known and classified, not unknown. Only a
+            # code-less SMTP-layer break mid-DATA leaves acceptance
+            # unproven.
             return NotificationResult(
                 attempt_id=uuid.uuid4(),
                 transport=self.kind,
                 outcome=outcome,
                 delivered=False,
+                acceptance_unknown=(smtp_code is None and stage is SMTPStage.DATA),
                 detail=f"smtp error code={smtp_code} stage={stage.value}",
                 retry_after_s=retry_after_s,
             )
         except ConnectionRefusedError, ConnectionResetError, OSError:
             if data_accepted:
-                return self._accepted_with_cleanup_failure()
+                return self._accepted_with_cleanup_failure(envelope, partial_refused)
             return NotificationResult(
                 attempt_id=uuid.uuid4(),
                 transport=self.kind,
                 outcome=DeliveryOutcome.TRANSIENT_FAILURE,
                 delivered=False,
+                acceptance_unknown=stage is SMTPStage.DATA,
                 detail=(
                     f"connection error stage={stage.value} data_acceptance=unknown"
                     if stage is SMTPStage.DATA
@@ -438,7 +450,11 @@ class SMTPTransport(NotificationTransport):
             finished_at=datetime.now(UTC),
         )
 
-    def _accepted_with_cleanup_failure(self) -> NotificationResult:
+    def _accepted_with_cleanup_failure(
+        self,
+        envelope: NotificationEnvelope,
+        partial_refused: Mapping[str, int],
+    ) -> NotificationResult:
         """Result for "DATA was accepted, then teardown blew up".
 
         The message is on the wire — reporting TRANSIENT_FAILURE/TIMEOUT
@@ -447,8 +463,42 @@ class SMTPTransport(NotificationTransport):
         outcome is therefore ACCEPTED_BY_SERVICE with the terminal
         receipt honestly marked unconfirmed; nothing about the exception
         text, address or credentials is recorded.
+
+        When ``send_message`` already reported refused recipients, their
+        outcomes are PRESERVED (C review 5678438821): the accepted ones
+        are never re-sent (``delivered=True`` keeps the dedup guard
+        settled) and the refused ones keep their original 4yz/5yz codes
+        in ``recipient_outcomes``. The audit must not read as "every
+        recipient accepted" when a refusal was already on record.
         """
 
+        outcomes: list[RecipientOutcome] = [
+            RecipientOutcome(
+                address=addr,
+                code=code,
+                refused=True,
+                retriable=bool(code is not None and 400 <= code < 500),
+            )
+            for addr, code in sorted(partial_refused.items())
+        ]
+        if partial_refused:
+            outcomes.extend(
+                RecipientOutcome(
+                    address=addr, code=None, refused=False, retriable=False
+                )
+                for addr in (
+                    *envelope.recipients,
+                    *envelope.cc,
+                )
+                if addr not in partial_refused
+            )
+            refused_summary = (
+                f"refused codes={sorted(partial_refused.values())} "
+                f"count={len(partial_refused)} preserved; "
+                "never re-send accepted recipients"
+            )
+        else:
+            refused_summary = "every recipient accepted before teardown failed"
         return NotificationResult(
             attempt_id=uuid.uuid4(),
             transport=self.kind,
@@ -457,10 +507,11 @@ class SMTPTransport(NotificationTransport):
             detail=(
                 f"stage={SMTPStage.POST_SEND_CLEANUP.value} "
                 "data accepted but connection teardown failed after "
-                "send_message returned; terminal receipt unconfirmed; "
-                "do not auto-retry"
+                f"send_message returned; {refused_summary}; "
+                "terminal receipt unconfirmed; do not auto-retry"
             ),
             server_response=None,
+            recipient_outcomes=tuple(outcomes),
             finished_at=datetime.now(UTC),
         )
 

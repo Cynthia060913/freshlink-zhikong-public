@@ -11,7 +11,9 @@
    （SMTP 由 settings、飞书由环境变量）；未配置的渠道静默跳过，
    由调用方通过 ``DispatchReport`` 看到实际发送了哪些渠道。
 3. **有界重试**：仅对 ``transient_failure`` / ``timeout`` 重试，
-   ``permanent_failure`` 与 ``accepted_by_service`` 终止；每次尝试
+   ``permanent_failure`` 与 ``accepted_by_service`` 终止；接受无法证实
+   的中断（DATA 阶段连接断开，``acceptance_unknown``）**绝不**自动重试，
+   同次派发与后续运行都把该渠道保持为待人工核验；每次尝试
    （含失败）都追加一行 attempt 记录，重试间隔为指数退避与
    ``Retry-After`` 取大、并以 ``max_delay_s`` 封顶。
 4. **Attempt 持久化**：默认写入调用方 session，但插入在 SAVEPOINT
@@ -20,9 +22,11 @@
    供 :func:`dispatch_committed_event` 使用）。记录失败不中断派发，
    只在结果 detail 上如实标注。
 5. **同源去重（best-effort，非并发恰好一次）**：同一告警事件 + 同一
-   渠道若已有 ``delivered`` 的 attempt 记录，则跳过该渠道；去重查询
-   本身失败时**保守 fail-closed：零发送**（``DispatchReport.
-   dedup_error=True``），绝不因查重丢失而重复打扰收件人。
+   渠道若已有 ``delivered`` 的 attempt 记录、或已有
+   ``acceptance_unknown``（接受未证实，待人工核验）的 attempt 记录，
+   则跳过该渠道；去重查询本身失败时**保守 fail-closed：零发送**
+   （``DispatchReport.dedup_error=True``），绝不因查重丢失而重复打扰
+   收件人。
 6. **渠道隔离**：单个渠道违反"send 不抛异常"契约（如读取响应时
    TimeoutError 逃逸）只影响该渠道——结构化记录后继续其余渠道；
    异常文本与 URL 不入库。
@@ -50,6 +54,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import or_
 from sqlmodel import Session, col, select
 
 from app.modules.alerts.models.event import AlertEvent, NotificationAttempt
@@ -88,6 +93,15 @@ _SEVERITY_LABELS: dict[str, str] = {
 _RETRYABLE_OUTCOMES = frozenset(
     {DeliveryOutcome.TRANSIENT_FAILURE, DeliveryOutcome.TIMEOUT}
 )
+
+# Persistent audit marker for a send whose acceptance cannot be proven:
+# a connection-class break mid-DATA means the message MAY have been
+# accepted, so the attempt row records this fixed outcome value (never
+# a retryable one) and both the dedup guard and the pending scan hold
+# the channel for manual verification instead of blind-resending
+# (C review 5678438821). The DeliveryOutcome four-value contract is
+# unchanged; this value lives only in the attempt-audit column.
+ACCEPTANCE_UNKNOWN_OUTCOME = "acceptance_unknown"
 
 
 def format_alert_time(moment: datetime) -> str:
@@ -201,7 +215,7 @@ class AlertNotificationDispatcher:
         attempt persistence failures are contained by contract."""
 
         try:
-            accepted = self._accepted_channels(session, event.id)
+            accepted = self._settled_channels(session, event.id)
         except Exception:
             # FAIL CLOSED (A review 6320881681): without a trustworthy
             # dedup read, sending risks duplicate notifications to
@@ -281,13 +295,27 @@ class AlertNotificationDispatcher:
             )
 
     @staticmethod
-    def _accepted_channels(
+    def _settled_channels(
         session: Session, alert_event_id: Any
     ) -> set[NotificationKind]:
+        """Channels this event must NOT be auto-sent to again.
+
+        A channel is settled when a delivered attempt exists (dedup
+        guard) OR an ``acceptance_unknown`` attempt exists: an
+        unproven acceptance must never be answered with an automatic
+        re-send, in this dispatch or any later run (C review
+        5678438821) — the attempt trail holds the channel for manual
+        verification instead.
+        """
         statement = (
             select(NotificationAttempt.channel)
             .where(NotificationAttempt.alert_event_id == alert_event_id)
-            .where(col(NotificationAttempt.delivered).is_(True))
+            .where(
+                or_(
+                    col(NotificationAttempt.delivered).is_(True),
+                    NotificationAttempt.outcome == ACCEPTANCE_UNKNOWN_OUTCOME,
+                )
+            )
         )
         accepted: set[NotificationKind] = set()
         for channel in session.exec(statement):
@@ -307,7 +335,15 @@ class AlertNotificationDispatcher:
         result = self._send_once(transport, envelope)
         result = self._record_attempt(session, event, result)
         attempt_no = 1
-        while result.outcome in _RETRYABLE_OUTCOMES and attempt_no < self._max_attempts:
+        # acceptance_unknown is NEVER retried, not even within the
+        # bounded budget: an unproven acceptance plus a re-send is the
+        # duplicate-notification scenario this layer exists to prevent
+        # (C review 5678438821).
+        while (
+            result.outcome in _RETRYABLE_OUTCOMES
+            and not result.acceptance_unknown
+            and attempt_no < self._max_attempts
+        ):
             self._sleep(self._next_delay(attempt_no, result.retry_after_s))
             attempt_no += 1
             result = self._send_once(transport, envelope)
@@ -323,10 +359,19 @@ class AlertNotificationDispatcher:
     def _record_attempt(
         self, session: Session, event: AlertEvent, result: NotificationResult
     ) -> NotificationResult:
+        # An acceptance-unknown send persists the fixed sentinel outcome
+        # (not a retryable classification) so later dispatches and
+        # pending scans hold the channel instead of re-sending (C
+        # review 5678438821); delivered stays False — unknown is never
+        # recorded as accepted.
         row = NotificationAttempt(
             alert_event_id=event.id,
             channel=result.transport.value,
-            outcome=result.outcome.value,
+            outcome=(
+                ACCEPTANCE_UNKNOWN_OUTCOME
+                if result.acceptance_unknown
+                else result.outcome.value
+            ),
             delivered=result.delivered,
             detail=result.detail or None,
             server_response=result.server_response,

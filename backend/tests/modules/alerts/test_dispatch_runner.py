@@ -162,6 +162,45 @@ class PendingScanCase(unittest.TestCase):
             session.commit()
         self.assertIn(event_id, _pending())
 
+    def test_unknown_attempt_channel_held_not_pending(self) -> None:
+        # C review 5678438821: an acceptance-unknown attempt (connection
+        # broke mid-DATA) holds the channel for manual verification —
+        # the event is NOT re-picked for it after a restart, even
+        # though nothing was delivered.
+        event_id = _commit_event(source=f"run-unknown-{uuid.uuid4()}")
+        with Session(engine) as session:
+            session.add(
+                NotificationAttempt(
+                    alert_event_id=event_id,
+                    channel=NotificationKind.SMTP_EMAIL.value,
+                    outcome="acceptance_unknown",
+                    delivered=False,
+                    detail="connection error stage=data data_acceptance=unknown",
+                )
+            )
+            session.add(
+                _seed_attempt(event_id, NotificationKind.APP_PUSH.value, delivered=True)
+            )
+            session.commit()
+        self.assertNotIn(event_id, _pending())
+
+    def test_unknown_hold_on_one_channel_keeps_other_owed(self) -> None:
+        # The hold is per-channel: SMTP held, APP_PUSH still owed ->
+        # the event stays pending and the cycle completes only APP_PUSH.
+        event_id = _commit_event(source=f"run-unknown2-{uuid.uuid4()}")
+        with Session(engine) as session:
+            session.add(
+                NotificationAttempt(
+                    alert_event_id=event_id,
+                    channel=NotificationKind.SMTP_EMAIL.value,
+                    outcome="acceptance_unknown",
+                    delivered=False,
+                    detail="connection error stage=data data_acceptance=unknown",
+                )
+            )
+            session.commit()
+        self.assertIn(event_id, _pending())
+
     def test_attempt_cap_excludes_but_lower_cap_includes(self) -> None:
         event_id = _commit_event(source=f"run-cap-{uuid.uuid4()}")
         with Session(engine) as session:

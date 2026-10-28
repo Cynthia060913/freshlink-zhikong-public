@@ -35,6 +35,13 @@ from app.modules.alerts.notifications.transport import (
     NotificationResult,
     NotificationTransport,
 )
+from tests.modules.alerts.test_smtp import (
+    MockSMTP,
+    SMTPTransport,
+    _config,
+    _factory,
+    _State,
+)
 
 
 def _event(
@@ -713,3 +720,146 @@ class PostCommitEntryCase(unittest.TestCase):
         )
         assert report.results == ()
         assert scripted.envelopes == []
+
+
+class AcceptanceUnknownHoldCase(unittest.TestCase):
+    """C review 5678438821 defect 1: a send whose acceptance cannot be
+    proven (connection broke mid-DATA) must never be auto-retried —
+    neither within one dispatch nor across later runs — and the hold
+    must be persisted, not carried in free text."""
+
+    @staticmethod
+    def _unknown_result() -> NotificationResult:
+        return NotificationResult(
+            attempt_id=uuid.uuid4(),
+            transport=NotificationKind.SMTP_EMAIL,
+            outcome=DeliveryOutcome.TRANSIENT_FAILURE,
+            delivered=False,
+            acceptance_unknown=True,
+            detail="connection error stage=data data_acceptance=unknown",
+        )
+
+    def test_unknown_not_retried_within_dispatch(self) -> None:
+        # The result classifies transient (retryable outcome), but the
+        # unknown-acceptance flag must stop the retry loop after the
+        # FIRST attempt: max_attempts=3, exactly one send.
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL,
+            [self._unknown_result(), _result(), _result()],
+        )
+        sleeper = _Sleep()
+        dispatcher = AlertNotificationDispatcher(
+            [scripted], max_attempts=3, sleep=sleeper
+        )
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-1-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            report = dispatcher.dispatch(session, event)
+            session.rollback()
+        assert len(scripted.envelopes) == 1
+        assert sleeper.calls == []
+        assert report.results[0].delivered is False
+
+    def test_unknown_attempt_persisted_with_sentinel_outcome(self) -> None:
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL, [self._unknown_result()]
+        )
+        dispatcher = AlertNotificationDispatcher([scripted], max_attempts=3)
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-2-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            dispatcher.dispatch(session, event)
+            rows = _attempts(session, event.id)
+            outcomes = [(r.outcome, r.delivered) for r in rows]
+            session.rollback()
+        assert outcomes == [("acceptance_unknown", False)]
+
+    def test_unknown_attempt_settles_channel_across_runs(self) -> None:
+        # A later dispatch (fresh dispatcher, fresh transport — the
+        # restart shape) must SKIP the channel: an unproven acceptance
+        # is never answered with an automatic re-send.
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL, [self._unknown_result()]
+        )
+        dispatcher = AlertNotificationDispatcher([scripted], max_attempts=3)
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-3-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            dispatcher.dispatch(session, event)
+            session.commit()  # persist the unknown attempt, not just flush
+            event_id = event.id
+        later = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        later_dispatcher = AlertNotificationDispatcher([later], max_attempts=3)
+        with Session(engine) as session:
+            stored = session.get(AlertEvent, event_id)
+            assert stored is not None
+            report = later_dispatcher.dispatch(session, stored)
+            session.rollback()
+        assert later.envelopes == []
+        assert report.skipped_channels == (NotificationKind.SMTP_EMAIL,)
+
+    def test_unknown_hold_via_real_smtp_adapter_and_post_commit_entry(self) -> None:
+        # Combined regression with the REAL SMTP transport + MockSMTP
+        # (C review 5678438821): mid-DATA ConnectionResetError → one
+        # attempt, sentinel outcome persisted, and a second
+        # dispatch_committed_event run (restart shape) sends nothing.
+        MockSMTP.state = _State(send_raises=ConnectionResetError("eof mid-data"))
+        first = SMTPTransport(_config(), _factory())
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-4-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            event_id = event.id
+        report = dispatch_committed_event(
+            _independent_factory,
+            event_id,
+            transports=[first],
+            recipients=("a@example.com",),
+        )
+        assert len(MockSMTP.sent_messages) == 1
+        assert report.results[0].acceptance_unknown is True
+        with Session(engine) as reader:
+            rows = _attempts(reader, event_id)
+        assert len(rows) == 1
+        assert rows[0].outcome == "acceptance_unknown"
+        # Restart: fresh adapter, fresh run — zero further sends.
+        MockSMTP.state = _State()
+        second = SMTPTransport(_config(), _factory())
+        dispatch_committed_event(
+            _independent_factory,
+            event_id,
+            transports=[second],
+            recipients=("a@example.com",),
+        )
+        assert len(MockSMTP.sent_messages) == 1
+
+    def test_pre_send_failure_still_retries_within_budget(self) -> None:
+        # Guard against over-suppression: a plain pre-DATA transient
+        # (acceptance KNOWN not to have happened) keeps the bounded
+        # retry budget.
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL,
+            [
+                _result(
+                    outcome=DeliveryOutcome.TRANSIENT_FAILURE,
+                    detail="connection error stage=connect",
+                    retry_after_s=0.0,
+                ),
+                _result(),
+            ],
+        )
+        sleeper = _Sleep()
+        dispatcher = AlertNotificationDispatcher(
+            [scripted], max_attempts=3, sleep=sleeper
+        )
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-5-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            dispatcher.dispatch(session, event)
+            session.rollback()
+        assert len(scripted.envelopes) == 2
+        assert len(sleeper.calls) == 1
