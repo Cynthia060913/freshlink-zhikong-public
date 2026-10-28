@@ -1,9 +1,10 @@
 # 鲜链智控软件设计文档（M03 汇编稿）
 
-**汇编**：B（xixidamei），2026-10-25。
-**汇编基准**：共同 main `36cdc449d6f6b8bdb50b8cd0e74f2bacf97b4546`；另含待审
-PR #80（关联更正契约，head `b07a5e3e91cc674b3b06469a35f7c130839f1982`）——
-引用处均单独标注，未把待审增量写成已发布事实。
+**汇编**：B（xixidamei），2026-10-28 修订。
+**汇编基准**：共同 main `319aa63`（含关联更正契约 PR #80/#83 与 A PR #94
+已合入成果）；B 增量 PR #96（SMTP 固定阶段诊断，head
+`5fa963c45f9e7a97e78856440e00998f24693aa8`）引用处单独标注，未把增量写成
+已发布事实。
 **章节来源**：需求/架构/ER/数据字典来自
 [A-SYSTEM-DESIGN.md](A-SYSTEM-DESIGN.md) 与
 [design/README.md](design/README.md)（A，基于业务源码 `71e5a882`，只读反射
@@ -154,8 +155,9 @@ integrity 失败回读已存行再分类（`_insert_event`）。瞬时存储失�
 - **更正永不写状态迁移行**：resolved 不回退、open 不重开、历史不改写；
   更正行本身（含双 ID 关联）即追溯记录，后续恢复及其重放不能清除更正提示。
 - 幂等沿用通用分类：同 source 同摘要 `accepted_duplicate`、改正文
-  `conflict`。真实 PG 回归 13 条
-  （`tests/modules/alerts/test_data_quality_correction.py`），含双连接锁
+  `conflict`。真实 PG 回归 21 条
+  （`tests/modules/alerts/test_data_quality_correction.py`，PR #80 组合头
+  `d1f5359` 定稿、已随 main `319aa63` 合入），含双连接锁
   交错：更正在并发提交的恢复之后执行不回退 resolved、迁移行仍只一条。
 
 ### 5.5 通知派发层（`notifications/dispatch.py`）
@@ -237,29 +239,35 @@ integrity 失败回读已存行再分类（`_insert_event`）。瞬时存储失�
 
 | # | 范围 | 环境 | 结果 | 证据位置 |
 |---|---|---|---|---|
-| 1 | B 告警全量套件（含更正 13 条、runner、派发、恢复、迁移） | 真实 PG 18 / Python 3.14，本机隔离实例 | 380 passed, 2 skipped（PG opt-in）, 15 subtests | `backend/tests/modules/alerts/`，本汇编基准工作树实跑 |
-| 2 | 更正契约回归：首收/重放/冲突/未知原异常/跨批/更正先于恢复/旧恢复重放/DTO 拒绝 | 真实 PG | 13 passed | `tests/modules/alerts/test_data_quality_correction.py`（PR #80） |
+| 1 | B 告警全量套件（含更正 21 条、runner、派发、恢复、迁移、SMTP 阶段诊断负向 6 条） | 真实 PG 18 / Python 3.14，本机隔离实例 | 400 passed, 2 skipped（PG opt-in）, 15 subtests | `backend/tests/modules/alerts/`，PR #96 头 `5fa963c` 工作树实跑（2026-10-28） |
+| 2 | 更正契约回归：首收/重放/冲突/未知原异常/跨批/更正先于恢复/旧恢复重放/DTO 拒绝 | 真实 PG | 21 passed | `tests/modules/alerts/test_data_quality_correction.py`（PR #80 组合头 `d1f5359`，已入 main） |
 | 3 | 双连接锁交错：更正排队于原异常行锁后，不回退并发提交的 resolved | 真实 PG 双连接 | passed | 同上（`test_correction_serializes_behind_held_original_row_lock`） |
 | 4 | ACK/恢复行锁串行化：双确认只留一条、恢复不回退 | 真实 PG 双连接 | passed | `tests/modules/alerts/test_recovery_candidates.py`（A 审入 ae2a941） |
 | 5 | runner 互斥/持久预算/dry-run/重启续跑 | 真实 PG | passed（互斥为双实例真实争锁） | `tests/modules/alerts/test_dispatch_runner.py` |
-| 6 | 全量后端回归（CI） | GitHub Actions Python 3.14 / 隔离 PG | PR #80 head 全绿（6 workflows） | PR #80 checks |
+| 6 | 全量后端回归（CI） | GitHub Actions Python 3.14 / 隔离 PG | PR #80 组合头 `d1f5359` CI 9 workflows 全绿；PR #96 `5fa963c` 结果见 PR checks（本稿修订时以 CI 实况为准） | PR #80 / PR #96 checks |
 | 7 | A 组合链：14 设备/7 流/执行 ACK 后降温、离线重启恢复、CSV 对拍 | 精确 `62bb2ef` 受控环境 | 见 A46 记录 | [A-TEST-REPORT-CANDIDATE.md](A-TEST-REPORT-CANDIDATE.md) |
+| 8 | A 通知实测（#8 6440797666）：单一事件、每渠道一次、失败不补发 | A 本机、真实渠道 | **飞书手机端实收由 A 本人确认**；SMTP 一次发送遇 SSL 意外 EOF，**终端实收待核，未补发** | #8 6440797666（A 队列记录） |
+| 9 | C 第二机（PR #11 精确 `0db9402`）：默认 CMD/HTTP 与 14 设备分段 | C 第二台电脑 | 默认 CMD/HTTP 与 14 设备分段通过；**GuardedRecovery 降温检查两次失败，未最终签收** | PR #11（C 测试材料） |
 
-**如实未测**（不写成通过）：真实 SMTP/飞书终端实收；C 自动恢复发送门禁；
-完整同版 E1；第二机复现；runner 组合进 A 运行包的现场验证；
+**如实未测**（不写成通过）：SMTP 邮箱终端实收（一次 SSL EOF 后待核、未
+补发）；C 自动恢复发送门禁最终签收（两次降温检查失败）；完整同版 E1；
+最终第二机复现冻结版；runner 组合进 A 运行包的现场验证；
 SIGTERM 派发中途窗口。
 
 ## 10. 限制与未验证清单
 
-1. 通知终端实收（SMTP 邮箱、飞书手机端）待持有人配置并经具体授权后实测；
-   服务接受 ≠ 实收，输出字段已固定为 `terminal_receipt_confirmed=False`。
-2. 关联更正契约（PR #80）待 A 独立审查、C 侧适配确认
-   （c-data-quality-correction/v0 → wire 字段映射，#5 6398872018）。
+1. 通知终端实收：**飞书手机端已由 A 本人在受控单一事件实测确认**（#8
+   6440797666）；**SMTP 邮箱一次发送遇 SSL 意外 EOF，终端实收待核，未补发**
+   ——服务接受 ≠ 实收，输出字段固定 `terminal_receipt_confirmed=False`；
+   完整双渠道 E1 链路仍未完成。
+2. 关联更正契约已随 PR #80/#83 合入 main（`319aa63`）；C 侧
+   c-data-quality-correction/v0 → wire 字段映射确认（#5 6398872018）与
+   GuardedRecovery 恢复链针对性续验（#6，两次降温检查失败）仍开放。
 3. 智能算法未启用：以版本化阈值规则为基线，无 M06/M07 算法报告，不虚构
    算法性能页。
 4. WH1 多批告警评价在 A46 记录中仍 hold；多批完整链路待同版 E1。
 5. 模拟数据不宣称为真实果品品质实验；阈值异常不宣称真实腐败概率。
 6. ER 图基于业务源码 `71e5a882` 反射；冻结版本若模式变化须重新核对，
    不只替换 SHA 标签。
-7. 本文档对齐汇编基准 main `36cdc449`（+ PR #80 待审）；冻结候选确定后
+7. 本文档对齐汇编基准 main `319aa63`（+ PR #96 增量）；冻结候选确定后
    须逐节复核更新，M03 成品需三人各自实签。
