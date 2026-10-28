@@ -1,5 +1,41 @@
 # 鲜链智控团队测试报告底稿（C 汇编）
 
+## 2026-10-28 C 第二机 PR #94 精确候选与普通用户验收
+
+共同 [PR #94](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/94)
+精确源码 `e7fffd61c199234918dcf1713cc1f3dd6ce78c51` 已在本 Windows
+第二机独立构建。源码 ZIP SHA256
+`b90a7b33e827fe8720092ae51db7e15e1c08cb298b05e5b62b44e857bb1b93e2`；
+本人镜像 ID 为
+`sha256:9be10a60c147722a68e4813aeebaefa67c0d0cad1815623e213973aafd70ef27`，
+与 A 独立构建的镜像 ID 不同。无源码挂载、默认 CMD、随机空 PG18 的
+真实 HTTP 冒烟通过：健康、匿名 401、管理员登录、注册 201/重复 409 与
+详情读取。报告 SHA256
+`D987E196E88FDF8EEE3C5CCA2D357BF6C05ABA8FEE9389EBEFE3C7A009E63DCA`。
+
+同镜像另一个随机项目运行 14 设备夹具：两冷库、三批、七条实际 C
+采集流、七个执行 ACK 与后续采样、14 个离线/恢复追溯；两库快照 CSV
+脚本回报 40/27 行，B ASGI 接受三批高温事件。夹具 JSON SHA256
+`2F592CDCBCFDB748E2BC3CBCA4370D2A6F397614D213CE172284AC208FEB8D6A`。
+该夹具未运行 180 秒持续段，`notifications_sent=0`、`complete_e1=false`。
+
+在该项目实际网页以一次性普通用户登录：设备页有 14 台及两库关联，
+设备详情有心跳和离线/恢复来源；遥测页按一设备得到固定快照 10 条，
+可看原始 JSON 及重复接收；告警页列三条且普通用户只读。页面 CSV
+按钮已点击，但未取得浏览器管理的下载文件路径，**不能声称浏览器下载
+文件已经核验**。另以同普通用户 HTTP 获取同设备固定快照及 CSV 文件，
+结果 200、10 行、14 列，全部属于筛选设备；该 API 文件 SHA256
+`23CA765A87769081F63DE19DAD512BC25A26FFDD9DBF2CE28C555D1939994614`。
+普通用户 POST 告警确认返回 403，匿名 CSV 返回 401。页面操作与 API
+文件分别记账。证据见 [E1 #6 本人记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6449022153)。
+
+本次专属 UI/PG/MQTT 容器及网络清理后均余 0，无真实通知。PR #94
+随后合入 main `319aa6363d921922070b4330bf74e344a8b0c1bb`，但本试验
+运行于 e7 精确检出，不能称为合并后重新运行。未测本次第二机自然持续恢复、
+浏览器实际下载文件、同一事件两渠道终端实收及完整 E1。A 的原 10°C
+自然恢复和 291 行同快照 CSV 见 [其独立记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6448255164)，
+不能与本机分段拼为一次完整 E1。
+
 ## 2026-10-28 C 第二机与新共同基线（待同版自然恢复）
 
 共同 main `81eb3d3a1ef4c62f3dd449d7df14a4ef41fa513e` 已合入 A 的
