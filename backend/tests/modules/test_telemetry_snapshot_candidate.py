@@ -112,6 +112,66 @@ class SnapshotCandidateTests(unittest.TestCase):
             )
         )
 
+    def test_multi_batch_versions_match_page_and_fixed_csv(self) -> None:
+        saved = ingest_observation(
+            self.engine,
+            reception("2026-10-16T00:01:00Z", 6, NOW - timedelta(minutes=4)),
+        )
+        untouched = ingest_observation(
+            self.engine,
+            reception("2026-10-16T00:02:00Z", 7, NOW - timedelta(minutes=3)),
+        )
+        self.assertEqual((saved.status, untouched.status), ("accepted_new", "accepted_new"))
+        first_batch = "11111111-1111-4111-8111-111111111111"
+        second_batch = "22222222-2222-4222-8222-222222222222"
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == saved.observation_id)
+                .values(
+                    risk={
+                        "state": "normal",
+                        "reason": "multi_batch_evaluation",
+                        "batches": [
+                            {
+                                "batch_id": second_batch,
+                                "rule_version": "temp-v2",
+                                "rule_snapshot_id": str(uuid4()),
+                                "state": "normal",
+                            },
+                            {
+                                "batch_id": first_batch,
+                                "rule_version": "temp-v1",
+                                "rule_snapshot_id": str(uuid4()),
+                                "state": "normal",
+                            },
+                        ],
+                    }
+                )
+            )
+        filters = HistoryFiltersCandidate(warehouse_id=WAREHOUSE)
+        fixed = create_snapshot_candidate(
+            self.engine,
+            actor_id=ACTOR,
+            filters=filters,
+            policy_version="active-user-read-v1",
+            now=NOW,
+        )
+        page = self._read(fixed)
+        expected = [
+            {"batch_id": first_batch, "rule_version": "temp-v1"},
+            {"batch_id": second_batch, "rule_version": "temp-v2"},
+        ]
+        self.assertEqual(page.items[0]["observation_id"], str(saved.observation_id))
+        self.assertEqual(page.items[0]["risk_state"], "normal")
+        self.assertEqual(json.loads(page.items[0]["rule_version"]), expected)
+        csv_rows = self._csv(fixed)
+        self.assertEqual(len(csv_rows), 2)
+        self.assertEqual(csv_rows[0]["rule_version"], page.items[0]["rule_version"])
+        self.assertEqual(csv_rows[1]["observation_id"], str(untouched.observation_id))
+        self.assertEqual(csv_rows[1]["risk_state"], "unknown")
+        self.assertEqual(csv_rows[1]["rule_version"], "")
+
     def test_later_insert_with_earlier_time_cannot_enter_old_pages(self) -> None:
         first = ingest_observation(
             self.engine,
