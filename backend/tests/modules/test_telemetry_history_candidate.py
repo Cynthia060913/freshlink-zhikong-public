@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, select
 
 from app.modules.telemetry.history_candidate import (
     HistoryFiltersCandidate,
-    _rule_version_for_history,
+    _batch_rule_refs_from_risk,
     latest_observation_candidate,
     list_history_candidate,
 )
@@ -84,29 +84,47 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
             ids.append(result.observation_id)
         return records, ids
 
-    def test_rule_version_projection_preserves_batch_identity_and_unknown(self) -> None:
+    def test_batch_rule_refs_keep_identity_and_unknown_distinct(self) -> None:
         self.assertEqual(
-            _rule_version_for_history({"rule_version": "temp-v1"}), "temp-v1"
+            _batch_rule_refs_from_risk({"rule_version": "temp-v1"}), []
         )
-        batches = [
-            {"batch_id": "batch-b", "rule_version": "temp-v1"},
-            {"batch_id": "batch-a", "rule_version": "temp-v1"},
-        ]
-        mapped = _rule_version_for_history({"batches": batches})
-        assert mapped is not None
+        first = "11111111-1111-4111-8111-111111111111"
+        second = "22222222-2222-4222-8222-222222222222"
+        snapshot = "33333333-3333-4333-8333-333333333333"
+        refs = _batch_rule_refs_from_risk(
+            {
+                "batches": [
+                    {
+                        "batch_id": second,
+                        "rule_version": "temp-v1",
+                        "rule_snapshot_id": snapshot,
+                        "state": "normal",
+                    },
+                    {
+                        "batch_id": first,
+                        "rule_version": "temp-v1",
+                        "rule_snapshot_id": snapshot,
+                        "state": "normal",
+                    },
+                ]
+            }
+        )
         self.assertEqual(
-            json.loads(mapped),
-            [
-                {"batch_id": "batch-a", "rule_version": "temp-v1"},
-                {"batch_id": "batch-b", "rule_version": "temp-v1"},
-            ],
+            [ref["batch_id"] for ref in refs or []], [first, second]
+        )
+        self.assertEqual(
+            [ref["rule_version"] for ref in refs or []],
+            ["temp-v1", "temp-v1"],
+        )
+        self.assertEqual(_batch_rule_refs_from_risk({"batches": []}), [])
+        self.assertIsNone(
+            _batch_rule_refs_from_risk(
+                {"state": "unknown", "reason": "no_usable_rule"}
+            )
         )
         self.assertIsNone(
-            _rule_version_for_history({"state": "unknown", "reason": "no_usable_rule"})
-        )
-        self.assertIsNone(
-            _rule_version_for_history(
-                {"state": "normal", "batches": [{"batch_id": "batch-a"}]}
+            _batch_rule_refs_from_risk(
+                {"batches": [{"batch_id": first, "rule_version": "temp-v1"}]}
             )
         )
 
