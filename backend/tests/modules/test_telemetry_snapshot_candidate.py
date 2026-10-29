@@ -112,7 +112,7 @@ class SnapshotCandidateTests(unittest.TestCase):
             )
         )
 
-    def test_multi_batch_versions_match_page_and_fixed_csv(self) -> None:
+    def test_multi_batch_refs_match_page_and_explicit_csv_v2(self) -> None:
         saved = ingest_observation(
             self.engine,
             reception("2026-10-16T00:01:00Z", 6, NOW - timedelta(minutes=4)),
@@ -126,6 +126,8 @@ class SnapshotCandidateTests(unittest.TestCase):
         )
         first_batch = "11111111-1111-4111-8111-111111111111"
         second_batch = "22222222-2222-4222-8222-222222222222"
+        first_snapshot = "33333333-3333-4333-8333-333333333333"
+        second_snapshot = "44444444-4444-4444-8444-444444444444"
         with self.engine.begin() as connection:
             connection.execute(
                 update(observations)
@@ -138,13 +140,13 @@ class SnapshotCandidateTests(unittest.TestCase):
                             {
                                 "batch_id": second_batch,
                                 "rule_version": "temp-v2",
-                                "rule_snapshot_id": str(uuid4()),
+                                "rule_snapshot_id": second_snapshot,
                                 "state": "normal",
                             },
                             {
                                 "batch_id": first_batch,
                                 "rule_version": "temp-v1",
-                                "rule_snapshot_id": str(uuid4()),
+                                "rule_snapshot_id": first_snapshot,
                                 "state": "normal",
                             },
                         ],
@@ -161,18 +163,68 @@ class SnapshotCandidateTests(unittest.TestCase):
         )
         page = self._read(fixed)
         expected = [
-            {"batch_id": first_batch, "rule_version": "temp-v1"},
-            {"batch_id": second_batch, "rule_version": "temp-v2"},
+            {
+                "batch_id": first_batch,
+                "rule_version": "temp-v1",
+                "rule_snapshot_id": first_snapshot,
+                "state": "normal",
+            },
+            {
+                "batch_id": second_batch,
+                "rule_version": "temp-v2",
+                "rule_snapshot_id": second_snapshot,
+                "state": "normal",
+            },
         ]
         self.assertEqual(page.items[0]["observation_id"], str(saved.observation_id))
         self.assertEqual(page.items[0]["risk_state"], "normal")
-        self.assertEqual(json.loads(page.items[0]["rule_version"]), expected)
-        csv_rows = self._csv(fixed)
-        self.assertEqual(len(csv_rows), 2)
-        self.assertEqual(csv_rows[0]["rule_version"], page.items[0]["rule_version"])
-        self.assertEqual(csv_rows[1]["observation_id"], str(untouched.observation_id))
-        self.assertEqual(csv_rows[1]["risk_state"], "unknown")
-        self.assertEqual(csv_rows[1]["rule_version"], "")
+        self.assertIsNone(page.items[0]["rule_version"])
+        self.assertEqual(page.items[0]["batch_rule_refs"], expected)
+        csv_v1 = self._csv(fixed)
+        csv_v2 = self._csv(fixed, export_schema=2)
+        self.assertEqual(len(csv_v1), 2)
+        self.assertEqual(len(csv_v1[0]), 14)
+        self.assertEqual(csv_v1[0]["rule_version"], "")
+        self.assertEqual(len(csv_v2[0]), 15)
+        self.assertEqual(json.loads(csv_v2[0]["batch_rule_refs_json"]), expected)
+        self.assertEqual(csv_v2[1]["observation_id"], str(untouched.observation_id))
+        self.assertEqual(csv_v2[1]["risk_state"], "unknown")
+        self.assertEqual(csv_v2[1]["batch_rule_refs_json"], "null")
+        with self.assertRaisesRegex(ValueError, "invalid_export_schema"):
+            self._csv(fixed, export_schema=3)
+
+        # A later change cannot alter an already frozen projection.
+        with self.engine.begin() as connection:
+            connection.execute(
+                update(observations)
+                .where(observations.c.id == saved.observation_id)
+                .values(risk={"state": "unknown", "reason": "test_later_change"})
+            )
+        self.assertEqual(
+            json.loads(self._csv(fixed, export_schema=2)[0]["batch_rule_refs_json"]),
+            expected,
+        )
+        # Pre-upgrade members lacking the field are unknown, never [].
+        with self.engine.begin() as connection:
+            projection = connection.execute(
+                select(snapshot_members.c.projection).where(
+                    snapshot_members.c.snapshot_id == fixed,
+                    snapshot_members.c.ordinal == 0,
+                )
+            ).scalar_one()
+            projection = dict(projection)
+            projection.pop("batch_rule_refs")
+            connection.execute(
+                update(snapshot_members)
+                .where(
+                    snapshot_members.c.snapshot_id == fixed,
+                    snapshot_members.c.ordinal == 0,
+                )
+                .values(projection=projection)
+            )
+        self.assertEqual(
+            self._csv(fixed, export_schema=2)[0]["batch_rule_refs_json"], "null"
+        )
 
     def test_later_insert_with_earlier_time_cannot_enter_old_pages(self) -> None:
         first = ingest_observation(
