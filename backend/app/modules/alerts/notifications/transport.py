@@ -84,7 +84,15 @@ class RecipientOutcome:
 
 @dataclass(frozen=True)
 class NotificationResult:
-    """Structured outcome of one ``send`` attempt."""
+    """Structured outcome of one ``send`` attempt.
+
+    ``acceptance_unknown`` marks the conservative "the connection broke
+    mid-send so acceptance cannot be proven either way" state (C review
+    5678438821): it stays ``delivered=False`` — unknown is NEVER
+    reported as accepted — but dispatch must not auto-retry it, within
+    the current dispatch or across later runs. The four-value
+    :class:`DeliveryOutcome` contract is unchanged.
+    """
 
     attempt_id: uuid.UUID
     transport: NotificationKind
@@ -94,6 +102,10 @@ class NotificationResult:
     server_response: str | None = None
     retry_after_s: float | None = None
     recipient_outcomes: tuple[RecipientOutcome, ...] = ()
+    # True only when a connection-class failure interrupted the DATA
+    # phase AFTER the request left the wire: the send may or may not
+    # have been accepted, so no automatic retry is safe.
+    acceptance_unknown: bool = False
     finished_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 

@@ -17,11 +17,13 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, col, select
 
 from app.core.db import engine
 from app.modules.alerts.models.event import AlertEvent, NotificationAttempt
 from app.modules.alerts.notifications.dispatch import (
+    SEND_INTENT_OUTCOME,
     AlertNotificationDispatcher,
     build_envelope,
     build_transports,
@@ -34,6 +36,13 @@ from app.modules.alerts.notifications.transport import (
     NotificationKind,
     NotificationResult,
     NotificationTransport,
+)
+from tests.modules.alerts.test_smtp import (
+    MockSMTP,
+    SMTPTransport,
+    _config,
+    _factory,
+    _State,
 )
 
 
@@ -363,14 +372,20 @@ class AttemptPersistenceCase(unittest.TestCase):
             ).all()
             assert marker_rows == []
 
-    def test_persistence_failure_annotated_never_raised(self) -> None:
+    def test_intent_persistence_failure_means_zero_sends(self) -> None:
+        # A review 5682106843: the pre-send intent IS the guard. If the
+        # intent cannot be persisted, ZERO provider calls happen — the
+        # send never earns the right to leave the wire.
         smtp = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result(detail="ok")])
         dispatcher = AlertNotificationDispatcher([smtp])
         stub = _FailingAddSession()
         report = dispatcher.dispatch(cast(Session, stub), _event(source="disp-guard-1"))
-        assert stub.savepoint_rolls == 1
+        # The bounded budget retries the GUARD write (never the wire):
+        # 3 attempts -> 3 failed savepoints, zero provider calls.
+        assert stub.savepoint_rolls == 3
         assert stub.rollback_calls == 0  # caller's transaction untouched
-        assert report.results[0].detail == "ok [attempt record NOT persisted]"
+        assert smtp.envelopes == []  # ZERO provider calls across retries
+        assert report.results[0].detail == "dispatch_intent_not_persisted"
 
         smtp2 = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result(detail="ok")])
         dispatcher = AlertNotificationDispatcher(
@@ -382,7 +397,8 @@ class AttemptPersistenceCase(unittest.TestCase):
             session.flush()
             report = dispatcher.dispatch(session, event)
             session.rollback()
-        assert report.results[0].detail == "ok [attempt record NOT persisted]"
+        assert smtp2.envelopes == []  # ZERO provider calls
+        assert report.results[0].detail == "dispatch_intent_not_persisted"
 
 
 def _raise_factory() -> Any:
@@ -656,7 +672,7 @@ class SavepointCase(unittest.TestCase):
     """Attempt-record failure must not poison the caller's transaction:
     the insert runs in a SAVEPOINT, business work still commits."""
 
-    def test_record_failure_leaves_caller_transaction_committable(self) -> None:
+    def test_intent_failure_leaves_caller_transaction_committable(self) -> None:
         scripted = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
         dispatcher = AlertNotificationDispatcher([scripted])
         with Session(engine) as session:
@@ -665,13 +681,15 @@ class SavepointCase(unittest.TestCase):
             session.flush()
             business_id = business.id
             business_source = business.source_event_id
-            # The phantom event is never persisted: the attempt row's
-            # FK insert fails, which must roll back ONLY the savepoint.
+            # The phantom event is never persisted: the pre-send intent
+            # row's FK insert fails, which must roll back ONLY the
+            # savepoint — and means ZERO provider calls.
             phantom = _event(source="disp-svpt-phantom-unused")
             report = dispatcher.dispatch(session, phantom)
             session.commit()
 
-        assert report.results[0].detail.endswith("[attempt record NOT persisted]")
+        assert report.results[0].detail == "dispatch_intent_not_persisted"
+        assert scripted.envelopes == []
         with Session(engine) as reader:
             saved = reader.exec(
                 select(AlertEvent).where(AlertEvent.id == business_id)
@@ -713,3 +731,443 @@ class PostCommitEntryCase(unittest.TestCase):
         )
         assert report.results == ()
         assert scripted.envelopes == []
+
+
+class AcceptanceUnknownHoldCase(unittest.TestCase):
+    """C review 5678438821 defect 1: a send whose acceptance cannot be
+    proven (connection broke mid-DATA) must never be auto-retried —
+    neither within one dispatch nor across later runs — and the hold
+    must be persisted, not carried in free text."""
+
+    @staticmethod
+    def _unknown_result() -> NotificationResult:
+        return NotificationResult(
+            attempt_id=uuid.uuid4(),
+            transport=NotificationKind.SMTP_EMAIL,
+            outcome=DeliveryOutcome.TRANSIENT_FAILURE,
+            delivered=False,
+            acceptance_unknown=True,
+            detail="connection error stage=data data_acceptance=unknown",
+        )
+
+    def test_unknown_not_retried_within_dispatch(self) -> None:
+        # The result classifies transient (retryable outcome), but the
+        # unknown-acceptance flag must stop the retry loop after the
+        # FIRST attempt: max_attempts=3, exactly one send.
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL,
+            [self._unknown_result(), _result(), _result()],
+        )
+        sleeper = _Sleep()
+        dispatcher = AlertNotificationDispatcher(
+            [scripted], max_attempts=3, sleep=sleeper
+        )
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-1-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            report = dispatcher.dispatch(session, event)
+            session.rollback()
+        assert len(scripted.envelopes) == 1
+        assert sleeper.calls == []
+        assert report.results[0].delivered is False
+
+    def test_unknown_attempt_persisted_with_sentinel_outcome(self) -> None:
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL, [self._unknown_result()]
+        )
+        dispatcher = AlertNotificationDispatcher([scripted], max_attempts=3)
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-2-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            dispatcher.dispatch(session, event)
+            rows = _attempts(session, event.id)
+            outcomes = [(r.outcome, r.delivered) for r in rows]
+            session.rollback()
+        assert outcomes == [("acceptance_unknown", False)]
+
+    def test_unknown_attempt_settles_channel_across_runs(self) -> None:
+        # A later dispatch (fresh dispatcher, fresh transport — the
+        # restart shape) must SKIP the channel: an unproven acceptance
+        # is never answered with an automatic re-send.
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL, [self._unknown_result()]
+        )
+        dispatcher = AlertNotificationDispatcher([scripted], max_attempts=3)
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-3-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            dispatcher.dispatch(session, event)
+            session.commit()  # persist the unknown attempt, not just flush
+            event_id = event.id
+        later = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        later_dispatcher = AlertNotificationDispatcher([later], max_attempts=3)
+        with Session(engine) as session:
+            stored = session.get(AlertEvent, event_id)
+            assert stored is not None
+            report = later_dispatcher.dispatch(session, stored)
+            session.rollback()
+        assert later.envelopes == []
+        assert report.skipped_channels == (NotificationKind.SMTP_EMAIL,)
+
+    def test_unknown_hold_via_real_smtp_adapter_and_post_commit_entry(self) -> None:
+        # Combined regression with the REAL SMTP transport + MockSMTP
+        # (C review 5678438821): mid-DATA ConnectionResetError → one
+        # attempt, sentinel outcome persisted, and a second
+        # dispatch_committed_event run (restart shape) sends nothing.
+        MockSMTP.state = _State(send_raises=ConnectionResetError("eof mid-data"))
+        first = SMTPTransport(_config(), _factory())
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-4-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            event_id = event.id
+        report = dispatch_committed_event(
+            _independent_factory,
+            event_id,
+            transports=[first],
+            recipients=("a@example.com",),
+        )
+        assert len(MockSMTP.sent_messages) == 1
+        assert report.results[0].acceptance_unknown is True
+        with Session(engine) as reader:
+            rows = _attempts(reader, event_id)
+        assert len(rows) == 1
+        assert rows[0].outcome == "acceptance_unknown"
+        # Restart: fresh adapter, fresh run — zero further sends.
+        MockSMTP.state = _State()
+        second = SMTPTransport(_config(), _factory())
+        dispatch_committed_event(
+            _independent_factory,
+            event_id,
+            transports=[second],
+            recipients=("a@example.com",),
+        )
+        assert len(MockSMTP.sent_messages) == 1
+
+    def test_pre_send_failure_still_retries_within_budget(self) -> None:
+        # Guard against over-suppression: a plain pre-DATA transient
+        # (acceptance KNOWN not to have happened) keeps the bounded
+        # retry budget.
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL,
+            [
+                _result(
+                    outcome=DeliveryOutcome.TRANSIENT_FAILURE,
+                    detail="connection error stage=connect",
+                    retry_after_s=0.0,
+                ),
+                _result(),
+            ],
+        )
+        sleeper = _Sleep()
+        dispatcher = AlertNotificationDispatcher(
+            [scripted], max_attempts=3, sleep=sleeper
+        )
+        with Session(engine) as session:
+            event = _event(source=f"disp-unknown-5-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            dispatcher.dispatch(session, event)
+            session.rollback()
+        assert len(scripted.envelopes) == 2
+        assert len(sleeper.calls) == 1
+
+
+class _FailOnNthFactory:
+    """Independent-session factory: the Nth session open fails with
+    OperationalError (A review 5682106843's fault-injection shape:
+    audit-store outage, real business DB untouched)."""
+
+    def __init__(self, fail_on_call: int) -> None:
+        self._calls = 0
+        self._fail_on = fail_on_call
+        self.calls_made = 0
+
+    @contextmanager
+    def __call__(self) -> Iterator[Session]:
+        self._calls += 1
+        self.calls_made = self._calls
+        if self._calls == self._fail_on:
+            raise OperationalError(
+                "injected audit-store outage", None, Exception("pg gone")
+            )
+        with Session(engine) as session:
+            yield session
+
+
+class IntentGuardCase(unittest.TestCase):
+    """A review 5682106843 defect 1: the pre-send dispatch intent must
+    be durable BEFORE any network call (write failure = zero sends),
+    and an unfinished intent after the send must hold the channel
+    across restarts instead of allowing an automatic resend."""
+
+    def test_intent_row_precedes_provider_call(self) -> None:
+        # Ordering proof: the send_intent row is committed before the
+        # transport is ever invoked.
+        events: list[str] = []
+
+        class _SpyTransport(_ScriptedTransport):
+            def send(self, envelope: NotificationEnvelope) -> NotificationResult:
+                events.append("send")
+                return super().send(envelope)
+
+        spy = _SpyTransport(NotificationKind.SMTP_EMAIL, [_result()])
+
+        @contextmanager
+        def _spy_factory() -> Iterator[Session]:
+            with Session(engine) as session:
+                yield session
+            events.append("intent_committed")  # commit done on clean exit
+
+        dispatcher = AlertNotificationDispatcher(
+            [spy], attempt_session_factory=_spy_factory
+        )
+        with Session(engine) as session:
+            event = _event(source=f"disp-intent-order-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            dispatcher.dispatch(session, event)
+        # Attempt 1: intent committed BEFORE send; attempt completion
+        # opens its own (committed) session after the send. Exactly two
+        # committed intent sessions for exactly one send.
+        assert events == ["intent_committed", "send", "intent_committed"]
+
+    def test_intent_write_failure_zero_provider_calls_real_pg(self) -> None:
+        # Requirement 1 (wrap-up checklist): persistent pre-send guard
+        # write fails -> provider calls == 0. The audit store is down
+        # (Nth session open raises OperationalError); the business DB
+        # stays real and is not poisoned by the dispatch.
+        class _AlwaysDownFactory:
+            """Audit store down for the WHOLE dispatch: every session
+            open raises OperationalError (no recovery mid-run)."""
+
+            def __init__(self) -> None:
+                self.calls_made = 0
+
+            @contextmanager
+            def __call__(self) -> Iterator[Session]:
+                self.calls_made += 1
+                raise OperationalError(
+                    "injected audit-store outage", None, Exception("pg gone")
+                )
+                yield None  # pragma: no cover
+
+        broken = _AlwaysDownFactory()
+        scripted = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        with Session(engine) as session:
+            event = _event(source=f"disp-intent-fail-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            event_id = event.id
+        dispatcher = AlertNotificationDispatcher(
+            [scripted], max_attempts=3, sleep=_Sleep(), attempt_session_factory=broken
+        )
+        report = dispatcher.dispatch(session, event)
+        # Every budget attempt is stopped by the guard: the wire is
+        # never reached, with the audit store down the whole time.
+        assert scripted.envelopes == []  # ZERO provider calls
+        assert broken.calls_made == 3  # guard retried, wire never reached
+        with Session(engine) as reader:
+            assert _attempts(reader, event_id) == []  # nothing recorded
+        assert report.results[0].detail == "dispatch_intent_not_persisted"
+        assert report.results[0].outcome is DeliveryOutcome.TRANSIENT_FAILURE
+        with Session(engine) as reader:
+            assert _attempts(reader, event_id) == []  # nothing recorded
+
+    def test_retryable_with_completion_write_failure_stops_same_dispatch(
+        self,
+    ) -> None:
+        # A review 5686551361 / C review 5686742366 requirements 1+2:
+        # a retryable transport result (definite transient refusal or
+        # timeout) whose intent COMPLETION write fails must stop the
+        # channel within the SAME dispatch — while an unfinished
+        # send_intent row holds the channel, the retry loop may not
+        # touch the provider again, no matter how retryable the result
+        # looks (the stop is structural, not detail-string based).
+        for outcome in (DeliveryOutcome.TRANSIENT_FAILURE, DeliveryOutcome.TIMEOUT):
+            with self.subTest(outcome=outcome):
+                scripted = _ScriptedTransport(
+                    NotificationKind.SMTP_EMAIL,
+                    [
+                        _result(
+                            outcome=outcome,
+                            detail="450 4.2.0 mailbox busy"
+                            if outcome is DeliveryOutcome.TRANSIENT_FAILURE
+                            else "gateway timeout",
+                        )
+                    ],
+                )
+                with Session(engine) as session:
+                    event = _event(source=f"disp-cf-stop-{uuid.uuid4()}")
+                    session.add(event)
+                    session.commit()
+                    event_id = event.id
+                completion = _FailOnNthFactory(
+                    fail_on_call=2
+                )  # intent ok, complete fails
+                dispatcher = AlertNotificationDispatcher(
+                    [scripted],
+                    max_attempts=3,
+                    sleep=_Sleep(),
+                    attempt_session_factory=completion,
+                )
+                with Session(engine) as session:
+                    stored = session.get(AlertEvent, event_id)
+                    assert stored is not None
+                    report = dispatcher.dispatch(
+                        session, stored, recipients=("a@example.com",)
+                    )
+                # EXACTLY one provider call this dispatch: the budget
+                # retry loop is cut off by the failed completion write.
+                assert len(scripted.envelopes) == 1
+                assert report.results[0].outcome is outcome
+                with Session(engine) as reader:
+                    snapshot = [
+                        (r.outcome, r.delivered) for r in _attempts(reader, event_id)
+                    ]
+                # The unfinished intent row stays as the cross-process hold.
+                assert snapshot == [(SEND_INTENT_OUTCOME, False)]
+
+                # Restart shape (requirement 3): a healthy new dispatcher
+                # must NOT resend — the hold row keeps the channel paused,
+                # adding ZERO new provider calls.
+                healthy = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+                later = AlertNotificationDispatcher(
+                    [healthy], attempt_session_factory=_independent_factory
+                )
+                with Session(engine) as session:
+                    stored = session.get(AlertEvent, event_id)
+                    assert stored is not None
+                    later_report = later.dispatch(
+                        session, stored, recipients=("a@example.com",)
+                    )
+                assert len(healthy.envelopes) == 0  # zero new provider calls
+                assert later_report.skipped_channels == (NotificationKind.SMTP_EMAIL,)
+                with Session(engine) as reader:
+                    assert len(_attempts(reader, event_id)) == 1  # hold row only
+
+    def test_persisted_transient_refusal_still_retries_within_budget(self) -> None:
+        # A review 5686551361 requirement 4: a DEFINITE transient
+        # refusal whose completion write SUCCEEDS keeps the normal
+        # bounded retry per budget (the completion-write-failure stop
+        # must not swallow legitimate retries).
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL,
+            [
+                _result(
+                    outcome=DeliveryOutcome.TRANSIENT_FAILURE,
+                    detail=f"450 try {n}",
+                )
+                for n in range(3)
+            ],
+        )
+        with Session(engine) as session:
+            event = _event(source=f"disp-cf-retry-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            event_id = event.id
+        dispatcher = AlertNotificationDispatcher(
+            [scripted],
+            max_attempts=3,
+            sleep=_Sleep(),
+            attempt_session_factory=_independent_factory,
+        )
+        with Session(engine) as session:
+            stored = session.get(AlertEvent, event_id)
+            assert stored is not None
+            report = dispatcher.dispatch(session, stored, recipients=("a@example.com",))
+        assert len(scripted.envelopes) == 3  # full budget used
+        assert report.results[0].outcome is DeliveryOutcome.TRANSIENT_FAILURE
+        with Session(engine) as reader:
+            snapshot = [(r.outcome, r.delivered) for r in _attempts(reader, event_id)]
+        assert snapshot == [("transient_failure", False)] * 3
+
+    def test_unknown_completion_failure_holds_across_restart(self) -> None:
+        # Requirement 2 (A review 5682106843 defect 1 exact repro):
+        # DATA breaks (acceptance unknown), the intent row IS written,
+        # but the COMPLETION write fails (audit store outage). The row
+        # stays send_intent; a later run with a healthy audit store
+        # must NOT resend — the unfinished intent is a cross-process
+        # hold for manual verification.
+        MockSMTP.state = _State(send_raises=ConnectionResetError("eof mid-data"))
+        first = SMTPTransport(_config(), _factory())
+        completion = _FailOnNthFactory(fail_on_call=2)  # intent ok, complete fails
+        with Session(engine) as session:
+            event = _event(source=f"disp-intent-hold-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            event_id = event.id
+        dispatcher = AlertNotificationDispatcher(
+            [first], attempt_session_factory=completion
+        )
+        with Session(engine) as session:
+            stored = session.get(AlertEvent, event_id)
+            assert stored is not None
+            report = dispatcher.dispatch(session, stored, recipients=("a@example.com",))
+        assert len(MockSMTP.sent_messages) == 1  # the one unproven send
+        assert report.results[0].acceptance_unknown is True
+        assert report.results[0].detail.endswith(
+            "[send_intent hold retained; manual verification required]"
+        )
+        with Session(engine) as reader:
+            rows = _attempts(reader, event_id)
+            snapshot = [(r.outcome, r.delivered) for r in rows]
+        assert snapshot == [(SEND_INTENT_OUTCOME, False)]  # the hold row
+
+        # Restart shape: healthy audit store, fresh adapter, fresh run.
+        MockSMTP.state = _State()
+        second = SMTPTransport(_config(), _factory())
+        later = dispatch_committed_event(
+            _independent_factory,
+            event_id,
+            transports=[second],
+            recipients=("a@example.com",),
+        )
+        assert len(MockSMTP.sent_messages) == 1  # STILL one: never resent
+        assert later.skipped_channels == (NotificationKind.SMTP_EMAIL,)
+
+    def test_successful_send_completes_intent_one_way(self) -> None:
+        # Requirement 3 shape: after a normal acceptance the intent row
+        # is completed (not left holding, not duplicated) with the full
+        # result fields — one row per real send.
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL, [_result(detail="queued as 123")]
+        )
+        with Session(engine) as session:
+            event = _event(source=f"disp-intent-ok-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            dispatcher = AlertNotificationDispatcher([scripted])
+            dispatcher.dispatch(session, event)
+            rows = _attempts(session, event.id)
+            snapshot = [(r.outcome, r.delivered, r.detail, r.channel) for r in rows]
+            session.rollback()
+        assert snapshot == [
+            ("accepted_by_service", True, "queued as 123", "smtp_email")
+        ]
+
+    def test_unfinished_intent_row_skips_channel_in_dedup(self) -> None:
+        # The dedup guard treats an unfinished send_intent row as
+        # settled (held) even with no delivered/unknown row present.
+        smtp = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+        dispatcher = AlertNotificationDispatcher([smtp])
+        with Session(engine) as session:
+            event = _event(source=f"disp-intent-dedup-{uuid.uuid4()}")
+            session.add(event)
+            session.flush()
+            session.add(
+                NotificationAttempt(
+                    alert_event_id=event.id,
+                    channel="smtp_email",
+                    outcome=SEND_INTENT_OUTCOME,
+                    delivered=False,
+                    detail="dispatch intent recorded before network send",
+                )
+            )
+            report = dispatcher.dispatch(session, event)
+            session.rollback()
+        assert smtp.envelopes == []
+        assert report.skipped_channels == (NotificationKind.SMTP_EMAIL,)

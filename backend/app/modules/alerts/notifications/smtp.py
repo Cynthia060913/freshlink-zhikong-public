@@ -13,6 +13,7 @@ committed here must remain secret-free.
 
 from __future__ import annotations
 
+import enum
 import smtplib
 import uuid
 from collections.abc import Callable, Mapping
@@ -29,6 +30,23 @@ from .transport import (
     NotificationTransport,
     RecipientOutcome,
 )
+
+
+class SMTPStage(enum.StrEnum):
+    """Fixed send-phase tags for the SMTP adapter (A queue P1, #8
+    6440797666).
+
+    Persisted alongside failure details so an operator can tell WHERE a
+    send stopped without storing exception text, server dialogue,
+    addresses or credentials. The enum is deliberately closed; no free
+    text ever enters it.
+    """
+
+    CONNECT = "connect"
+    TLS = "tls"
+    AUTH = "auth"
+    DATA = "data"
+    POST_SEND_CLEANUP = "post_send_cleanup"
 
 
 class _SupportsContextManager(Protocol):
@@ -199,6 +217,12 @@ class SMTPTransport(NotificationTransport):
         noop_code: int | None = None
         noop_msg: object = None
         partial_refused: dict[str, int] = {}
+        # Fixed send-phase tracking (A queue P1): ``stage`` never carries
+        # free text; ``data_accepted`` flips only after ``send_message``
+        # RETURNS, so any failure after that point cannot honestly be
+        # reported as an "undelivered, retryable" attempt.
+        stage = SMTPStage.CONNECT
+        data_accepted = False
 
         try:
             with self._smtp_factory(
@@ -208,8 +232,10 @@ class SMTPTransport(NotificationTransport):
             ) as client:
                 # STARTTLS is only meaningful on a plain SMTP connection.
                 if self._config.use_tls and not self._config.use_ssl:
+                    stage = SMTPStage.TLS
                     client.starttls()
                 if self._config.username:
+                    stage = SMTPStage.AUTH
                     client.login(self._config.username, self._config.password)
                 # ``send_message`` returns a mapping of refused
                 # recipients ``{addr: (code, msg)}``. An empty mapping
@@ -217,7 +243,9 @@ class SMTPTransport(NotificationTransport):
                 # mapping means *some* recipients were refused
                 # (smtplib raises SMTPRecipientsRefused only when
                 # *every* recipient was refused).
+                stage = SMTPStage.DATA
                 refused = client.send_message(message)
+                data_accepted = True
                 # Normalise to {addr: code}; the message text is not
                 # needed for classification or the audit detail.
                 if refused:
@@ -227,6 +255,7 @@ class SMTPTransport(NotificationTransport):
                 # Capture the post-send server reply with NOOP so the
                 # result surfaces the *actual* server-reported code and
                 # message, not a hard-coded "250" string.
+                stage = SMTPStage.POST_SEND_CLEANUP
                 try:
                     noop_code, noop_msg = client.noop()
                 except Exception:  # noqa: BLE001
@@ -235,6 +264,11 @@ class SMTPTransport(NotificationTransport):
                     # report ACCEPTED_BY_SERVICE but server_response is
                     # None because we have no honest server text to cite.
                     noop_code, noop_msg = None, None
+                # Leaving the ``with`` block runs QUIT/connection
+                # teardown; a failure THERE (e.g. an SSL unexpected EOF)
+                # must not flip an already-accepted message into a
+                # retryable "undelivered" result — the except branches
+                # below check ``data_accepted`` first.
         except smtplib.SMTPRecipientsRefused as exc:
             # Every recipient address was refused. Classify by the
             # actual reply codes (A replay 6108497780: all-450 must be
@@ -244,26 +278,44 @@ class SMTPTransport(NotificationTransport):
                 envelope,
                 refused,
                 accepted=(),
-                server_response=str(exc),
+                server_response=None,
             )
-        except TimeoutError as exc:
+        except TimeoutError:
             # Python 3.10+ TimeoutError is OSError subclass — must be
             # before the generic OSError catch.
+            if data_accepted:
+                return self._accepted_with_cleanup_failure(envelope, partial_refused)
+            # Interrupted mid-DATA: the request already left the wire,
+            # so acceptance cannot be proven either way — flag it and
+            # let dispatch hold the channel instead of auto-retrying
+            # (C review 5678438821).
             return NotificationResult(
                 attempt_id=uuid.uuid4(),
                 transport=self.kind,
                 outcome=DeliveryOutcome.TIMEOUT,
                 delivered=False,
-                detail=f"timeout: {exc}",
+                acceptance_unknown=stage is SMTPStage.DATA,
+                detail=(
+                    f"timeout stage={stage.value} data_acceptance=unknown"
+                    if stage is SMTPStage.DATA
+                    else f"timeout stage={stage.value}"
+                ),
                 retry_after_s=self._config.timeout_seconds,
             )
-        except smtplib.SMTPServerDisconnected as exc:
+        except smtplib.SMTPServerDisconnected:
+            if data_accepted:
+                return self._accepted_with_cleanup_failure(envelope, partial_refused)
             return NotificationResult(
                 attempt_id=uuid.uuid4(),
                 transport=self.kind,
                 outcome=DeliveryOutcome.TRANSIENT_FAILURE,
                 delivered=False,
-                detail=f"server disconnected: {exc}",
+                acceptance_unknown=stage is SMTPStage.DATA,
+                detail=(
+                    f"server disconnected stage={stage.value} data_acceptance=unknown"
+                    if stage is SMTPStage.DATA
+                    else f"server disconnected stage={stage.value}"
+                ),
             )
         except smtplib.SMTPAuthenticationError as exc:
             # Classify by the actual reply code: 535 → permanent, but
@@ -276,8 +328,7 @@ class SMTPTransport(NotificationTransport):
                 transport=self.kind,
                 outcome=outcome,
                 delivered=False,
-                detail=f"auth failed code={smtp_code}: {exc}",
-                server_response=str(exc),
+                detail=f"auth failed code={smtp_code} stage={SMTPStage.AUTH.value}",
                 retry_after_s=retry_after_s,
             )
         except smtplib.SMTPHeloError as exc:
@@ -290,7 +341,7 @@ class SMTPTransport(NotificationTransport):
                 transport=self.kind,
                 outcome=outcome,
                 delivered=False,
-                detail=f"helo rejected code={smtp_code}: {exc}",
+                detail=f"helo rejected code={smtp_code} stage={stage.value}",
                 retry_after_s=retry_after_s,
             )
         except smtplib.SMTPSenderRefused as exc:
@@ -302,8 +353,7 @@ class SMTPTransport(NotificationTransport):
                 transport=self.kind,
                 outcome=outcome,
                 delivered=False,
-                detail=f"sender refused code={smtp_code}",
-                server_response=str(exc),
+                detail=f"sender refused code={smtp_code} stage={stage.value}",
                 retry_after_s=retry_after_s,
             )
         except smtplib.SMTPDataError as exc:
@@ -315,32 +365,43 @@ class SMTPTransport(NotificationTransport):
                 transport=self.kind,
                 outcome=outcome,
                 delivered=False,
-                detail=f"data rejected code={smtp_code}",
-                server_response=str(exc),
+                detail=f"data rejected code={smtp_code} stage={SMTPStage.DATA.value}",
                 retry_after_s=retry_after_s,
             )
         except smtplib.SMTPException as exc:
             # Catch-all for SMTP-layer exceptions
             # (e.g. SMTPNotSupportedError, SMTPConnectTimeoutError).
             smtp_code = getattr(exc, "smtp_code", None)
-            smtp_error = getattr(exc, "smtp_error", None)
             outcome, retry_after_s = _classify_smtp_error(smtp_code)
+            if data_accepted:
+                return self._accepted_with_cleanup_failure(envelope, partial_refused)
+            # A server reply code means the server DID answer — the
+            # refusal is known and classified, not unknown. Only a
+            # code-less SMTP-layer break mid-DATA leaves acceptance
+            # unproven.
             return NotificationResult(
                 attempt_id=uuid.uuid4(),
                 transport=self.kind,
                 outcome=outcome,
                 delivered=False,
-                detail=(f"smtp error code={smtp_code} error={smtp_error!r}"),
-                server_response=str(exc),
+                acceptance_unknown=(smtp_code is None and stage is SMTPStage.DATA),
+                detail=f"smtp error code={smtp_code} stage={stage.value}",
                 retry_after_s=retry_after_s,
             )
-        except (ConnectionRefusedError, ConnectionResetError, OSError) as exc:
+        except ConnectionRefusedError, ConnectionResetError, OSError:
+            if data_accepted:
+                return self._accepted_with_cleanup_failure(envelope, partial_refused)
             return NotificationResult(
                 attempt_id=uuid.uuid4(),
                 transport=self.kind,
                 outcome=DeliveryOutcome.TRANSIENT_FAILURE,
                 delivered=False,
-                detail=f"connection error: {exc}",
+                acceptance_unknown=stage is SMTPStage.DATA,
+                detail=(
+                    f"connection error stage={stage.value} data_acceptance=unknown"
+                    if stage is SMTPStage.DATA
+                    else f"connection error stage={stage.value}"
+                ),
                 server_response=None,
             )
 
@@ -386,6 +447,71 @@ class SMTPTransport(NotificationTransport):
                 "NOOP reply (response_phase=noop), not a DATA receipt"
             ),
             server_response=server_response,
+            finished_at=datetime.now(UTC),
+        )
+
+    def _accepted_with_cleanup_failure(
+        self,
+        envelope: NotificationEnvelope,
+        partial_refused: Mapping[str, int],
+    ) -> NotificationResult:
+        """Result for "DATA was accepted, then teardown blew up".
+
+        The message is on the wire — reporting TRANSIENT_FAILURE/TIMEOUT
+        here would invite a duplicate send (A queue P1: the SMTP channel
+        already saw one SSL unexpected-EOF case exactly like this). The
+        outcome is therefore ACCEPTED_BY_SERVICE with the terminal
+        receipt honestly marked unconfirmed; nothing about the exception
+        text, address or credentials is recorded.
+
+        When ``send_message`` already reported refused recipients, their
+        outcomes are PRESERVED (C review 5678438821): the accepted ones
+        are never re-sent (``delivered=True`` keeps the dedup guard
+        settled) and the refused ones keep their original 4yz/5yz codes
+        in ``recipient_outcomes``. The audit must not read as "every
+        recipient accepted" when a refusal was already on record.
+        """
+
+        outcomes: list[RecipientOutcome] = [
+            RecipientOutcome(
+                address=addr,
+                code=code,
+                refused=True,
+                retriable=bool(code is not None and 400 <= code < 500),
+            )
+            for addr, code in sorted(partial_refused.items())
+        ]
+        if partial_refused:
+            outcomes.extend(
+                RecipientOutcome(
+                    address=addr, code=None, refused=False, retriable=False
+                )
+                for addr in (
+                    *envelope.recipients,
+                    *envelope.cc,
+                )
+                if addr not in partial_refused
+            )
+            refused_summary = (
+                f"refused codes={sorted(partial_refused.values())} "
+                f"count={len(partial_refused)} preserved; "
+                "never re-send accepted recipients"
+            )
+        else:
+            refused_summary = "every recipient accepted before teardown failed"
+        return NotificationResult(
+            attempt_id=uuid.uuid4(),
+            transport=self.kind,
+            outcome=DeliveryOutcome.ACCEPTED_BY_SERVICE,
+            delivered=True,
+            detail=(
+                f"stage={SMTPStage.POST_SEND_CLEANUP.value} "
+                "data accepted but connection teardown failed after "
+                f"send_message returned; {refused_summary}; "
+                "terminal receipt unconfirmed; do not auto-retry"
+            ),
+            server_response=None,
+            recipient_outcomes=tuple(outcomes),
             finished_at=datetime.now(UTC),
         )
 
@@ -435,9 +561,11 @@ class SMTPTransport(NotificationTransport):
             for addr in accepted
         )
         codes = sorted({c for c in refused.values() if c is not None})
-        refused_addrs = sorted(refused)
+        # Per-recipient addresses live in the structured
+        # ``recipient_outcomes`` contract; the free-text detail stays
+        # address-free (A queue P1: no addresses in persisted details).
         detail = (
-            f"recipients refused codes={codes} addresses={refused_addrs}; "
+            f"recipients refused codes={codes} count={len(refused)}; "
             "retry refused-retryable addresses only, never re-send accepted"
         )
         return NotificationResult(
