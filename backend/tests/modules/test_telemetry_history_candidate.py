@@ -85,9 +85,7 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
         return records, ids
 
     def test_batch_rule_refs_keep_identity_and_unknown_distinct(self) -> None:
-        self.assertEqual(
-            _batch_rule_refs_from_risk({"rule_version": "temp-v1"}), []
-        )
+        self.assertEqual(_batch_rule_refs_from_risk({"rule_version": "temp-v1"}), [])
         first = "11111111-1111-4111-8111-111111111111"
         second = "22222222-2222-4222-8222-222222222222"
         snapshot = "33333333-3333-4333-8333-333333333333"
@@ -109,18 +107,14 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
                 ]
             }
         )
-        self.assertEqual(
-            [ref["batch_id"] for ref in refs or []], [first, second]
-        )
+        self.assertEqual([ref["batch_id"] for ref in refs or []], [first, second])
         self.assertEqual(
             [ref["rule_version"] for ref in refs or []],
             ["temp-v1", "temp-v1"],
         )
         self.assertEqual(_batch_rule_refs_from_risk({"batches": []}), [])
         self.assertIsNone(
-            _batch_rule_refs_from_risk(
-                {"state": "unknown", "reason": "no_usable_rule"}
-            )
+            _batch_rule_refs_from_risk({"state": "unknown", "reason": "no_usable_rule"})
         )
         self.assertIsNone(
             _batch_rule_refs_from_risk(
