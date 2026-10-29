@@ -1254,6 +1254,33 @@ class PostgresStorageCandidateTests(unittest.TestCase):
             ingested = ingest_observation(self.engine, receipt)
             self.assertEqual(ingested.status, "accepted_new")
             assert ingested.observation_id is not None
+            # Synthetic saved multi-batch evidence tests PG JSON projection;
+            # this does not stand in for the evaluator's rule selection.
+            batch_refs = [
+                {
+                    "batch_id": str(uuid4()),
+                    "rule_version": version,
+                    "rule_snapshot_id": str(uuid4()),
+                    "state": state,
+                }
+                for version, state in (
+                    ("temp-v1", "candidate"),
+                    ("temp-v2", "normal"),
+                )
+            ]
+            with self.engine.begin() as connection:
+                connection.execute(
+                    update(observations)
+                    .where(observations.c.id == ingested.observation_id)
+                    .values(
+                        risk={
+                            "state": "candidate",
+                            "reason": "multi_batch_evaluation",
+                            "batches": batch_refs,
+                        }
+                    )
+                )
+            expected_refs = sorted(batch_refs, key=lambda ref: ref["batch_id"])
             path = "/api/v1/telemetry/observations"
             params = {"warehouse_id": str(_WAREHOUSE_ID)}
             with TestClient(app) as client:
@@ -1270,18 +1297,51 @@ class PostgresStorageCandidateTests(unittest.TestCase):
                     str(ingested.observation_id),
                     [item["observation_id"] for item in data["items"]],
                 )
+                item = next(
+                    item
+                    for item in data["items"]
+                    if item["observation_id"] == str(ingested.observation_id)
+                )
+                self.assertIsNone(item["rule_version"])
+                self.assertEqual(item["batch_rule_refs"], expected_refs)
                 export = client.get(
                     path + "/export.csv",
                     params={**params, "snapshot_id": data["snapshot_id"]},
                     headers=headers(reader),
                 )
                 self.assertEqual(export.status_code, 200, export.text)
+                self.assertEqual(
+                    len(next(csv.reader(StringIO(export.content.decode("utf-8-sig"))))),
+                    14,
+                )
                 exported = list(
                     csv.DictReader(StringIO(export.content.decode("utf-8-sig")))
                 )
                 self.assertEqual(
                     [row["observation_id"] for row in exported],
                     [item["observation_id"] for item in data["items"]],
+                )
+                extended = client.get(
+                    path + "/export.csv",
+                    params={
+                        **params,
+                        "snapshot_id": data["snapshot_id"],
+                        "export_schema": 2,
+                    },
+                    headers=headers(reader),
+                )
+                self.assertEqual(extended.status_code, 200, extended.text)
+                extended_rows = list(
+                    csv.DictReader(StringIO(extended.content.decode("utf-8-sig")))
+                )
+                self.assertEqual(len(extended_rows[0]), 15)
+                self.assertEqual(
+                    [row["observation_id"] for row in extended_rows],
+                    [item["observation_id"] for item in data["items"]],
+                )
+                self.assertEqual(
+                    json.loads(extended_rows[0]["batch_rule_refs_json"]),
+                    expected_refs,
                 )
                 detail = client.get(
                     path + f"/{ingested.observation_id}", headers=headers(reader)
