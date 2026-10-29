@@ -11,6 +11,13 @@ export interface TelemetryFilters {
   quality_in?: string[]
 }
 
+export interface BatchRuleRef {
+  batch_id: string
+  rule_version: string
+  rule_snapshot_id: string
+  state: string
+}
+
 export interface TelemetryItem {
   observation_id: string
   device_id: string
@@ -22,6 +29,7 @@ export interface TelemetryItem {
   quality: string[]
   risk_state: string
   rule_version: string | null
+  batch_rule_refs?: BatchRuleRef[] | null
 }
 
 export interface TelemetryPageResult {
@@ -116,7 +124,7 @@ export const telemetryApi = {
       true
     >({
       url: "/api/v1/telemetry/observations/export.csv",
-      query: { ...query(filters), snapshot_id: snapshotId },
+      query: { ...query(filters), snapshot_id: snapshotId, export_schema: 2 },
       responseType: "blob",
       security: [{ scheme: "bearer", type: "http" }],
       throwOnError: true,

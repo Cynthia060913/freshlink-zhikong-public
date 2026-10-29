@@ -103,6 +103,50 @@ def _conditions(filters: HistoryFiltersCandidate) -> list[Any]:
     return clauses
 
 
+def _batch_rule_refs_from_risk(risk: dict[str, Any]) -> list[dict[str, str]] | None:
+    """Read saved per-batch evidence without resolving today's B rules."""
+    if "batches" not in risk:
+        # A single-rule result has no separate multi-batch mapping. An
+        # unassessed/invalid result cannot prove that no batch applied.
+        return [] if isinstance(risk.get("rule_version"), str) else None
+    batches = risk["batches"]
+    if not isinstance(batches, list):
+        return None
+    refs: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for batch in batches:
+        if not isinstance(batch, dict):
+            return None
+        batch_id = batch.get("batch_id")
+        snapshot_id = batch.get("rule_snapshot_id")
+        version = batch.get("rule_version")
+        state = batch.get("state")
+        if (
+            not isinstance(batch_id, str)
+            or not isinstance(snapshot_id, str)
+            or not isinstance(version, str)
+            or not version
+            or state not in {"normal", "candidate", "unknown"}
+            or batch_id in seen
+        ):
+            return None
+        try:
+            UUID(batch_id)
+            UUID(snapshot_id)
+        except ValueError:
+            return None
+        seen.add(batch_id)
+        refs.append(
+            {
+                "batch_id": batch_id,
+                "rule_version": version,
+                "rule_snapshot_id": snapshot_id,
+                "state": state,
+            }
+        )
+    return sorted(refs, key=lambda ref: (ref["batch_id"], ref["rule_snapshot_id"]))
+
+
 def _project_row(row: RowMapping) -> dict[str, Any]:
     metrics = row["normalized"].get("metrics", {})
     return {
@@ -115,7 +159,10 @@ def _project_row(row: RowMapping) -> dict[str, Any]:
         "humidity_percent": metrics.get("humidity"),
         "quality": list(row["quality"]),
         "risk_state": row["risk"]["state"],
-        "rule_version": row["risk"].get("rule_version"),
+        "rule_version": (
+            None if row["risk"].get("batches") else row["risk"].get("rule_version")
+        ),
+        "batch_rule_refs": _batch_rule_refs_from_risk(row["risk"]),
     }
 
 

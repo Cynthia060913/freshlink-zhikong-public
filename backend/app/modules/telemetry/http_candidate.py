@@ -140,8 +140,9 @@ def export_observations(
     engine: Annotated[Engine, Depends(_engine)],
     filters: Annotated[HistoryFiltersCandidate, Depends(_filters)],
     snapshot_id: UUID,
+    export_schema: Annotated[int, Query(ge=1, le=2)] = 1,
 ) -> Response:
-    """Export exactly the authenticated snapshot membership and projection."""
+    """Export the same actor's frozen snapshot in explicit schema 1 or 2."""
     try:
         body = render_snapshot_csv_candidate(
             engine,
@@ -150,6 +151,7 @@ def export_observations(
             filters=filters,
             policy_version=_POLICY,
             now=datetime.now(UTC),
+            export_schema=export_schema,
         )
     except (ValueError, SQLAlchemyError) as error:
         raise _failure(error) from None
