@@ -122,6 +122,29 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
             )
         )
 
+    def test_single_rule_version_remains_a_single_string(self) -> None:
+        saved = ingest_observation(
+            self.engine,
+            reception(uuid4(), "2026-10-16T00:01:00Z", 6, 1),
+        )
+        self.assertEqual(saved.status, "accepted_new")
+        with self.engine.begin() as connection:
+            connection.execute(
+                observations.update()
+                .where(observations.c.id == saved.observation_id)
+                .values(
+                    risk={
+                        "state": "normal",
+                        "rule_version": "temp-v1",
+                        "rule_snapshot_id": str(uuid4()),
+                    }
+                )
+            )
+        item = latest_observation_candidate(self.engine, device_id=DEVICE)
+        assert item is not None
+        self.assertEqual(item["rule_version"], "temp-v1")
+        self.assertEqual(item["batch_rule_refs"], [])
+
     def test_latest_uses_first_trusted_reception_and_replay_does_not_replace_it(
         self,
     ) -> None:
