@@ -9,6 +9,7 @@ function dataFilters(url: URL): string[] {
   params.delete("snapshot_id")
   params.delete("cursor")
   params.delete("limit")
+  params.delete("export_schema")
   return [...params.entries()].map(([key, value]) => `${key}=${value}`).sort()
 }
 
@@ -65,7 +66,9 @@ test("Telemetry UI mock: CSV uses the filtered list's fixed snapshot", async ({
   await expect(page.getByText("暂无保存观测；当前风险未知。")).toBeVisible()
 
   const downloadPromise = page.waitForEvent("download")
-  await page.getByRole("button", { name: "导出本次快照 CSV" }).click()
+  await page
+    .getByRole("button", { name: "导出本次快照 CSV（含批次规则）" })
+    .click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe("observations.csv")
   const filtered = lists.at(-1)
@@ -77,6 +80,7 @@ test("Telemetry UI mock: CSV uses the filtered list's fixed snapshot", async ({
   expect(filtered.searchParams.get("warehouse_id")).toBe(warehouseId)
   expect(filtered.searchParams.get("sampled_from")).toBe("2026-10-24T09:00Z")
   expect(exported.searchParams.get("snapshot_id")).toBe(snapshotId)
+  expect(exported.searchParams.get("export_schema")).toBe("2")
   expect(dataFilters(exported)).toEqual(dataFilters(filtered))
 })
 
@@ -130,7 +134,21 @@ test("Telemetry UI mock: high, missing and rejected receptions remain visible", 
               temperature_c: 13,
               quality: ["ok"],
               risk_state: "candidate",
-              rule_version: "temp-v1",
+              rule_version: null,
+              batch_rule_refs: [
+                {
+                  batch_id: "77777777-7777-4777-8777-777777777777",
+                  rule_version: "temp-v1",
+                  rule_snapshot_id: "88888888-8888-4888-8888-888888888888",
+                  state: "candidate",
+                },
+                {
+                  batch_id: "99999999-9999-4999-8999-999999999999",
+                  rule_version: "temp-v2",
+                  rule_snapshot_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                  state: "normal",
+                },
+              ],
             },
             {
               ...base,
@@ -154,8 +172,11 @@ test("Telemetry UI mock: high, missing and rejected receptions remain visible", 
   const rows = page.getByRole("row")
   await expect(rows.nth(1)).toContainText("13")
   await expect(rows.nth(1)).toContainText("candidate")
+  await rows.nth(1).getByText("多批次规则（2）").click()
+  await expect(rows.nth(1)).toContainText("temp-v2")
   await expect(rows.nth(2)).toContainText("缺失 / 未知")
   await expect(rows.nth(2)).toContainText("missing_temperature / unknown")
+  await expect(rows.nth(2)).toContainText("未评估；规则证据需核查")
 
   await rows.nth(1).getByRole("button", { name: "查看" }).click()
   await expect(page.getByText('{"temperature":13}')).toBeVisible()
