@@ -25,6 +25,9 @@
    同次派发与后续运行都把该渠道保持为待人工核验；重试间隔为指数退避与
    ``Retry-After`` 取大、并以 ``max_delay_s`` 封顶。每次尝试=一行
    ``send_intent`` 行被单向完成为最终结果，行数与真实外发次数一致。
+   意图**完成写失败或无法确认完成**时，本轮立即停止：同一次派发内
+   不再对 provider 发起任何尝试（A review 5686551361、C review
+   5686742366），渠道由未完成意图行保守暂停，交由后续运行/人工核验。
 5. **Attempt 持久化**：默认写入调用方 session，但插入在 SAVEPOINT
    内——记录失败只回滚该插入，**绝不**rollback 调用方的业务事务；
    构造时传 ``attempt_session_factory`` 则用独立 session 提交（推荐，
@@ -358,11 +361,24 @@ class AlertNotificationDispatcher:
     ) -> NotificationResult:
         attempt_no = 1
         while True:
-            result = self._guarded_send(session, event, transport, envelope)
-            # acceptance_unknown is NEVER retried, not even within the
-            # bounded budget: an unproven acceptance plus a re-send is
-            # the duplicate-notification scenario this layer exists to
-            # prevent (C review 5678438821).
+            result, completion_confirmed = self._guarded_send(
+                session, event, transport, envelope
+            )
+            # Two independent stop conditions before any retry:
+            # 1. acceptance_unknown is NEVER retried, not even within the
+            #    bounded budget: an unproven acceptance plus a re-send is
+            #    the duplicate-notification scenario this layer exists to
+            #    prevent (C review 5678438821).
+            # 2. the intent COMPLETION write failed or could not be
+            #    confirmed: the unfinished send_intent row is a hold, so
+            #    retrying the provider inside the SAME dispatch would
+            #    contradict "completion-write failure conservatively
+            #    pauses the channel" (A review 5686551361, C review
+            #    5686742366). The channel stops for this dispatch no
+            #    matter how retryable the transport result looks; later
+            #    runs see the hold row and pause for manual verification.
+            if not completion_confirmed:
+                return result
             if not (
                 result.outcome in _RETRYABLE_OUTCOMES
                 and not result.acceptance_unknown
@@ -378,16 +394,31 @@ class AlertNotificationDispatcher:
         event: AlertEvent,
         transport: NotificationTransport,
         envelope: NotificationEnvelope,
-    ) -> NotificationResult:
+    ) -> tuple[NotificationResult, bool]:
         """One intent-guarded send: durable pre-send intent first —
         if that persistence fails, ZERO provider calls happen (A
-        review 5682106843: no intent, no send)."""
+        review 5682106843: no intent, no send).
+
+        Returns ``(result, completion_confirmed)``. ``completion_confirmed``
+        is a STRUCTURED status (never inferred from the detail string,
+        A review 5686551361): True only when the result write is known
+        to have persisted — or when no send happened at all (a failed
+        guard write is retried against the guard within the existing
+        budget, never against the provider). False means the intent
+        completion failed or is unconfirmable: the retry loop must stop
+        touching the provider for this dispatch.
+        """
         intent_id = self._persist_intent(session, event, transport)
         if intent_id is None:
-            return self._failure_result(
-                transport.kind,
-                DeliveryOutcome.TRANSIENT_FAILURE,
-                "dispatch_intent_not_persisted",
+            # No provider call was made, so retrying here retries the
+            # GUARD write only — the wire is still never reached.
+            return (
+                self._failure_result(
+                    transport.kind,
+                    DeliveryOutcome.TRANSIENT_FAILURE,
+                    "dispatch_intent_not_persisted",
+                ),
+                True,
             )
         result = self._send_once(transport, envelope)
         return self._complete_intent(session, intent_id, result)
@@ -439,19 +470,24 @@ class AlertNotificationDispatcher:
 
     def _complete_intent(
         self, session: Session, intent_id: uuid.UUID, result: NotificationResult
-    ) -> NotificationResult:
+    ) -> tuple[NotificationResult, bool]:
         """Complete the pre-send intent forward, one-way only.
 
-        The update is guarded by exact row id AND the unfinished state
-        (``outcome == send_intent`` and not delivered): completed rows
-        are never rewritten (A review 5682106843). An acceptance-unknown
-        result completes the row to the fixed ``acceptance_unknown``
-        sentinel (never a retryable classification, C review
-        5678438821; delivered stays False — unknown is never recorded
-        as accepted). If the completion write itself fails, the row
-        STAYS ``send_intent``: the channel is held for manual
-        verification by every later dispatch and pending scan instead
-        of being blindly resent.
+        Returns ``(result, completed)``: ``completed`` is True only when
+        the final result write is durably persisted (independent-session
+        mode: committed; shared-session mode: flushed inside the
+        SAVEPOINT). The update is guarded by exact row id AND the
+        unfinished state (``outcome == send_intent`` and not delivered):
+        completed rows are never rewritten (A review 5682106843). An
+        acceptance-unknown result completes the row to the fixed
+        ``acceptance_unknown`` sentinel (never a retryable
+        classification, C review 5678438821; delivered stays False —
+        unknown is never recorded as accepted). If the completion write
+        itself fails or its outcome cannot be confirmed, the row STAYS
+        ``send_intent`` and ``completed`` is False: the channel is held
+        for manual verification by every later dispatch and pending
+        scan, and the current dispatch stops retrying the provider
+        (A review 5686551361, C review 5686742366).
         """
         final_outcome = (
             ACCEPTANCE_UNKNOWN_OUTCOME
@@ -467,8 +503,10 @@ class AlertNotificationDispatcher:
                         or row.outcome != SEND_INTENT_OUTCOME
                         or row.delivered
                     ):
-                        # Never rewrite a completed (or unknown-state) row.
-                        return result
+                        # Never rewrite a completed (or unknown-state)
+                        # row; and an unconfirmable row means the
+                        # completion is NOT proven — stop the channel.
+                        return result, False
                     row.outcome = final_outcome
                     row.delivered = result.delivered
                     row.detail = result.detail or None
@@ -476,10 +514,13 @@ class AlertNotificationDispatcher:
                     row.retry_after_s = result.retry_after_s
                     attempt_session.commit()
             except Exception:
-                return dataclasses.replace(
-                    result, detail=result.detail + _INTENT_HOLD_SUFFIX
+                return (
+                    dataclasses.replace(
+                        result, detail=result.detail + _INTENT_HOLD_SUFFIX
+                    ),
+                    False,
                 )
-            return result
+            return result, True
         try:
             with session.begin_nested():
                 row = session.get(NotificationAttempt, intent_id)
@@ -493,12 +534,17 @@ class AlertNotificationDispatcher:
                     row.detail = result.detail or None
                     row.server_response = result.server_response
                     row.retry_after_s = result.retry_after_s
+                else:
+                    # Guarded row missing/already finished: completion
+                    # not proven by this write — report it as such.
+                    return result, False
                 session.flush()
         except Exception:
-            return dataclasses.replace(
-                result, detail=result.detail + _INTENT_HOLD_SUFFIX
+            return (
+                dataclasses.replace(result, detail=result.detail + _INTENT_HOLD_SUFFIX),
+                False,
             )
-        return result
+        return result, True
 
 
 def dispatch_committed_event(

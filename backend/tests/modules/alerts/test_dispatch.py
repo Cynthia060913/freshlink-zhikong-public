@@ -977,6 +977,114 @@ class IntentGuardCase(unittest.TestCase):
         with Session(engine) as reader:
             assert _attempts(reader, event_id) == []  # nothing recorded
 
+    def test_retryable_with_completion_write_failure_stops_same_dispatch(
+        self,
+    ) -> None:
+        # A review 5686551361 / C review 5686742366 requirements 1+2:
+        # a retryable transport result (definite transient refusal or
+        # timeout) whose intent COMPLETION write fails must stop the
+        # channel within the SAME dispatch — while an unfinished
+        # send_intent row holds the channel, the retry loop may not
+        # touch the provider again, no matter how retryable the result
+        # looks (the stop is structural, not detail-string based).
+        for outcome in (DeliveryOutcome.TRANSIENT_FAILURE, DeliveryOutcome.TIMEOUT):
+            with self.subTest(outcome=outcome):
+                scripted = _ScriptedTransport(
+                    NotificationKind.SMTP_EMAIL,
+                    [
+                        _result(
+                            outcome=outcome,
+                            detail="450 4.2.0 mailbox busy"
+                            if outcome is DeliveryOutcome.TRANSIENT_FAILURE
+                            else "gateway timeout",
+                        )
+                    ],
+                )
+                with Session(engine) as session:
+                    event = _event(source=f"disp-cf-stop-{uuid.uuid4()}")
+                    session.add(event)
+                    session.commit()
+                    event_id = event.id
+                completion = _FailOnNthFactory(
+                    fail_on_call=2
+                )  # intent ok, complete fails
+                dispatcher = AlertNotificationDispatcher(
+                    [scripted],
+                    max_attempts=3,
+                    sleep=_Sleep(),
+                    attempt_session_factory=completion,
+                )
+                with Session(engine) as session:
+                    stored = session.get(AlertEvent, event_id)
+                    assert stored is not None
+                    report = dispatcher.dispatch(
+                        session, stored, recipients=("a@example.com",)
+                    )
+                # EXACTLY one provider call this dispatch: the budget
+                # retry loop is cut off by the failed completion write.
+                assert len(scripted.envelopes) == 1
+                assert report.results[0].outcome is outcome
+                with Session(engine) as reader:
+                    snapshot = [
+                        (r.outcome, r.delivered) for r in _attempts(reader, event_id)
+                    ]
+                # The unfinished intent row stays as the cross-process hold.
+                assert snapshot == [(SEND_INTENT_OUTCOME, False)]
+
+                # Restart shape (requirement 3): a healthy new dispatcher
+                # must NOT resend — the hold row keeps the channel paused,
+                # adding ZERO new provider calls.
+                healthy = _ScriptedTransport(NotificationKind.SMTP_EMAIL, [_result()])
+                later = AlertNotificationDispatcher(
+                    [healthy], attempt_session_factory=_independent_factory
+                )
+                with Session(engine) as session:
+                    stored = session.get(AlertEvent, event_id)
+                    assert stored is not None
+                    later_report = later.dispatch(
+                        session, stored, recipients=("a@example.com",)
+                    )
+                assert len(healthy.envelopes) == 0  # zero new provider calls
+                assert later_report.skipped_channels == (NotificationKind.SMTP_EMAIL,)
+                with Session(engine) as reader:
+                    assert len(_attempts(reader, event_id)) == 1  # hold row only
+
+    def test_persisted_transient_refusal_still_retries_within_budget(self) -> None:
+        # A review 5686551361 requirement 4: a DEFINITE transient
+        # refusal whose completion write SUCCEEDS keeps the normal
+        # bounded retry per budget (the completion-write-failure stop
+        # must not swallow legitimate retries).
+        scripted = _ScriptedTransport(
+            NotificationKind.SMTP_EMAIL,
+            [
+                _result(
+                    outcome=DeliveryOutcome.TRANSIENT_FAILURE,
+                    detail=f"450 try {n}",
+                )
+                for n in range(3)
+            ],
+        )
+        with Session(engine) as session:
+            event = _event(source=f"disp-cf-retry-{uuid.uuid4()}")
+            session.add(event)
+            session.commit()
+            event_id = event.id
+        dispatcher = AlertNotificationDispatcher(
+            [scripted],
+            max_attempts=3,
+            sleep=_Sleep(),
+            attempt_session_factory=_independent_factory,
+        )
+        with Session(engine) as session:
+            stored = session.get(AlertEvent, event_id)
+            assert stored is not None
+            report = dispatcher.dispatch(session, stored, recipients=("a@example.com",))
+        assert len(scripted.envelopes) == 3  # full budget used
+        assert report.results[0].outcome is DeliveryOutcome.TRANSIENT_FAILURE
+        with Session(engine) as reader:
+            snapshot = [(r.outcome, r.delivered) for r in _attempts(reader, event_id)]
+        assert snapshot == [("transient_failure", False)] * 3
+
     def test_unknown_completion_failure_holds_across_restart(self) -> None:
         # Requirement 2 (A review 5682106843 defect 1 exact repro):
         # DATA breaks (acceptance unknown), the intent row IS written,
