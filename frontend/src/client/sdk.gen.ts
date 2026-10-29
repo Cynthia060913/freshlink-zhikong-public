@@ -743,7 +743,7 @@ export class TelemetryService {
     /**
      * Export Observations
      *
-     * Export exactly the authenticated snapshot membership and projection.
+     * Export the same actor's frozen snapshot in explicit schema 1 or 2.
      */
     public static exportObservations<ThrowOnError extends boolean = true>(options: Options<telemetryExportObservationsData, ThrowOnError>) {
         return (options.client ?? client).get<telemetryExportObservationsResponses, telemetryExportObservationsErrors, ThrowOnError>({
