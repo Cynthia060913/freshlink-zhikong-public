@@ -121,7 +121,9 @@ class SnapshotCandidateTests(unittest.TestCase):
             self.engine,
             reception("2026-10-16T00:02:00Z", 7, NOW - timedelta(minutes=3)),
         )
-        self.assertEqual((saved.status, untouched.status), ("accepted_new", "accepted_new"))
+        self.assertEqual(
+            (saved.status, untouched.status), ("accepted_new", "accepted_new")
+        )
         first_batch = "11111111-1111-4111-8111-111111111111"
         second_batch = "22222222-2222-4222-8222-222222222222"
         with self.engine.begin() as connection:
