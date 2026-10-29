@@ -362,8 +362,11 @@ def render_snapshot_csv_candidate(
     filters: HistoryFiltersCandidate,
     policy_version: str,
     now: datetime,
+    export_schema: int = 1,
 ) -> bytes:
-    """Render the same fixed test members; not an authenticated CSV endpoint."""
+    """Render one frozen projection in the compatible 14/15-column schema."""
+    if export_schema not in (1, 2):
+        raise ValueError("invalid_export_schema")
     with engine.connect() as connection:
         snapshot = _snapshot_record(
             connection,
@@ -389,12 +392,30 @@ def render_snapshot_csv_candidate(
         raise ValueError("invalid_snapshot_members")
     output = StringIO(newline="")
     writer = csv.writer(output, quoting=csv.QUOTE_ALL)
-    writer.writerow(PREVIEW_COLUMNS)
+    columns = (
+        (*PREVIEW_COLUMNS, "batch_rule_refs_json")
+        if export_schema == 2
+        else PREVIEW_COLUMNS
+    )
+    writer.writerow(columns)
     for row in members:
         member = row["projection"]
         cells = [
             "|".join(member["quality"]) if column == "quality" else member.get(column)
             for column in PREVIEW_COLUMNS
         ]
+        if export_schema == 2:
+            refs = member.get("batch_rule_refs")
+            if not isinstance(refs, list):
+                refs = None
+            cells.append(
+                json.dumps(
+                    refs,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+            )
         writer.writerow([_display_cell(cell) for cell in cells])
     return ("\ufeff" + output.getvalue()).encode("utf-8")
