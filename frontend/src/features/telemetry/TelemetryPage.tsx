@@ -3,7 +3,7 @@ import { type FormEvent, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { type TelemetryFilters, telemetryApi, telemetryError } from "./api"
+import { type TelemetryFilters, type TelemetryItem, telemetryApi, telemetryError } from "./api"
 import { isLatestObservationStale } from "./freshness"
 
 type Selection = {
@@ -17,6 +17,29 @@ const initialSelection: Selection = { filters: {}, revision: 0 }
 
 function display(value: string | number | null): string {
   return value === null ? "缺失 / 未知" : String(value)
+}
+
+function RuleEvidence({ item }: { item: TelemetryItem }) {
+  const refs = item.batch_rule_refs
+  if (refs && refs.length > 0) {
+    return (
+      <details>
+        <summary>多批次规则（{refs.length}）</summary>
+        <ul className="mt-1 space-y-1">
+          {refs.map((ref) => (
+            <li key={ref.batch_id}>
+              批次 {ref.batch_id}：{ref.rule_version}（{ref.state}；快照{" "}
+              {ref.rule_snapshot_id}）
+            </li>
+          ))}
+        </ul>
+      </details>
+    )
+  }
+  if (item.rule_version) return <span>{item.rule_version}</span>
+  if (item.risk_state === "unknown")
+    return <span>未评估；规则证据需核查</span>
+  return <span>规则证据未记录/需核查</span>
 }
 
 const receptionOutcomes: Record<string, string> = {
@@ -280,7 +303,7 @@ export default function TelemetryPage() {
             disabled={!page.data || downloading}
             onClick={download}
           >
-            {downloading ? "正在导出…" : "导出本次快照 CSV"}
+            {downloading ? "正在导出…" : "导出本次快照 CSV（含批次规则）"}
           </Button>
         </div>
         {csvError && (
@@ -324,10 +347,7 @@ export default function TelemetryPage() {
                       {item.risk_state || "unknown"}
                     </td>
                     <td className="max-w-72 break-all p-2 text-xs">
-                      {item.rule_version ??
-                        (item.risk_state === "unknown"
-                          ? "未评估"
-                          : "版本未显示")}
+                      <RuleEvidence item={item} />
                     </td>
                     <td className="p-2">
                       <Button
