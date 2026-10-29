@@ -1,11 +1,15 @@
 # 鲜链智控软件设计文档（M03 汇编稿）
 
-**汇编**：B（xixidamei），2026-10-28 修订。
-**汇编基准**：共同 main `319aa63`（= 一库 E1 实测来源 `e7fffd61`，全 Git 树
-一致；含关联更正契约 PR #80/#83 与 A PR #94 已合入成果）；B 增量 PR #96
-（SMTP 固定阶段诊断 + 接受未证实防补发，head
-`dd2bf383e1bb06256e722a86727401586a001814`）为**待审候选**，引用处单独
-标注，其测试数不并入冻结主线成绩。
+**汇编**：B（xixidamei），2026-10-29 修订。
+**汇编基准（双轨如实）**：
+- **当前发布主线**：共同 main `1038983bf3232bc2345a3e150a85c862eec3ec6a`
+  （PR #98 合入点）；实跑构建 `f6f11941e2f3ba286d3286e664e80b3b0145e1da`
+  与 main 全树一致。本稿的通知派发语义（§5.5/§5.6）按该源描述。
+- **E1 实测证据源（历史事实，限定签收，不重跑不改标）**：一库同版同事件
+  E1 与双渠道终端实收在 `e7fffd61`（= main `319aa63` 全树一致）取得；
+  其后合入的 B 通知安全修复（PR #96 全链 `5fa963c…f8c0b00`，经 PR #98
+  组合头 `4e7491f` 进 main）为**单列增量**，旧实收证据不因新头改写。
+- 关联更正契约 PR #80/#83 与 A PR #94 已在两轨源中均合入。
 **章节来源**：需求/架构/ER/数据字典来自
 [A-SYSTEM-DESIGN.md](A-SYSTEM-DESIGN.md) 与
 [design/README.md](design/README.md)（A，基于业务源码 `71e5a882`，只读反射
@@ -120,6 +124,13 @@ B 模块章节（仓储/批次/规则/告警生命周期/更正/通知派发）�
 `rule_version`——**用历史规则评价历史数据，不用今天的新规则覆盖过去**；
 恢复事件必须保留原异常的规则身份（§5.3）。多批次按已签 F02 规则选择生效
 历史快照，不任选第一批。
+**多批次结果的规则版本归属（B 业务口径，据 C 只读诊断 #5
+6489558890 / 文档源 `0ec45edf`）**：多批次候选的逐批规则版本持久保存在
+事件 `risk.batches[*].rule_version`/`rule_snapshot_id`（C 实测 540 个批次
+结果全部非空）；列表/CSV 顶层 `rule_version` 列读不到它、显示"未匹配"
+属**展示/追溯缺口**（`history_candidate.py::_project_row` 只取顶层字段），
+**不是"无规则判 normal"**。已发生 normal 判定与逐批规则证据要分开表述，
+不以空列冒充无生效规则（投影修复由 C 进行中，修复前后证据分列）。
 
 ### 5.2 告警事件摄取与五态回执
 
@@ -175,51 +186,55 @@ integrity 失败回读已存行再分类（`_insert_event`）。瞬时存储失�
   settings、飞书由环境变量 webhook）；未配置静默跳过；单渠道配置损坏不拖垮
   另一渠道。
 - **有界重试**：仅对 transient/timeout 重试，指数退避与 Retry-After 取大、
-  封顶；permanent 不重试。
+  封顶；permanent 不重试；**接受未证实或意图完成写未证实的结果绝不进入
+  重试**（见下）。
+- **发送前持久意图（main `1038983b` 现行为，PR #96→#98）**：每次网络外发
+  **之前**，先在独立事务持久化一行 `send_intent` attempt 行；**该行写失败
+  则本次零发送**（provider 调用为 0，预算内只重试守卫写入、不触网）。
+- **发送后单向完成与保守暂停**：发送返回后按**精确意图行 ID + 未完成状态
+  条件**把该行单向完成为最终结果（已完成行绝不改写）；完成写失败或无法
+  确认完成时，**同一次派发立即停止**——无论 transport 结果看起来多可重试，
+  本轮不再对 provider 发起任何尝试（A review 5686551361 复现形状的修复）。
+  完成写失败、结果不明或进程中断都会留下未完成的 `send_intent` 行——
+  去重守卫与 pending 扫描把该渠道保持为**待人工核验**，后续运行与重启
+  **保守暂停、不自动补发**。
+- **接受未证实（`acceptance_unknown`）**：DATA 返回前的连接类中断打上
+  结构化标志：结果如实 `delivered=False`、同次派发**不重试**，attempt 行
+  以固定哨兵值落库（不写成可重试的"未送达"），跨派发与重启都待人工核验
+  （四值 `DeliveryOutcome` 契约不变）。
 - **尝试审计**：每次尝试（含失败）追加 `alerts_notification_attempt` 行；
   独立 attempt session 提交（或在 SAVEPOINT 内），**审计失败绝不 rollback
   业务事务**，只在结果 detail 如实标注。
 - **同源去重**：同一 (事件, 渠道) 已有 delivered 记录、或已有
-  `acceptance_unknown`（**PR #96 待审候选**语义：接受未证实，待人工核验）
-  记录则跳过；去重查询自身失败时**保守 fail-closed 零发送**
-  （`dedup_error=True`）。冻结 main `319aa63`（= e7fffd61）现行为仅按
-  delivered 去重。
+  `acceptance_unknown` 或未完成 `send_intent` 记录则跳过；去重查询自身
+  失败时**保守 fail-closed 零发送**（`dedup_error=True`）。
 - **渠道隔离**：单渠道违反契约只影响该渠道，异常文本/URL 不入库（固定
   错误码）。
 - **只消费已提交事件**：`dispatch_committed_event` 在业务事务提交后由
   worker 调用；网络与退避 sleep 不进业务事务、行锁或 HTTP 请求内。
-- **SMTP 固定阶段诊断**（PR #96，待审候选）：适配器以封闭枚举 `SMTPStage`
+- **SMTP 固定阶段诊断**（同上源）：适配器以封闭枚举 `SMTPStage`
   （connect/tls/auth/data/post_send_cleanup）记录停止阶段；`DATA` 被服务器
   接受后（`send_message` 返回）的**任何收尾异常（QUIT/SSL EOF 等）按
   accepted 上报**并如实标注"terminal receipt unconfirmed; do not
-  auto-retry"——绝不降级为可重试的"未送达"而诱发重复发送；收尾异常时
-  已取得的部分拒收结果**原样保留**在 `recipient_outcomes`（原 4xx/5xx
-  分类，已接受者不重发，审计不写成"全部接受"）。**如实边界**：数据库
-  无逐收件人结构列，未被接受的对象（如 450）暂无自动补发路径；正式
-  发行入口按 PR #97（A 候选）限定单个已授权邮箱，多收件人为明确排除的
-  非发行场景，低层适配器保留原始逐收件人语义但按候选边界如实记录。
-  DATA 返回前的连接类中断
-  则打上结构化 `acceptance_unknown` 标志：结果如实 `delivered=False`、
-  同次派发**不重试**，attempt 行以固定哨兵值 `acceptance_unknown` 落库，
-  去重守卫与 pending 扫描把该渠道保持为**待人工核验**——在 attempt 行
-  **成功持久化**的前提下跨派发与重启都不自动补发（四值
-  `DeliveryOutcome` 契约不变）。**如实边界**：候选头 `dd2bf38` 的顺序仍
-  是"先外发、后尽力写 attempt"，若该次审计写入失败则本轮无任何 hold
-  记录、后续运行可能再发——此故障窗口已由 A 故障注入复现（review
-  5682106843），**尚未修复**，不能写成已解决；修复按 PR #96 新头实际
-  结果更新。失败 detail 只含固定前缀、阶段与数字回复码，异常文本/完整
+  auto-retry"；收尾异常时已取得的部分拒收结果**原样保留**在
+  `recipient_outcomes`（原 4xx/5xx 分类，已接受者不重发，审计不写成
+  "全部接受"）。**如实边界**：数据库无逐收件人结构列，未被接受的对象
+  （如 450）暂无自动补发路径；**正式发行入口按 PR #97（已合 main
+  `9978f0f`）限定单个已授权邮箱**——低层适配器可解析多地址属于协议层
+  能力，**不写成正式实发支持多收件人**；多收件人为明确排除的非发行
+  场景。失败 detail 只含固定前缀、阶段与数字回复码，异常文本/完整
   响应/地址/凭据一律不入库。
 
 ### 5.6 持久派发 runner（`notifications/runner.py`）
 
-- **Pending 规则**：事件 pending ⇔ 至少一个配置渠道既缺 delivered 尝试行
-  也缺 `acceptance_unknown` 尝试行（**PR #96 待审候选**语义：接受未证实、
-  待人工核验；同样以该行**成功持久化**为前提，审计写失败窗口在候选头
-  `dd2bf38` 尚未修复，见 §5.5 如实边界），总尝试数 <
+- **Pending 规则**（main `1038983b` 现行为，PR #96→#98）：事件 pending ⇔
+  至少一个配置渠道既缺 delivered 尝试行，也缺 `acceptance_unknown` 或
+  未完成 `send_intent` 尝试行（后两者=该渠道已被结算为**待人工核验**，
+  不再视为欠发），总尝试数 <
   `max_attempts_per_event`（12），最新尝试早于 `min_attempt_age_s`
   （60s，重启不清零的持久退避——预算在表里，不在内存）；oldest-first，
-  部分送达的只补缺失渠道，不重复打扰。冻结 main `319aa63` 现行 pending
-  规则只按 delivered 判定。
+  部分送达的只补缺失渠道，不重复打扰。旧基线 `319aa63` 的 pending 规则
+  只按 delivered 判定，为有日期历史。
 - **单派发互斥**：`_DispatchLease` 在**专用连接**上持 PG session 级
   advisory lock（不进业务事务、不占告警行锁）；第二实例拿到锁即返回
   `interrupted="lease_busy"` 零发送；连接死亡 PG 自动放锁；每 cycle ping，
@@ -274,12 +289,12 @@ integrity 失败回读已存行再分类（`_insert_event`）。瞬时存储失�
 
 | # | 范围 | 环境 | 结果 | 证据位置 |
 |---|---|---|---|---|
-| 1 | B 告警全量套件（含更正 21 条、runner、派发、恢复、迁移、SMTP 阶段诊断负向与接受未证实组合回归） | 真实 PG 18 / Python 3.14，本机隔离实例 | 410 passed, 2 skipped（PG opt-in）, 15 subtests | `backend/tests/modules/alerts/`，PR #96 头 `dd2bf38` 工作树实跑（2026-10-28）——**PR #96 为待审增量候选，此数不并入冻结主线成绩** |
+| 1 | B 告警全量套件（含更正 21 条、runner、派发、恢复、迁移、SMTP 阶段诊断负向、接受未证实与发送前持久意图/同轮停止组合回归） | 真实 PG 18 / Python 3.14，本机隔离实例 | 419 passed, 2 skipped（PG opt-in）, 17 subtests | `backend/tests/modules/alerts/`，PR #96 分支头 `f8c0b00` 工作树实跑（2026-10-29）；**分支级成绩，按源分层列示，不与其它层相加冒充全系统成绩**。该头已随 PR #98 入 main（组合头 `4e7491f`），主线成绩以对应 CI 为准 |
 | 2 | 更正契约回归：首收/重放/冲突/未知原异常/跨批/更正先于恢复/旧恢复重放/DTO 拒绝 | 真实 PG | 21 passed | `tests/modules/alerts/test_data_quality_correction.py`（PR #80 组合头 `d1f5359`，已入 main） |
 | 3 | 双连接锁交错：更正排队于原异常行锁后，不回退并发提交的 resolved | 真实 PG 双连接 | passed | 同上（`test_correction_serializes_behind_held_original_row_lock`） |
 | 4 | ACK/恢复行锁串行化：双确认只留一条、恢复不回退 | 真实 PG 双连接 | passed | `tests/modules/alerts/test_recovery_candidates.py`（A 审入 ae2a941） |
 | 5 | runner 互斥/持久预算/dry-run/重启续跑；接受未证实渠道跨重启不自动补发 | 真实 PG | passed（互斥为双实例真实争锁） | `tests/modules/alerts/test_dispatch_runner.py` |
-| 6 | 全量后端回归（CI） | GitHub Actions Python 3.14 / 隔离 PG | PR #80 组合头 `d1f5359` CI 9 workflows 全绿；PR #96 `dd2bf38` 结果见 PR checks（本稿修订时以 CI 实况为准） | PR #80 / PR #96 checks |
+| 6 | 全量后端回归（CI） | GitHub Actions Python 3.14 / 隔离 PG | PR #80 组合头 `d1f5359` CI 9 workflows 全绿；PR #96 头 `f8c0b00` 七项适用 workflow 全 success（pre-commit / Test Backend / Playwright / Test Docker Compose / Zizmor / Test archive / Conflict detector）；PR #98 组合（main `1038983b`）以 PR #98 checks 为准 | PR #96 / PR #98 checks |
 | 7 | A 组合链：14 设备/7 流/执行 ACK 后降温、离线重启恢复、CSV 对拍 | 精确 `62bb2ef` 受控环境 | 见 A46 记录 | [A-TEST-REPORT-CANDIDATE.md](A-TEST-REPORT-CANDIDATE.md) |
 | 8 | **一库同版同事件 E1 实测出口通过**（#6 6459911129，2026-10-28） | 独立试验库；来源 `e7fffd61`（与 main `319aa63` 全树一致） | 真实认证 MQTT→A 接纳→C raw/质量→B 真实 TCP 异常；授权后 SMTP 与飞书各一次，**两服务接受且队长本人分别确认终端实收**（"邮件和手机飞书均收到，来源 ID 一致"，来源 `d89c0bf9`）；控制 `0c8275df` 执行一次、恢复 `1aadba77` 关联正确；真实浏览器实下载 281 行 14 列 CSV 与 15 页全部观测 ID 一致；普通账号控制/告警确认 POST 均 403；只读 SQL 复核仅两条通知 attempt（两渠道均 delivered） | #6 6459911129；`E1-ACCEPTANCE.json` SHA256 `13500940875c0fd8aed244ad9d2a75907a75910a2d3cd39a5474428a36856470` |
 | 9 | C 第二机（PR #94 精确 e7 独立构建，#6 6449022153，2026-10-28） | C 第二台电脑，干净检出 `e7fffd61` | 独立源码归档/构建镜像（源码 ZIP `b90a7b33…`）；默认 CMD 无源码挂载真实 HTTP 检查通过（健康/匿名 401/登录/注册 201·409/详情）；14 设备夹具（2 冷库/3 批/7 采集流/7 执行 ACK/14 离线恢复追溯）；普通用户真实页面（设备 14 台/2 冷库、遥测快照 10 条、告警 3 条只读）；同用户 HTTP 实取快照 CSV 200、10 行 14 列（`23CA765A…`）；普通用户 POST 403、匿名 CSV 401。**API 保存的文件不写成浏览器下载** | #6 6449022153 |
@@ -293,7 +308,11 @@ sustained，`notifications_sent=0`；10-29 离线交互入口包运行同样未�
 逐行对拍）完成——10-28 PR94 e7 段"下载路径未取得"属该段历史事实，不
 追溯改写；该交互包普通用户写入 403 未测；最终第二机总签收与 M01—M05
 总签收；实际投稿；runner 组合进 A 运行包的现场验证；SIGTERM 派发中途
-窗口；PR #96 诊断增量的审查通过与并入冻结应用。
+窗口；真实网络下发送前意图/完成写时序（本机仅合成 provider）；
+C 的 f6 第二机段（普通用户 403、匿名 401、全 14 页 ID 逐项比对）未测
+项由 C 本人范围如实记录（#5 6489558890），A 测试不代称 C 测试；
+多批次 `rule_version` 列表/CSV 投影缺口修复进行中（C 分支
+`7d6c2ca…`），修复前 f6 包该列如实标注为空。
 
 ## 10. 限制与未验证清单
 
@@ -310,10 +329,13 @@ sustained，`notifications_sent=0`；10-29 离线交互入口包运行同样未�
 3. 智能算法未启用：以版本化阈值规则为基线，无 M06/M07 算法报告，不虚构
    算法性能页。
 4. WH1 多批告警评价在 A46 记录中仍 hold；多批完整链路待多事件同版实测
-   （本次 E1 为单一事件同版实测）。
+   （本次 E1 为单一事件同版实测）。多批次结果的逐批规则版本已持久保存
+   （§5.1），但列表/CSV 顶层 `rule_version` 投影缺口（C 修复中）修复前
+   不声称页面/CSV 展示了逐批规则版本。
 5. 模拟数据不宣称为真实果品品质实验；阈值异常不宣称真实腐败概率。
 6. ER 图基于业务源码 `71e5a882` 反射；冻结版本若模式变化须重新核对，
    不只替换 SHA 标签（本次架构图更新为 A 的 e7 图件，ER 反射版本未改标）。
-7. 本文档对齐冻结应用来源 main `319aa63`（= `e7fffd61`，行 8 E1 实测同
-   源）；PR #96 诊断为待审增量、其 410 项测试不并入冻结主线成绩；M03
-   成品需三人各自实签。
+7. 本文档双轨对齐（见汇编基准）：E1/通知实收证据源 `e7fffd61`（=
+   main `319aa63`，行 8 同源）；通知派发语义与发布主线 main `1038983b`
+   （实跑 `f6f11941` 全树一致，含 PR #96→#98 通知安全修复）。测试数按
+   各自源与层级分列、不相加；M03 成品需三人各自实签。
