@@ -3,6 +3,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Kit,
     [Parameter(Mandatory=$true)][string]$ExpectedManifestSha256,
+    [ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSource='e7fffd61c199234918dcf1713cc1f3dd6ce78c51',
     [switch]$Start,
     [ValidateRange(1,10)][int]$Minutes=5
 )
@@ -14,7 +15,7 @@ if((Get-FileHash -LiteralPath $guards).Hash.ToLowerInvariant() -cne '30c2183ddae
 }
 . $guards
 $manifest=Assert-OfflineKit $kitRoot $ExpectedManifestSha256
-if($manifest.source -cne 'e7fffd61c199234918dcf1713cc1f3dd6ce78c51'){throw 'Different application source requires review'}
+if($manifest.source -cne $ExpectedSource){throw 'Application source differs from the explicitly reviewed source'}
 $runtime=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../offline-demo-runtime.py')).Path
 if(-not $Start){Write-Output 'PASS package integrity. Add -Start for an isolated interactive application; no Docker action taken.';return}
 $docker=Get-OfflineLocalDocker
@@ -65,6 +66,7 @@ $seedEnvironment.GATED_FLEET_DIRTY='0'
 $runtimeEnvironment=@{};foreach($key in $environment.Keys){$runtimeEnvironment[$key]=$environment[$key]}
 $runtimeEnvironment.FRESHLINK_INTERACTIVE_DEMO='1'
 $runtimeEnvironment.FRESHLINK_DEMO_SOURCE=$manifest.source
+$runtimeEnvironment.FRESHLINK_REVIEWED_DEMO_SOURCE=$ExpectedSource
 $runtimeEnvironment.FRESHLINK_DEMO_SECONDS=[string]($Minutes*60)
 $owner=@{'freshlink.delivery.owner'=$project}
 $composeModel=@{

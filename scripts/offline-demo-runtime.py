@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -15,6 +16,17 @@ from uuid import UUID
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
+
+
+def verify_source(source, expected):
+    """Require an independently supplied exact revision before application imports."""
+    require(
+        isinstance(source, str)
+        and isinstance(expected, str)
+        and re.fullmatch(r"[0-9a-f]{40}", source) is not None
+        and source == expected,
+        "application source differs from the explicitly reviewed source",
+    )
 
 
 def run():
@@ -35,6 +47,8 @@ def run():
     )
     seconds = int(os.getenv("FRESHLINK_DEMO_SECONDS", "300"))
     require(60 <= seconds <= 600, "demo duration must be 60..600 seconds")
+    source = os.environ.get("FRESHLINK_DEMO_SOURCE")
+    verify_source(source, os.environ.get("FRESHLINK_REVIEWED_DEMO_SOURCE"))
     # No application imports, configuration validation or network before guard.
     import httpx
     from app.core.config import settings
@@ -54,11 +68,6 @@ def run():
     from sqlmodel import Session, select
 
     root = Path("/results")
-    source = os.environ["FRESHLINK_DEMO_SOURCE"]
-    require(
-        source == "e7fffd61c199234918dcf1713cc1f3dd6ce78c51",
-        "review this operator before using a different application",
-    )
     report_path = root / "interactive-runtime.json"
     require(not report_path.exists(), "runtime already used; do not start twice")
     sensors = [UUID(f"10000000-0000-4000-8000-{i:012d}") for i in range(1, 8)]
