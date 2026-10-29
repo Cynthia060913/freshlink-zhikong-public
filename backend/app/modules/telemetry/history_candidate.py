@@ -160,9 +160,7 @@ def _project_row(row: RowMapping) -> dict[str, Any]:
         "quality": list(row["quality"]),
         "risk_state": row["risk"]["state"],
         "rule_version": (
-            None
-            if row["risk"].get("batches")
-            else row["risk"].get("rule_version")
+            None if row["risk"].get("batches") else row["risk"].get("rule_version")
         ),
         "batch_rule_refs": _batch_rule_refs_from_risk(row["risk"]),
     }
