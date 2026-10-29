@@ -3,7 +3,12 @@ import { type FormEvent, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { type TelemetryFilters, type TelemetryItem, telemetryApi, telemetryError } from "./api"
+import {
+  type TelemetryFilters,
+  type TelemetryItem,
+  telemetryApi,
+  telemetryError,
+} from "./api"
 import { isLatestObservationStale } from "./freshness"
 
 type Selection = {
@@ -37,8 +42,7 @@ function RuleEvidence({ item }: { item: TelemetryItem }) {
     )
   }
   if (item.rule_version) return <span>{item.rule_version}</span>
-  if (item.risk_state === "unknown")
-    return <span>未评估；规则证据需核查</span>
+  if (item.risk_state === "unknown") return <span>未评估；规则证据需核查</span>
   return <span>规则证据未记录/需核查</span>
 }
 
