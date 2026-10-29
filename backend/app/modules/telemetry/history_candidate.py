@@ -7,6 +7,7 @@ the UTC/NULLS LAST order needed before the reviewed migration is available.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -103,6 +104,41 @@ def _conditions(filters: HistoryFiltersCandidate) -> list[Any]:
     return clauses
 
 
+def _rule_version_for_history(risk: dict[str, Any]) -> str | None:
+    """Keep F06's single column while preserving every multi-batch version.
+
+    A single-batch evaluation retains its original version string. For a
+    multi-batch evaluation, the cell contains a stable JSON array of
+    batch_id/rule_version pairs; it must not pretend that one version applies
+    to every batch. Incomplete saved evidence stays absent.
+    """
+    version = risk.get("rule_version")
+    if isinstance(version, str) and version:
+        return version
+    batches = risk.get("batches")
+    if not isinstance(batches, list) or not batches:
+        return None
+    pairs: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for batch in batches:
+        if not isinstance(batch, dict):
+            return None
+        batch_id = batch.get("batch_id")
+        batch_version = batch.get("rule_version")
+        if (
+            not isinstance(batch_id, str)
+            or not batch_id
+            or batch_id in seen
+            or not isinstance(batch_version, str)
+            or not batch_version
+        ):
+            return None
+        seen.add(batch_id)
+        pairs.append({"batch_id": batch_id, "rule_version": batch_version})
+    pairs.sort(key=lambda pair: pair["batch_id"])
+    return json.dumps(pairs, ensure_ascii=False, separators=(",", ":"))
+
+
 def _project_row(row: RowMapping) -> dict[str, Any]:
     metrics = row["normalized"].get("metrics", {})
     return {
@@ -115,7 +151,7 @@ def _project_row(row: RowMapping) -> dict[str, Any]:
         "humidity_percent": metrics.get("humidity"),
         "quality": list(row["quality"]),
         "risk_state": row["risk"]["state"],
-        "rule_version": row["risk"].get("rule_version"),
+        "rule_version": _rule_version_for_history(row["risk"]),
     }
 
 
