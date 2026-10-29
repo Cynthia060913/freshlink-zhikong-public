@@ -102,9 +102,7 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
             ],
         )
         self.assertIsNone(
-            _rule_version_for_history(
-                {"state": "unknown", "reason": "no_usable_rule"}
-            )
+            _rule_version_for_history({"state": "unknown", "reason": "no_usable_rule"})
         )
         self.assertIsNone(
             _rule_version_for_history(
