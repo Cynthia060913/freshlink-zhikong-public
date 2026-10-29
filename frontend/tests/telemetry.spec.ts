@@ -66,7 +66,9 @@ test("Telemetry UI mock: CSV uses the filtered list's fixed snapshot", async ({
   await expect(page.getByText("暂无保存观测；当前风险未知。")).toBeVisible()
 
   const downloadPromise = page.waitForEvent("download")
-  await page.getByRole("button", { name: "导出本次快照 CSV（含批次规则）" }).click()
+  await page
+    .getByRole("button", { name: "导出本次快照 CSV（含批次规则）" })
+    .click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe("observations.csv")
   const filtered = lists.at(-1)
