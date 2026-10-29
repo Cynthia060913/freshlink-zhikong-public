@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, select
 
 from app.modules.telemetry.history_candidate import (
     HistoryFiltersCandidate,
+    _rule_version_for_history,
     latest_observation_candidate,
     list_history_candidate,
 )
@@ -82,6 +83,34 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
             self.assertEqual(result.status, "accepted_new")
             ids.append(result.observation_id)
         return records, ids
+
+    def test_rule_version_projection_preserves_batch_identity_and_unknown(self) -> None:
+        self.assertEqual(
+            _rule_version_for_history({"rule_version": "temp-v1"}), "temp-v1"
+        )
+        batches = [
+            {"batch_id": "batch-b", "rule_version": "temp-v1"},
+            {"batch_id": "batch-a", "rule_version": "temp-v1"},
+        ]
+        mapped = _rule_version_for_history({"batches": batches})
+        assert mapped is not None
+        self.assertEqual(
+            json.loads(mapped),
+            [
+                {"batch_id": "batch-a", "rule_version": "temp-v1"},
+                {"batch_id": "batch-b", "rule_version": "temp-v1"},
+            ],
+        )
+        self.assertIsNone(
+            _rule_version_for_history(
+                {"state": "unknown", "reason": "no_usable_rule"}
+            )
+        )
+        self.assertIsNone(
+            _rule_version_for_history(
+                {"state": "normal", "batches": [{"batch_id": "batch-a"}]}
+            )
+        )
 
     def test_latest_uses_first_trusted_reception_and_replay_does_not_replace_it(
         self,
