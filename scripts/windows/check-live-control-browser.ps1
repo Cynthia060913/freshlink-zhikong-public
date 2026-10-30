@@ -6,12 +6,13 @@ param(
     [Parameter(Mandatory=$true)][string]$NodeExecutable,
     [Parameter(Mandatory=$true)][string]$PlaywrightModules,
     [Parameter(Mandatory=$true)][string]$ChromiumExecutable,
-    [string]$AppImage='freshlink-app:p0'
+    [string]$AppImage='freshlink-app:p0',
+    [switch]$RecordVideo
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $priorLocation=Get-Location
-$names=@('CONTROL_BROWSER_SOURCE','CONTROL_BROWSER_BUNDLE','CONTROL_BROWSER_RESULTS','CONTROL_BROWSER_APP_IMAGE')
+$names=@('CONTROL_BROWSER_SOURCE','CONTROL_BROWSER_BUNDLE','CONTROL_BROWSER_RESULTS','CONTROL_BROWSER_APP_IMAGE','CONTROL_BROWSER_RECORD_VIDEO')
 $saved=@{}
 foreach($name in $names){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $docker=$null
@@ -43,6 +44,7 @@ try {
     $env:CONTROL_BROWSER_BUNDLE=$bundle
     $env:CONTROL_BROWSER_RESULTS=$results
     $env:CONTROL_BROWSER_APP_IMAGE=$AppImage
+    $env:CONTROL_BROWSER_RECORD_VIDEO=if($RecordVideo){'1'}else{'0'}
     $compose=@('compose','--project-name',$runId,'-f','compose.control-browser-tests.yml')
     & $docker @compose config --quiet
     if($LASTEXITCODE -ne 0){throw 'Invalid isolated Compose'}

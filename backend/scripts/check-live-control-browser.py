@@ -18,6 +18,38 @@ def require(condition: bool, reason: str) -> None:
         raise RuntimeError("Browser control verification failed: " + reason)
 
 
+class SampleObserver:
+    """Bound unique simulated samples; redelivery must not rewind temperature."""
+
+    def __init__(self, capacity: int = 500) -> None:
+        self.capacity = capacity
+        self.payloads: dict[UUID, bytes] = {}
+        self.values: list[float] = []
+        self.received = 0
+        self.duplicates = 0
+
+    def observe(self, raw: bytes) -> None:
+        payload = json.loads(raw)
+        identifier = UUID(payload["message_id"])
+        self.received += 1
+        if identifier in self.payloads:
+            if self.payloads[identifier] != raw:
+                raise RuntimeError("sample_identity_conflict")
+            self.duplicates += 1
+            return
+        if len(self.values) >= self.capacity:
+            raise RuntimeError("sample_capacity")
+        self.payloads[identifier] = raw
+        self.values.append(payload["metrics"][0]["value"])
+
+    def counts(self) -> dict[str, int]:
+        return {
+            "received": self.received,
+            "unique": len(self.values),
+            "duplicate_deliveries": self.duplicates,
+        }
+
+
 def preflight() -> str:
     source = os.environ.get("CONTROL_BROWSER_SOURCE", "")
     database = urlparse(os.environ.get("DATABASE_URL", ""))
@@ -113,7 +145,8 @@ def run() -> None:
     threads = []
     workers = []
     failures = []
-    samples = []
+    sample_observer = SampleObserver()
+    samples = sample_observer.values
     sample_lock = threading.Lock()
     subscribed = threading.Event()
 
@@ -152,8 +185,18 @@ def run() -> None:
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             if failures:
+                with (results / "harness-failure.json").open(
+                    "w", encoding="utf-8"
+                ) as output:
+                    json.dump(
+                        {
+                            "failures": failures,
+                            "sample_counts": sample_observer.counts(),
+                        },
+                        output,
+                    )
                 raise RuntimeError(
-                    "Owned browser harness worker failed; see private worker-failure.json"
+                    "Owned browser harness failed; see private harness-failure.json"
                 )
             if predicate():
                 return
@@ -176,12 +219,17 @@ def run() -> None:
             subscribed.set()
 
     def on_message(_client, _userdata, message):
-        value = json.loads(message.payload)["metrics"][0]["value"]
         with sample_lock:
-            if len(samples) >= 500:
-                failures.append("sample_capacity")
-            else:
-                samples.append(value)
+            try:
+                sample_observer.observe(message.payload)
+            except (KeyError, ValueError, TypeError, RuntimeError) as error:
+                reason = (
+                    str(error)
+                    if str(error) in {"sample_capacity", "sample_identity_conflict"}
+                    else "sample_invalid"
+                )
+                if reason not in failures:
+                    failures.append(reason)
 
     observer.on_connect = on_connect
     observer.on_subscribe = on_subscribe
@@ -366,6 +414,7 @@ def run() -> None:
                 "execution_count": 1,
                 "temperature_before": before,
                 "temperature_after": after,
+                "observer_sample_counts": sample_observer.counts(),
                 "warehouse_lookup": "actual B HTTP/service; no dependency override",
                 "ddl_scope": "actual B01/A04/A05/C01 Alembic; no fallback C DDL",
                 "actual_c_observation_count": stored_count,
