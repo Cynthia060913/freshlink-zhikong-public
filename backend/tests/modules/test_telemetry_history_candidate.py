@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, select
 
 from app.modules.telemetry.history_candidate import (
     HistoryFiltersCandidate,
+    _batch_rule_refs_from_risk,
     latest_observation_candidate,
     list_history_candidate,
 )
@@ -82,6 +83,67 @@ class PersistedHistoryCandidateTests(unittest.TestCase):
             self.assertEqual(result.status, "accepted_new")
             ids.append(result.observation_id)
         return records, ids
+
+    def test_batch_rule_refs_keep_identity_and_unknown_distinct(self) -> None:
+        self.assertEqual(_batch_rule_refs_from_risk({"rule_version": "temp-v1"}), [])
+        first = "11111111-1111-4111-8111-111111111111"
+        second = "22222222-2222-4222-8222-222222222222"
+        snapshot = "33333333-3333-4333-8333-333333333333"
+        refs = _batch_rule_refs_from_risk(
+            {
+                "batches": [
+                    {
+                        "batch_id": second,
+                        "rule_version": "temp-v1",
+                        "rule_snapshot_id": snapshot,
+                        "state": "normal",
+                    },
+                    {
+                        "batch_id": first,
+                        "rule_version": "temp-v1",
+                        "rule_snapshot_id": snapshot,
+                        "state": "normal",
+                    },
+                ]
+            }
+        )
+        self.assertEqual([ref["batch_id"] for ref in refs or []], [first, second])
+        self.assertEqual(
+            [ref["rule_version"] for ref in refs or []],
+            ["temp-v1", "temp-v1"],
+        )
+        self.assertEqual(_batch_rule_refs_from_risk({"batches": []}), [])
+        self.assertIsNone(
+            _batch_rule_refs_from_risk({"state": "unknown", "reason": "no_usable_rule"})
+        )
+        self.assertIsNone(
+            _batch_rule_refs_from_risk(
+                {"batches": [{"batch_id": first, "rule_version": "temp-v1"}]}
+            )
+        )
+
+    def test_single_rule_version_remains_a_single_string(self) -> None:
+        saved = ingest_observation(
+            self.engine,
+            reception(uuid4(), "2026-10-16T00:01:00Z", 6, 1),
+        )
+        self.assertEqual(saved.status, "accepted_new")
+        with self.engine.begin() as connection:
+            connection.execute(
+                observations.update()
+                .where(observations.c.id == saved.observation_id)
+                .values(
+                    risk={
+                        "state": "normal",
+                        "rule_version": "temp-v1",
+                        "rule_snapshot_id": str(uuid4()),
+                    }
+                )
+            )
+        item = latest_observation_candidate(self.engine, device_id=DEVICE)
+        assert item is not None
+        self.assertEqual(item["rule_version"], "temp-v1")
+        self.assertEqual(item["batch_rule_refs"], [])
 
     def test_latest_uses_first_trusted_reception_and_replay_does_not_replace_it(
         self,

@@ -2878,6 +2878,10 @@ export type telemetryExportObservationsData = {
          */
         snapshot_id: string;
         /**
+         * Export Schema
+         */
+        export_schema?: number;
+        /**
          * Device Id
          */
         device_id?: string | null;

@@ -1,11 +1,7 @@
 import { Link } from "@tanstack/react-router"
+import { Snowflake } from "lucide-react"
 
-import { useTheme } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
-import icon from "/assets/images/fastapi-icon.svg"
-import iconLight from "/assets/images/fastapi-icon-light.svg"
-import logo from "/assets/images/fastapi-logo.svg"
-import logoLight from "/assets/images/fastapi-logo-light.svg"
 
 interface LogoProps {
   variant?: "full" | "icon" | "responsive"
@@ -18,39 +14,25 @@ export function Logo({
   className,
   asLink = true,
 }: LogoProps) {
-  const { resolvedTheme } = useTheme()
-  const isDark = resolvedTheme === "dark"
-
-  const fullLogo = isDark ? logoLight : logo
-  const iconLogo = isDark ? iconLight : icon
-
-  const content =
-    variant === "responsive" ? (
-      <>
-        <img
-          src={fullLogo}
-          alt="FastAPI"
+  const content = (
+    <span
+      role="img"
+      aria-label="鲜链智控"
+      className={cn("inline-flex items-center gap-2 font-semibold", className)}
+    >
+      <Snowflake className="size-6 shrink-0 text-primary" aria-hidden="true" />
+      {variant !== "icon" && (
+        <span
           className={cn(
-            "h-6 w-auto group-data-[collapsible=icon]:hidden",
-            className,
+            "whitespace-nowrap text-xl tracking-tight",
+            variant === "responsive" && "group-data-[collapsible=icon]:hidden",
           )}
-        />
-        <img
-          src={iconLogo}
-          alt="FastAPI"
-          className={cn(
-            "size-5 hidden group-data-[collapsible=icon]:block",
-            className,
-          )}
-        />
-      </>
-    ) : (
-      <img
-        src={variant === "full" ? fullLogo : iconLogo}
-        alt="FastAPI"
-        className={cn(variant === "full" ? "h-6 w-auto" : "size-5", className)}
-      />
-    )
+        >
+          鲜链智控
+        </span>
+      )}
+    </span>
+  )
 
   if (!asLink) {
     return content

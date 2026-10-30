@@ -167,6 +167,47 @@ class TelemetryHttpCandidateTests(unittest.TestCase):
             [row["observation_id"] for row in rows],
             [item["observation_id"] for item in data["items"]],
         )
+        self.assertEqual(len(rows[0]), 14)
+        v2_params = {**params, "snapshot_id": snapshot, "export_schema": 2}
+        v2_response = self.client.get(
+            BASE + "/export.csv",
+            params=v2_params,
+            headers=self.headers(self.user),
+        )
+        self.assertEqual(v2_response.status_code, 200, v2_response.text)
+        v2_rows = list(
+            csv.DictReader(StringIO(v2_response.content.decode("utf-8-sig")))
+        )
+        self.assertEqual(len(v2_rows), 2)
+        self.assertEqual(len(v2_rows[0]), 15)
+        self.assertEqual(
+            [row["observation_id"] for row in v2_rows],
+            [item["observation_id"] for item in data["items"]],
+        )
+        self.assertEqual(
+            [json.loads(row["batch_rule_refs_json"]) for row in v2_rows],
+            [item["batch_rule_refs"] for item in data["items"]],
+        )
+        self.assertEqual(
+            self.client.get(BASE + "/export.csv", params=v2_params).status_code,
+            401,
+        )
+        self.assertEqual(
+            self.client.get(
+                BASE + "/export.csv",
+                params=v2_params,
+                headers=self.headers(self.other),
+            ).status_code,
+            422,
+        )
+        self.assertEqual(
+            self.client.get(
+                BASE + "/export.csv",
+                params={**v2_params, "export_schema": 3},
+                headers=self.headers(self.user),
+            ).status_code,
+            422,
+        )
         self.assertEqual(
             self.client.get(
                 BASE + "/export.csv",
