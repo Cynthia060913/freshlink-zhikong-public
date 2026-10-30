@@ -28,9 +28,120 @@
 本次 4b9 运行；本节不代表 M01—M05 总包签收或实际投稿。下文旧日期段落的
 “未测/未完成”只描述当时版本和试验，不能替代本节当前范围。
 
+## 2026-10-30 基础版候选与 f6 第二机补验（C 本人）
+
+| 来源 | 实际验证 | 未证明的范围 |
+| --- | --- | --- |
+| C [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11) 业务源码 `ab2a7b6c4d71a11e6db665c94ee5f10a46275c26` | 本机从该提交建立隔离检出，将 backend 只读挂载到旧 f6 镜像内的 Python 3.14.8/锁定依赖。无网络、临时 SQLite/TestClient 的历史/快照/HTTP 三组 unittest **21/21 OK**。另用随机私有网络和 tmpfs PostgreSQL 运行 C opt-in 专项 **15/15 OK**；本轮 PG 容器/网络清理后均为 0，无测试数据卷。该业务源码的远端六项检查成功，Backend **1490 passed / 2 skipped**；后续纯文档提交不改变测试来源。 | 新源码运行在旧 f6 测试环境，**不是新应用镜像**；尚未在新镜像/第二机浏览器验证逐批规则页面和显式 v2 CSV。21、15 与 CI 数字分属不同运行范围，不相加为总通过数。 |
+| 已发布 main `1038983bf3232bc2345a3e150a85c862eec3ec6a` 的 f6 应用 `f6f11941e2f3ba286d3286e664e80b3b0145e1da` | 在本人 Windows Docker Desktop 第二机上，沿用已核离线包、重新建一次随机项目/空库，内部 manifest 校验通过。匿名历史 GET **401**；新注册普通账号的有效登录凭据 POST 控制 **403**。同设备一份固定快照的全部 **14 页/265 个互异观测 ID** 与同筛选 HTTP CSV **265 行/14 列**逐 ID、顺序一致。五分钟受控采集正常结束、四个后台子进程退出码均 0；本轮容器和网络清理后均为 0，专属数据库卷保留。 | 此次对拍的是 **HTTP CSV 响应，不是浏览器下载文件**；下节 264 行浏览器下载属于前一次不同快照。旧 f6 没有本 PR 的 v2 导出修复，不能把此补验记到 `ab2a7b6…`。通知与自动恢复关闭，没有重跑旧 E1 或再次实发。 |
+
+两组本人的完整命令边界和结果分别见 [C 精确头复验](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6503083617)与 [f6 第二机补验](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6502694128)。下节 10 月 29 日的“本次未测”专指**当次** 264 行快照，不覆盖今天独立项目的补验；保留其当时记录，不追改旧试验结果。
+
+## 2026-10-29 新 f6 来源第二机有限入口（C 本人）
+
+| 项目 | 本人实际结果与边界 |
+| --- | --- |
+| 精确版本/制品 | main 合并 `1038983bf3232bc2345a3e150a85c862eec3ec6a`；应用 `f6f11941e2f3ba286d3286e664e80b3b0145e1da`；ZIP 715821697 字节，SHA256 `046a76eaba8ed77bcff4b21589f8d399490fcca37f83600542110874bf125190`；manifest SHA256 `b69e74ae26010706895ae38a99566778f75b1729d45981baea64189e11095917`。新仓库外目录，verify-only PASS 后一次显式五分钟运行；Docker Desktop `linux/x86_64`，新随机项目/空库，镜像 ID/来源标签门禁通过。 |
+| 入口和控制 | 健康 200、本机随机管理员登录；API 设备数 14、浏览器设备页 14 台在线。浏览器一次开启制冷命令 `302b6c56-c6cc-4026-8678-507a1f0633ed` 显示排队→设备执行成功回执，发送尝试 1，随后测点有新已存观测；不从时间顺序单独推断全部温度变化的因果。 |
+| 页面/CSV | 浏览器遥测页对设备 `10000000-0000-4000-8000-000000000001` 建一次固定快照，总数 264。浏览器按钮实际下载 `observations (1).csv`，65108 字节、14 列、264 行、264 个互异 observation_id，SHA256 `eaef55365ebb7773cf398003d03ed186f598b30ad30f6ccf3d811b6f65c2ce5b`。**未逐页保存全部 14 页 ID/顺序对拍**，不能写成该项已过。 |
+| 退出/清理 | `bounded_demo_completed`；初始观测 74、逻辑设备 14；receive/store/evaluate/deliver-high 四子进程退出码均 0，线程清理 true、worker_errors 空。限定 stop 后本轮容器 0、网络 0、专属 DB 卷 1 保留；原库未动。真实通知与自动恢复均关闭。 |
+| 本次未测 | 匿名历史 401、普通用户控制 403、CSV 全部分页逐 ID/顺序对拍、180 秒自然持续恢复、真实邮件/飞书通知；A 的 f6 本机证据和 C 旧 e7 证据不并入此行。 |
+
+公开的本人操作与边界见 [C #9 6489450099](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6489450099)。原 e7 一库同事件 E1 及两渠道实收是另一版本/试验库的既有签收，不重标为本次 f6 第二机完成项。下文 `03b6002/e7` 旧包保留独立历史。
+
+**f6 数据字段复核增量：**浏览器 CSV 的 6 条整体 normal 与 258 条 candidate 均未在单列显示规则版本。本人在本轮隔离 PG 保留卷执行只读汇总：同设备 270 条已评估多批次记录各有 2 个批次，540 个批次结果均含非空规则版本和规则快照 ID；6 条整体 normal 对应 12 个正常批次。另有 1 条初始 unknown/no_threshold_rule 待评估记录。精确 f6 源码核对显示，版本在 `risk.batches[*]`，F06 投影只读顶层版本；因此空列是多批次展示/追溯缺口，不是这 6 条“缺规则判正常”的证据。不能把页面“未匹配”解释为无规则，也不能宣称本版 CSV 展示逐批版本。只读核验后临时容器/网络清理为 0，专属证据卷保留；详见 [#5 核查](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/5#issuecomment-6489558890)。本轮未改生产源码或重建 f6 包。
+
+## 2026-10-29 发布离线入口：C 第二机浏览器与停机验收
+
+| 项目 | 本人实际结果与边界 |
+| --- | --- |
+| 来源/环境 | 外层交付提交 `03b60028517b4a2d63dcfb41ab2c620b832967b7`；应用镜像 `e7fffd61c199234918dcf1713cc1f3dd6ce78c51`；C 的 Windows 第二机、已有 Docker Desktop Linux amd64、PowerShell 7.6.5。新空数据库、随机项目，无源码挂载、无真实通知。不是后来的 main `9978f0f0e7f36372f2e151e9859ca01ed7cdb37a` 再出包。 |
+| 制品完整性 | ZIP 719157924 字节、SHA256 `632ee61c5bfb070ca5f423a06778259e256c773b3318006bc41dcee8095fdd57`；包内 manifest SHA256 `609b072f373b1db3abb717427dbb05c5987c45a0b0caef941f160d0751ba7c7c`；只校验脚本 PASS 后才显式启动五分钟窗口。 |
+| 浏览器业务 | 管理员实际登录；设备页 14 台仿真设备在线。一次开启制冷命令 `6047b9e1-fb76-4753-ba3b-357eab13b78a` 从排队变为 MQTT 接受、设备 executed ACK，发送尝试 1；随后同设备传感器新增采样 `2026-10-28T16:49:54.947922Z`、接收 `16:49:55.055275Z`、6.104996 °C 的已存观测。时间顺序不单独证明控制因果。 |
+| 页面/CSV 对拍 | 按一设备建立一次固定快照，页面总数 257；本人遍历 13 页共 257 行。浏览器按钮实际下载的 `observations.csv` 为 63387 字节、14 列、257 行、257 个互异观测 ID、仅该筛选设备；SHA256 `1f27794f72609f8008a5629c6daf3255c002a24e1d48fa7c86d6bf5c674e95d7`。逐行核对全部页面：设备 ID、采样/接收 UTC 和规范化温度顺序相同。此项确为浏览器下载文件，区别于 10 月 28 日旧分段的 API 保存文件。 |
+| 权限/退出/清理 | 匿名 GET 历史接口实际 401。本轮仅有临时管理员账号，普通用户写入 403 **未测**；旧分段普通用户 403 证据不冒充此次重跑。`interactive-runtime.json` 为 `bounded_demo_completed`，receive/store/evaluate/deliver-high 四子进程退出码均 0，线程清理正常、worker_errors 空；包内专用停机后本轮容器 0、网络 0，专属数据库卷与结果保留。没有 prune、删旧库或发通知。 |
+
+证据与操作边界见 [C #9 完整实测](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/9#issuecomment-6475341383)。
+此行核销外层离线交互入口的第二机范围；自然 180 秒持续恢复、本包普通用户
+写入 403、最新 main 的新镜像、真实通知新发送和最终投稿均未由此证明。
+[A 一库同事件 E1 签收](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6459911129)
+使用另一独立试验库，双渠道终端实收由队长本人确认，不能和本次入口运行拼成一次试验。
+
+## 2026-10-28 C 第二机 PR #94 精确候选与普通用户验收
+
+共同 [PR #94](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/94)
+精确源码 `e7fffd61c199234918dcf1713cc1f3dd6ce78c51` 已在本 Windows
+第二机独立构建。源码 ZIP SHA256
+`b90a7b33e827fe8720092ae51db7e15e1c08cb298b05e5b62b44e857bb1b93e2`；
+本人镜像 ID 为
+`sha256:9be10a60c147722a68e4813aeebaefa67c0d0cad1815623e213973aafd70ef27`，
+与 A 独立构建的镜像 ID 不同。无源码挂载、默认 CMD、随机空 PG18 的
+真实 HTTP 冒烟通过：健康、匿名 401、管理员登录、注册 201/重复 409 与
+详情读取。报告 SHA256
+`D987E196E88FDF8EEE3C5CCA2D357BF6C05ABA8FEE9389EBEFE3C7A009E63DCA`。
+
+同镜像另一个随机项目运行 14 设备夹具：两冷库、三批、七条实际 C
+采集流、七个执行 ACK 与后续采样、14 个离线/恢复追溯；两库快照 CSV
+脚本回报 40/27 行，B ASGI 接受三批高温事件。夹具 JSON SHA256
+`2F592CDCBCFDB748E2BC3CBCA4370D2A6F397614D213CE172284AC208FEB8D6A`。
+该夹具未运行 180 秒持续段，`notifications_sent=0`、`complete_e1=false`。
+
+在该项目实际网页以一次性普通用户登录：设备页有 14 台及两库关联，
+设备详情有心跳和离线/恢复来源；遥测页按一设备得到固定快照 10 条，
+可看原始 JSON 及重复接收；告警页列三条且普通用户只读。页面 CSV
+按钮已点击，但未取得浏览器管理的下载文件路径，**不能声称浏览器下载
+文件已经核验**。另以同普通用户 HTTP 获取同设备固定快照及 CSV 文件，
+结果 200、10 行、14 列，全部属于筛选设备；该 API 文件 SHA256
+`23CA765A87769081F63DE19DAD512BC25A26FFDD9DBF2CE28C555D1939994614`。
+随后只读复核保留的同一 CSV 原文件：10 个互异的 `observation_id`，仅
+一个设备，行数、列数与 SHA256 均与首次记录一致。原快照响应仅保留
+`total=10`，没有保存完整 ID 列表；一次性 PG 已清理，故本机**未证明
+快照与 CSV 的全部 ID 集合相等**，也未核验浏览器管理的下载文件。
+普通用户 POST 告警确认返回 403，匿名 CSV 返回 401。页面操作与 API
+文件分别记账。证据见 [E1 #6 本人记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6449022153)与[保存制品补核](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6461583849)。
+
+本次专属 UI/PG/MQTT 容器及网络清理后均余 0，无真实通知。PR #94
+随后合入 main `319aa6363d921922070b4330bf74e344a8b0c1bb`，但本试验
+运行于 e7 精确检出，不能称为合并后重新运行。未测本次第二机自然持续恢复、
+浏览器实际下载文件、同一事件两渠道终端实收及本次第二机完整 E1。A 的原 10°C
+自然恢复和 291 行同快照 CSV 见 [其独立记录](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6448255164)，
+不能与本机分段拼为一次完整 E1。
+
+随后 A 在[同版同事件的一库 E1 签收](https://github.com/Cynthia060913/freshlink-zhikong-public/issues/6#issuecomment-6459911129)
+记录原来源 `d89c0bf9-f063-537b-a5e0-08866e4a0b74` 的实际 MQTT/PG/TCP B、
+授权后 SMTP 与飞书各一次且队长本人确认两端收到、执行 ACK、持续自然恢复、
+真实浏览器下载 281 行/14 列 CSV、15 页观测 ID 一致与普通用户写操作 403；
+验收 JSON SHA256
+`13500940875c0fd8aed244ad9d2a75907a75910a2d3cd39a5474428a36856470`。
+这是 **A 集成方签收的一库 E1**，与本机第二机分段分别记账，不写成
+C 本人重跑或最终第二机总签收；M01—M05 与实际投稿仍待完成。
+
+## 2026-10-28 C 第二机与新共同基线（待同版自然恢复）
+
+共同 main `81eb3d3a1ef4c62f3dd449d7df14a4ef41fa513e` 已合入 A 的
+PR #93。C 在干净本人分支同步此 main，组合源码精确提交
+`a3737f6fcebb39888884f541f178257254600534`，相对 main 只剩两份 C
+源码/测试和两份 C 文档。Windows 第二机使用该检出，通过只读挂载业务源码、
+旧 main0e 标签的已核验应用镜像仅提供 Python 3.14 依赖；业务身份以本次
+`source` 字段为准，不能把依赖镜像标签误记为本次业务版本。
+
+在随机独立 PostgreSQL 18 tmpfs 与内部 MQTT 网络，C 恢复严格 PG 专项
+`test_telemetry_gated_high_postgres_candidate.py` **5 passed / 0 skipped / 2 warnings**。
+随后运行共同 `check-gated-fleet.ps1 -Sustained`，181.94 秒分段退出 0、
+`passed=true`：两库三批、14 逻辑设备、七条实际采集流，36 个采样快照的
+最大待入账数 8、最大流滞后 2，全部 gap 原因为空；两库同筛选快照 CSV
+脚本分别回报 654/488 行，三批高温经 B ASGI HTTP 分段记录。结果
+`fleet-sustained.json` SHA256
+`550D64537F228FFADA9DFCF28D37EF08D33EBC95B4AB009AC19F418A832691B4`，
+`gated-fleet.json` SHA256
+`07419C22D4F2DF2D0F62B25BEE617B04D0FE12C6657499BC1FE3C117B3FFF331`。
+本轮 `notifications_sent=0`、`complete_e1=false`，没有运行 10°C→8°C
+采集不停自然恢复，也未取得浏览器下载 CSV 文件；专属项目容器/网络回读均 0。
+此前旧 main0e 的 `wait_for(drained)` 失败保留在下表，不作为新组合失败。
+
 ## 2026-10-28 C 第二机交互与旧高温重传修复（待同版自然恢复）
 
-本节更新以下带日期的旧状态。共同运行基线仍为
+本节记录以下带日期的旧状态，当时共同运行基线为
 `0e508d147517f81dfe2b9245c45c0c0e30076592`；C 新修复已在本人分支
 `18a0f4ad4920e511d96388cd826527c8c4d777aa` 上传到
 [PR #11](https://github.com/Cynthia060913/freshlink-zhikong-public/pull/11)，**未合 main**。
