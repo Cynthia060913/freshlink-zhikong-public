@@ -30,6 +30,7 @@ from app.modules.alerts.notifications.transport import (
     NotificationResult,
     NotificationTransport,
 )
+from app.modules.iot.notification_preflight import inspect_inventory
 
 
 def require_owned_environment():
@@ -133,6 +134,13 @@ def run():
         events = list(connection.execute(select(AlertEvent.__table__)).mappings())
     assert len(events) == 1 and not attempts()
     event_id = events[0]["id"]
+    preflight = inspect_inventory(
+        engine,
+        source_event_id=events[0]["source_event_id"],
+        channels=[kind.value for kind in NotificationKind],
+    )
+    assert preflight["status"] == "readiness_only" and not attempts()
+    assert not preflight["send_authorized"]
     # Actual A startup module, default dry-run, no configured real channel.
     profile = Path("/results/notification-empty-profile.json")
     with profile.open("x", encoding="utf-8") as output:
@@ -192,6 +200,13 @@ def run():
     rows = attempts()
     assert sum(row["delivered"] for row in rows) == 2
     assert len({child["pid"] for child in children}) == 4
+    after_attempts = inspect_inventory(
+        engine,
+        source_event_id=events[0]["source_event_id"],
+        channels=[kind.value for kind in NotificationKind],
+    )
+    assert after_attempts["status"] == "blocked"
+    assert "existing_attempts_require_review" in after_attempts["reasons"]
     result = {
         "phase": "actual_runtime_to_persistent_synthetic_notifications_passed",
         "source_revision": os.environ["GATED_SOURCE_REVISION"],
@@ -205,6 +220,8 @@ def run():
         "notification_child_pids": [child["pid"] for child in children],
         "actual_pg_dispatch_lease": True,
         "actual_a_entry_default_dry_run": True,
+        "read_only_preflight_matches_committed_source": True,
+        "preflight_after_attempts_blocked": True,
         "dry_run_zero_attempts": True,
         "restart_sends_only_missing_channel": True,
         "third_delivery_process_no_resend": True,
