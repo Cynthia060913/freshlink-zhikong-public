@@ -1,0 +1,131 @@
+{
+  "coverage": 0.6301587301587301,
+  "decision_count": 630,
+  "input_source": "deterministic synthetic runs, not real cold-room measurements",
+  "methods": {
+    "last_value": {
+      "by_scenario": {
+        "cooling": {
+          "false_alarm_decisions": 0,
+          "false_alarm_denominator": 150,
+          "mae_c": 0.3151034242509413,
+          "positive_events": 0,
+          "ready_windows": 150
+        },
+        "stable": {
+          "false_alarm_decisions": 0,
+          "false_alarm_denominator": 100,
+          "mae_c": 0.09948845060249135,
+          "positive_events": 0,
+          "ready_windows": 101
+        },
+        "warming": {
+          "false_alarm_decisions": 0,
+          "false_alarm_denominator": 52,
+          "mae_c": 0.38463894015581357,
+          "positive_events": 5,
+          "ready_windows": 146
+        }
+      },
+      "detected_events": 0,
+      "event_recall": 0.0,
+      "false_alarm_decisions": 0,
+      "false_alarm_denominator_ready_below_threshold": 302,
+      "false_alarm_rate": 0.0,
+      "lead_seconds_correct_events_count": 0,
+      "lead_seconds_correct_events_median": null,
+      "mae_c": 0.28582149221975217,
+      "mae_denominator_ready_windows": 397,
+      "missed_events": 5,
+      "positive_events": 5
+    },
+    "linear_trend": {
+      "by_scenario": {
+        "cooling": {
+          "false_alarm_decisions": 0,
+          "false_alarm_denominator": 150,
+          "mae_c": 0.12380994082894012,
+          "positive_events": 0,
+          "ready_windows": 150
+        },
+        "stable": {
+          "false_alarm_decisions": 14,
+          "false_alarm_denominator": 100,
+          "mae_c": 0.14774354794697422,
+          "positive_events": 0,
+          "ready_windows": 101
+        },
+        "warming": {
+          "false_alarm_decisions": 1,
+          "false_alarm_denominator": 52,
+          "mae_c": 0.1253275568012518,
+          "positive_events": 5,
+          "ready_windows": 146
+        }
+      },
+      "detected_events": 2,
+      "event_recall": 0.4,
+      "false_alarm_decisions": 15,
+      "false_alarm_denominator_ready_below_threshold": 302,
+      "false_alarm_rate": 0.04966887417218543,
+      "lead_seconds_correct_events_count": 2,
+      "lead_seconds_correct_events_median": 21.5,
+      "mae_c": 0.13045695909311883,
+      "mae_denominator_ready_windows": 397,
+      "missed_events": 3,
+      "positive_events": 5
+    },
+    "ridge": {
+      "by_scenario": {
+        "cooling": {
+          "false_alarm_decisions": 0,
+          "false_alarm_denominator": 150,
+          "mae_c": 0.11811824690294546,
+          "positive_events": 0,
+          "ready_windows": 150
+        },
+        "stable": {
+          "false_alarm_decisions": 16,
+          "false_alarm_denominator": 100,
+          "mae_c": 0.13181417345787114,
+          "positive_events": 0,
+          "ready_windows": 101
+        },
+        "warming": {
+          "false_alarm_decisions": 1,
+          "false_alarm_denominator": 52,
+          "mae_c": 0.1093979630713639,
+          "positive_events": 5,
+          "ready_windows": 146
+        }
+      },
+      "detected_events": 2,
+      "event_recall": 0.4,
+      "false_alarm_decisions": 17,
+      "false_alarm_denominator_ready_below_threshold": 302,
+      "false_alarm_rate": 0.056291390728476824,
+      "lead_seconds_correct_events_count": 2,
+      "lead_seconds_correct_events_median": 26.5,
+      "mae_c": 0.11839564524711822,
+      "mae_denominator_ready_windows": 397,
+      "missed_events": 3,
+      "positive_events": 5
+    }
+  },
+  "parameter_sha256": "631c342435be05626f4ddafc648984091d9a317a803ffe2ee652d324ab5a7ec8",
+  "ready_count": 397,
+  "refusal_reasons": {
+    "gapped_data": 204,
+    "quality_blocked": 26,
+    "stale_data": 3
+  },
+  "refused_count": 233,
+  "ridge_penalty": 1.0,
+  "split": "test_only",
+  "split_rule": "per scenario: indices 00-11 train, 12-14 validation, 15-19 test",
+  "test_run_count": 15,
+  "threshold_c": 8.0,
+  "train_ready_windows": 880,
+  "validation_ready_windows": 225,
+  "validation_ridge_mae_c": 0.13801906594480018
+}
