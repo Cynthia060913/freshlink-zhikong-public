@@ -24,6 +24,18 @@ FEATURE_NAMES = (
 )
 
 
+def _finite_number(value: object, error: str) -> float:
+    if type(value) not in (int, float):
+        raise ValueError(error)
+    try:
+        converted = float(value)
+    except OverflowError as exc:
+        raise ValueError(error) from exc
+    if not isfinite(converted):
+        raise ValueError(error)
+    return converted
+
+
 class ForecastPointLike(Protocol):
     observation_id: UUID
     sampled_at: datetime
@@ -69,9 +81,7 @@ class RidgeParameters:
             raw = value.get(name)
             if not isinstance(raw, list) or len(raw) != len(FEATURE_NAMES):
                 raise ValueError("invalid_" + name)
-            if any(type(x) not in (int, float) or not isfinite(x) for x in raw):
-                raise ValueError("invalid_" + name)
-            return tuple(float(x) for x in raw)
+            return tuple(_finite_number(x, "invalid_" + name) for x in raw)
 
         mean, scale, coefficients = (
             vector("feature_mean"),
@@ -81,14 +91,9 @@ class RidgeParameters:
         if any(x <= 0 for x in scale):
             raise ValueError("invalid_feature_scale")
         intercept = value.get("intercept_c")
-        if (
-            isinstance(intercept, bool)
-            or not isinstance(intercept, (int, float))
-            or not isfinite(intercept)
-        ):
-            raise ValueError("invalid_intercept")
+        finite_intercept = _finite_number(intercept, "invalid_intercept")
         return cls(
-            version, history, horizon, mean, scale, float(intercept), coefficients
+            version, history, horizon, mean, scale, finite_intercept, coefficients
         )
 
     def to_json(self) -> dict[str, object]:
@@ -174,10 +179,7 @@ def _checked_points(
         if not isinstance(point.observation_id, UUID) or point.observation_id in ids:
             raise ValueError("duplicate_forecast_observation")
         ids.add(point.observation_id)
-        if type(point.temperature_c) not in (int, float) or not isfinite(
-            point.temperature_c
-        ):
-            raise ValueError("invalid_forecast_temperature")
+        _finite_number(point.temperature_c, "invalid_forecast_temperature")
     return tuple(ordered)
 
 

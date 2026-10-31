@@ -146,6 +146,40 @@ class PureForecastTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid_coefficients"):
             RidgeParameters.from_json(bad)
 
+    def test_huge_numeric_input_is_rejected_as_invalid(self) -> None:
+        huge = 10**1000
+        for field, replacement, reason in (
+            ("feature_mean", [huge, 0, 0, 0], "invalid_feature_mean"),
+            ("feature_scale", [huge, 1, 1, 1], "invalid_feature_scale"),
+            ("coefficients", [huge, 0, 0, 0], "invalid_coefficients"),
+            ("intercept_c", huge, "invalid_intercept"),
+        ):
+            with self.subTest(field=field):
+                bad = params().to_json()
+                bad[field] = replacement
+                with self.assertRaisesRegex(ValueError, reason):
+                    RidgeParameters.from_json(bad)
+
+        original = sample()
+        bad_point = Point(
+            original.points[-1].observation_id,
+            original.points[-1].sampled_at,
+            original.points[-1].received_at,
+            huge,
+        )
+        with self.assertRaisesRegex(ValueError, "invalid_forecast_temperature"):
+            predict_temperature(
+                Window(
+                    original.status,
+                    original.device_id,
+                    original.warehouse_id,
+                    original.as_of,
+                    original.target_at,
+                    original.points[:-1] + (bad_point,),
+                ),
+                params(),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
