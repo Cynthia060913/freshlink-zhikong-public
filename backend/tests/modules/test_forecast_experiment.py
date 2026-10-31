@@ -41,6 +41,21 @@ class SyntheticForecastExperimentTests(unittest.TestCase):
                 [12, 3, 5],
             )
 
+    def test_fresh_confirmation_runs_never_reuse_initial_seeds(self) -> None:
+        initial = {
+            make_run(scenario, index).seed
+            for scenario in SCENARIOS
+            for index in range(RUNS_PER_SCENARIO)
+        }
+        confirmation = [
+            make_run(scenario, index)
+            for scenario in SCENARIOS
+            for index in range(RUNS_PER_SCENARIO, RUNS_PER_SCENARIO + 5)
+        ]
+        self.assertEqual(len(confirmation), 15)
+        self.assertTrue(all(run.split == "confirmation" for run in confirmation))
+        self.assertFalse(initial & {run.seed for run in confirmation})
+
     def test_late_observation_cannot_change_prior_decision(self) -> None:
         run = make_run("stable", 0)
         decision = DECISIONS[5]

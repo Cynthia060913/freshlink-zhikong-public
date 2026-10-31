@@ -1,0 +1,232 @@
+{
+  "confirmation": {
+    "last_value": {
+      "decision_count": 630,
+      "detected_events": 0,
+      "false_alarm_decisions": 0,
+      "false_alarm_denominator": 324,
+      "lead_denominator": 0,
+      "lead_seconds_median": null,
+      "mae_c": 0.2604787843719719,
+      "mae_denominator": 376,
+      "margin_c": 0.0,
+      "method": "last_value",
+      "missed_events": 5,
+      "positive_events": 5,
+      "ready_count": 376,
+      "refusals": {
+        "gapped_data": 230,
+        "quality_blocked": 23,
+        "stale_data": 1
+      },
+      "run_count": 15
+    },
+    "linear_trend": {
+      "decision_count": 630,
+      "detected_events": 5,
+      "false_alarm_decisions": 17,
+      "false_alarm_denominator": 324,
+      "lead_denominator": 5,
+      "lead_seconds_median": 32,
+      "mae_c": 0.13950417182283478,
+      "mae_denominator": 376,
+      "margin_c": 0.0,
+      "method": "linear_trend",
+      "missed_events": 0,
+      "positive_events": 5,
+      "ready_count": 376,
+      "refusals": {
+        "gapped_data": 230,
+        "quality_blocked": 23,
+        "stale_data": 1
+      },
+      "run_count": 15
+    },
+    "ridge_no_margin": {
+      "decision_count": 630,
+      "detected_events": 4,
+      "false_alarm_decisions": 17,
+      "false_alarm_denominator": 324,
+      "lead_denominator": 4,
+      "lead_seconds_median": 41.5,
+      "mae_c": 0.12527549843275834,
+      "mae_denominator": 376,
+      "margin_c": 0.0,
+      "method": "ridge",
+      "missed_events": 1,
+      "positive_events": 5,
+      "ready_count": 376,
+      "refusals": {
+        "gapped_data": 230,
+        "quality_blocked": 23,
+        "stale_data": 1
+      },
+      "run_count": 15
+    },
+    "ridge_selected_margin": {
+      "decision_count": 630,
+      "detected_events": 2,
+      "false_alarm_decisions": 12,
+      "false_alarm_denominator": 324,
+      "lead_denominator": 2,
+      "lead_seconds_median": 31.5,
+      "mae_c": 0.12527549843275834,
+      "mae_denominator": 376,
+      "margin_c": 0.1,
+      "method": "ridge",
+      "missed_events": 3,
+      "positive_events": 5,
+      "ready_count": 376,
+      "refusals": {
+        "gapped_data": 230,
+        "quality_blocked": 23,
+        "stale_data": 1
+      },
+      "run_count": 15
+    }
+  },
+  "confirmation_run_ids": [
+    "stable-20",
+    "stable-21",
+    "stable-22",
+    "stable-23",
+    "stable-24",
+    "warming-20",
+    "warming-21",
+    "warming-22",
+    "warming-23",
+    "warming-24",
+    "cooling-20",
+    "cooling-21",
+    "cooling-22",
+    "cooling-23",
+    "cooling-24"
+  ],
+  "initial_test_runs_used_for_selection": false,
+  "margin_grid_c": [
+    0.0,
+    0.1,
+    0.2,
+    0.3
+  ],
+  "model_parameter_sha256": "631c342435be05626f4ddafc648984091d9a317a803ffe2ee652d324ab5a7ec8",
+  "scope": "one calibrated synthetic confirmation; not live early-warning efficacy",
+  "selection": {
+    "chosen_margin_c": 0.1,
+    "linear_reference": {
+      "decision_count": 378,
+      "detected_events": 2,
+      "false_alarm_decisions": 14,
+      "false_alarm_denominator": 188,
+      "lead_denominator": 2,
+      "lead_seconds_median": 29.0,
+      "mae_c": 0.14620583112002236,
+      "mae_denominator": 225,
+      "margin_c": 0.0,
+      "method": "linear_trend",
+      "missed_events": 1,
+      "positive_events": 3,
+      "ready_count": 225,
+      "refusals": {
+        "gapped_data": 130,
+        "quality_blocked": 23
+      },
+      "run_count": 9
+    },
+    "ridge_candidates": [
+      {
+        "decision_count": 378,
+        "detected_events": 2,
+        "false_alarm_decisions": 14,
+        "false_alarm_denominator": 188,
+        "lead_denominator": 2,
+        "lead_seconds_median": 29.0,
+        "mae_c": 0.13801906594480018,
+        "mae_denominator": 225,
+        "margin_c": 0.0,
+        "method": "ridge",
+        "missed_events": 1,
+        "positive_events": 3,
+        "ready_count": 225,
+        "refusals": {
+          "gapped_data": 130,
+          "quality_blocked": 23
+        },
+        "run_count": 9
+      },
+      {
+        "decision_count": 378,
+        "detected_events": 2,
+        "false_alarm_decisions": 12,
+        "false_alarm_denominator": 188,
+        "lead_denominator": 2,
+        "lead_seconds_median": 19.0,
+        "mae_c": 0.13801906594480018,
+        "mae_denominator": 225,
+        "margin_c": 0.1,
+        "method": "ridge",
+        "missed_events": 1,
+        "positive_events": 3,
+        "ready_count": 225,
+        "refusals": {
+          "gapped_data": 130,
+          "quality_blocked": 23
+        },
+        "run_count": 9
+      },
+      {
+        "decision_count": 378,
+        "detected_events": 1,
+        "false_alarm_decisions": 7,
+        "false_alarm_denominator": 188,
+        "lead_denominator": 1,
+        "lead_seconds_median": 3,
+        "mae_c": 0.13801906594480018,
+        "mae_denominator": 225,
+        "margin_c": 0.2,
+        "method": "ridge",
+        "missed_events": 2,
+        "positive_events": 3,
+        "ready_count": 225,
+        "refusals": {
+          "gapped_data": 130,
+          "quality_blocked": 23
+        },
+        "run_count": 9
+      },
+      {
+        "decision_count": 378,
+        "detected_events": 0,
+        "false_alarm_decisions": 1,
+        "false_alarm_denominator": 188,
+        "lead_denominator": 0,
+        "lead_seconds_median": null,
+        "mae_c": 0.13801906594480018,
+        "mae_denominator": 225,
+        "margin_c": 0.3,
+        "method": "ridge",
+        "missed_events": 3,
+        "positive_events": 3,
+        "ready_count": 225,
+        "refusals": {
+          "gapped_data": 130,
+          "quality_blocked": 23
+        },
+        "run_count": 9
+      }
+    ],
+    "rule": "validation only: detected >= linear and false alarms <= linear; maximize detections, minimize false alarms, prefer smaller margin"
+  },
+  "source": "deterministic synthetic only",
+  "validation_run_ids": [
+    "stable-12",
+    "stable-13",
+    "stable-14",
+    "warming-12",
+    "warming-13",
+    "warming-14",
+    "cooling-12",
+    "cooling-13",
+    "cooling-14"
+  ]
+}

@@ -34,6 +34,7 @@ HISTORY = 120
 HORIZON = 60
 THRESHOLD_C = 8.0
 RUNS_PER_SCENARIO = 20
+CONFIRMATION_RUNS_PER_SCENARIO = 5
 SCENARIOS = ("stable", "warming", "cooling")
 DECISIONS = tuple(range(130, 541, 10))
 SEED_BASE = 2026103100
@@ -83,13 +84,24 @@ def _time(second: int) -> datetime:
 
 
 def make_run(scenario: str, index: int) -> Run:
-    if scenario not in SCENARIOS or not 0 <= index < RUNS_PER_SCENARIO:
+    if (
+        scenario not in SCENARIOS
+        or not 0 <= index < RUNS_PER_SCENARIO + CONFIRMATION_RUNS_PER_SCENARIO
+    ):
         raise ValueError("invalid_run")
     scenario_number = SCENARIOS.index(scenario)
     seed = SEED_BASE + scenario_number * 1000 + index
     rng = random.Random(seed)
     run_id = f"{scenario}-{index:02d}"
-    split = "train" if index < 12 else "validation" if index < 15 else "test"
+    split = (
+        "train"
+        if index < 12
+        else "validation"
+        if index < 15
+        else "test"
+        if index < RUNS_PER_SCENARIO
+        else "confirmation"
+    )
     device = uuid5(UUID(int=0), f"synthetic-device-{run_id}")
     room = uuid5(UUID(int=0), f"synthetic-room-{scenario}-{index % 2}")
     start = (
