@@ -1,0 +1,13 @@
+{
+  "guard_source_sha256": "a90157bad8232ccea34182b96f06442d3d51d3bd703a225fa9a02b54614648e8",
+  "parameter_sha256": "631c342435be05626f4ddafc648984091d9a317a803ffe2ee652d324ab5a7ec8",
+  "runs": 60,
+  "scope": "pure synthetic window parity; no PG/HTTP/page/model effect claim",
+  "status_counts": {
+    "gapped_data": 897,
+    "quality_blocked": 109,
+    "ready": 1502,
+    "stale_data": 12
+  },
+  "windows": 2520
+}
