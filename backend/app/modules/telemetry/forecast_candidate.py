@@ -81,7 +81,11 @@ class RidgeParameters:
         if any(x <= 0 for x in scale):
             raise ValueError("invalid_feature_scale")
         intercept = value.get("intercept_c")
-        if type(intercept) not in (int, float) or not isfinite(intercept):
+        if (
+            isinstance(intercept, bool)
+            or not isinstance(intercept, (int, float))
+            or not isfinite(intercept)
+        ):
             raise ValueError("invalid_intercept")
         return cls(
             version, history, horizon, mean, scale, float(intercept), coefficients
