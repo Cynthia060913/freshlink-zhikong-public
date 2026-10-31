@@ -22,9 +22,9 @@ try {
         & $docker image inspect $image --format '{{.Id}}'
         if($LASTEXITCODE){throw 'Required cached image missing; no automatic pulls'}
     }
-    # Reviewed C18a adds strict admission/receipt proof for known old replays.
-    # Keep the full C subtree identity gate and the unchanged C01 proposal.
-    & git diff --quiet 18a0f4ad4920e511d96388cd826527c8c4d777aa -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    # Reviewed release 1a2 includes the compatible batch-rule projection and
+    # explicit CSV v2 from PR99. Keep the full C subtree and C01 identity gate.
+    & git diff --quiet 1a2fa53be38a83a42df65395adf88332d5cdf3ed -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
     if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
     $revision=(& git rev-parse HEAD).Trim()
     if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}
