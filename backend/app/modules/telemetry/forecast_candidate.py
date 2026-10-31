@@ -37,19 +37,37 @@ def _finite_number(value: object, error: str) -> float:
 
 
 class ForecastPointLike(Protocol):
-    observation_id: UUID
-    sampled_at: datetime
-    received_at: datetime
-    temperature_c: float
+    @property
+    def observation_id(self) -> UUID: ...
+
+    @property
+    def sampled_at(self) -> datetime: ...
+
+    @property
+    def received_at(self) -> datetime: ...
+
+    @property
+    def temperature_c(self) -> float: ...
 
 
 class ForecastWindowLike(Protocol):
-    status: str
-    device_id: UUID
-    warehouse_id: UUID
-    as_of: datetime
-    target_at: datetime
-    points: Sequence[ForecastPointLike]
+    @property
+    def status(self) -> str: ...
+
+    @property
+    def device_id(self) -> UUID: ...
+
+    @property
+    def warehouse_id(self) -> UUID: ...
+
+    @property
+    def as_of(self) -> datetime: ...
+
+    @property
+    def target_at(self) -> datetime: ...
+
+    @property
+    def points(self) -> Sequence[ForecastPointLike]: ...
 
 
 @dataclass(frozen=True)
