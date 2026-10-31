@@ -1,0 +1,176 @@
+{
+  "held_out_actual_target_c": 7.369365498412714,
+  "input": {
+    "as_of": "2026-10-31T00:02:10+00:00",
+    "device_id": "f3848c38-c648-5c94-b9ce-f3252802c8e0",
+    "points": [
+      {
+        "observation_id": "4c7da2ed-11ef-5af8-8c78-7001dd1203f7",
+        "received_at": "2026-10-31T00:00:50+00:00",
+        "sampled_at": "2026-10-31T00:00:10+00:00",
+        "temperature_c": 7.42444157267246
+      },
+      {
+        "observation_id": "5c49484c-8ca6-50d8-9993-8a6a3e9a7908",
+        "received_at": "2026-10-31T00:00:17+00:00",
+        "sampled_at": "2026-10-31T00:00:15+00:00",
+        "temperature_c": 7.326179532149692
+      },
+      {
+        "observation_id": "2014bc2a-ec7a-5327-a53e-4cb7aa3904c8",
+        "received_at": "2026-10-31T00:00:22+00:00",
+        "sampled_at": "2026-10-31T00:00:20+00:00",
+        "temperature_c": 7.530920685177992
+      },
+      {
+        "observation_id": "ab24b314-c8cf-5a2d-9c79-05538b59a407",
+        "received_at": "2026-10-31T00:00:25+00:00",
+        "sampled_at": "2026-10-31T00:00:25+00:00",
+        "temperature_c": 7.266729688392186
+      },
+      {
+        "observation_id": "90603a19-31f1-51b8-9eee-a207234d2848",
+        "received_at": "2026-10-31T00:00:30+00:00",
+        "sampled_at": "2026-10-31T00:00:30+00:00",
+        "temperature_c": 7.283616737087162
+      },
+      {
+        "observation_id": "3f76e80b-646f-5f6f-a7f2-a01cbdf37563",
+        "received_at": "2026-10-31T00:00:59+00:00",
+        "sampled_at": "2026-10-31T00:00:35+00:00",
+        "temperature_c": 7.342604123070981
+      },
+      {
+        "observation_id": "dffba578-13c3-5b90-bfe5-e63baf56b0ea",
+        "received_at": "2026-10-31T00:00:42+00:00",
+        "sampled_at": "2026-10-31T00:00:40+00:00",
+        "temperature_c": 7.400736754953795
+      },
+      {
+        "observation_id": "8023f60e-e80f-5274-9fdc-49be2b3b606f",
+        "received_at": "2026-10-31T00:00:47+00:00",
+        "sampled_at": "2026-10-31T00:00:45+00:00",
+        "temperature_c": 7.49028040807025
+      },
+      {
+        "observation_id": "664f02c9-2e3f-53aa-8f31-db7e1efe1846",
+        "received_at": "2026-10-31T00:00:50+00:00",
+        "sampled_at": "2026-10-31T00:00:50+00:00",
+        "temperature_c": 7.170057265324491
+      },
+      {
+        "observation_id": "3b1b6aa6-4164-5b4c-9233-373c5c410ccf",
+        "received_at": "2026-10-31T00:00:57+00:00",
+        "sampled_at": "2026-10-31T00:00:55+00:00",
+        "temperature_c": 7.373278405709828
+      },
+      {
+        "observation_id": "fb4d633f-7d41-5672-9e1f-39bc33f35b99",
+        "received_at": "2026-10-31T00:01:02+00:00",
+        "sampled_at": "2026-10-31T00:01:00+00:00",
+        "temperature_c": 7.431820239663814
+      },
+      {
+        "observation_id": "8d87c570-1f6d-58be-a27f-e6d295734cc3",
+        "received_at": "2026-10-31T00:01:06+00:00",
+        "sampled_at": "2026-10-31T00:01:05+00:00",
+        "temperature_c": 7.409819458080805
+      },
+      {
+        "observation_id": "06abbb01-6ec9-57bd-a8e3-69f102109be8",
+        "received_at": "2026-10-31T00:01:12+00:00",
+        "sampled_at": "2026-10-31T00:01:10+00:00",
+        "temperature_c": 7.297044893793133
+      },
+      {
+        "observation_id": "3f19b843-9f92-5f17-a0ec-65f32b5932fe",
+        "received_at": "2026-10-31T00:02:02+00:00",
+        "sampled_at": "2026-10-31T00:01:20+00:00",
+        "temperature_c": 7.393852595511815
+      },
+      {
+        "observation_id": "e9aeaebf-2844-547a-8c54-6f8e4970578e",
+        "received_at": "2026-10-31T00:02:01+00:00",
+        "sampled_at": "2026-10-31T00:01:30+00:00",
+        "temperature_c": 7.324297490431951
+      },
+      {
+        "observation_id": "9d59961a-a9de-5f46-ba46-24592c5cacc6",
+        "received_at": "2026-10-31T00:01:37+00:00",
+        "sampled_at": "2026-10-31T00:01:35+00:00",
+        "temperature_c": 7.346735049993418
+      },
+      {
+        "observation_id": "d6de5027-e1da-5346-a440-810eab6820be",
+        "received_at": "2026-10-31T00:01:40+00:00",
+        "sampled_at": "2026-10-31T00:01:40+00:00",
+        "temperature_c": 7.318206312335993
+      },
+      {
+        "observation_id": "0153d09b-bfac-55c9-b250-37944b4455e7",
+        "received_at": "2026-10-31T00:01:51+00:00",
+        "sampled_at": "2026-10-31T00:01:50+00:00",
+        "temperature_c": 7.254378981460484
+      },
+      {
+        "observation_id": "682290c4-1346-5e44-bcf9-3110a2517502",
+        "received_at": "2026-10-31T00:01:56+00:00",
+        "sampled_at": "2026-10-31T00:01:55+00:00",
+        "temperature_c": 7.30697034782753
+      },
+      {
+        "observation_id": "19b6b551-f05d-5c93-a9ac-01dd6f8b527a",
+        "received_at": "2026-10-31T00:02:01+00:00",
+        "sampled_at": "2026-10-31T00:02:00+00:00",
+        "temperature_c": 7.279186253659492
+      },
+      {
+        "observation_id": "4f81adbb-eebd-53b9-bcfb-df78f959f766",
+        "received_at": "2026-10-31T00:02:10+00:00",
+        "sampled_at": "2026-10-31T00:02:10+00:00",
+        "temperature_c": 7.373228744193235
+      }
+    ],
+    "status": "ready",
+    "target_at": "2026-10-31T00:03:10+00:00",
+    "warehouse_id": "b699339a-3371-58c4-933b-3cb7085a4db5"
+  },
+  "note": "The held-out label is for evaluation only, never a model input.",
+  "output": {
+    "as_of": "2026-10-31T00:02:10+00:00",
+    "device_id": "f3848c38-c648-5c94-b9ce-f3252802c8e0",
+    "input_first_sampled_at": "2026-10-31T00:00:10+00:00",
+    "input_last_sampled_at": "2026-10-31T00:02:10+00:00",
+    "input_observation_ids": [
+      "4c7da2ed-11ef-5af8-8c78-7001dd1203f7",
+      "5c49484c-8ca6-50d8-9993-8a6a3e9a7908",
+      "2014bc2a-ec7a-5327-a53e-4cb7aa3904c8",
+      "ab24b314-c8cf-5a2d-9c79-05538b59a407",
+      "90603a19-31f1-51b8-9eee-a207234d2848",
+      "3f76e80b-646f-5f6f-a7f2-a01cbdf37563",
+      "dffba578-13c3-5b90-bfe5-e63baf56b0ea",
+      "8023f60e-e80f-5274-9fdc-49be2b3b606f",
+      "664f02c9-2e3f-53aa-8f31-db7e1efe1846",
+      "3b1b6aa6-4164-5b4c-9233-373c5c410ccf",
+      "fb4d633f-7d41-5672-9e1f-39bc33f35b99",
+      "8d87c570-1f6d-58be-a27f-e6d295734cc3",
+      "06abbb01-6ec9-57bd-a8e3-69f102109be8",
+      "3f19b843-9f92-5f17-a0ec-65f32b5932fe",
+      "e9aeaebf-2844-547a-8c54-6f8e4970578e",
+      "9d59961a-a9de-5f46-ba46-24592c5cacc6",
+      "d6de5027-e1da-5346-a440-810eab6820be",
+      "0153d09b-bfac-55c9-b250-37944b4455e7",
+      "682290c4-1346-5e44-bcf9-3110a2517502",
+      "19b6b551-f05d-5c93-a9ac-01dd6f8b527a",
+      "4f81adbb-eebd-53b9-bcfb-df78f959f766"
+    ],
+    "model_version": "c-ridge-synthetic-v1",
+    "parameter_sha256": "631c342435be05626f4ddafc648984091d9a317a803ffe2ee652d324ab5a7ec8",
+    "predicted_temperature_c": 7.299192261744185,
+    "reason": null,
+    "status": "predicted",
+    "target_at": "2026-10-31T00:03:10+00:00",
+    "warehouse_id": "b699339a-3371-58c4-933b-3cb7085a4db5"
+  },
+  "parameter_file": "parameters.json"
+}

@@ -1,0 +1,31 @@
+{
+  "coefficients": [
+    0.755466354016085,
+    0.29342280906243456,
+    0.08186569233949473,
+    -0.006040203225724435
+  ],
+  "feature_mean": [
+    7.4008250657055585,
+    0.00550121284217867,
+    -0.0016234293152108134,
+    0.5997347503039325
+  ],
+  "feature_names": [
+    "last_temperature_c",
+    "linear_change_to_target_c",
+    "recent_mean_minus_last_c",
+    "window_range_c"
+  ],
+  "feature_scale": [
+    0.752259530131058,
+    0.2778713484801569,
+    0.1073795999622005,
+    0.2125216546456919
+  ],
+  "history_seconds": 120,
+  "horizon_seconds": 60,
+  "intercept_c": 7.416041976981395,
+  "model_version": "c-ridge-synthetic-v1",
+  "schema_version": "c-ridge-v1"
+}
