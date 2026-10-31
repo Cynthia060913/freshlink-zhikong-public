@@ -25,7 +25,7 @@ FEATURE_NAMES = (
 
 
 def _finite_number(value: object, error: str) -> float:
-    if type(value) not in (int, float):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(error)
     try:
         converted = float(value)
