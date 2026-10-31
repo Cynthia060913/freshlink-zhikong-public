@@ -44,6 +44,7 @@ def score(
         raise ValueError("unknown_forecast_method")
     alerts: dict[str, list[int]] = {}
     false_alarms = 0
+    false_alarm_decisions_by_run: dict[str, list[int]] = {}
     below_threshold = 0
     ready = 0
     errors = []
@@ -75,6 +76,7 @@ def score(
                 alerts.setdefault(run.run_id, []).append(crossing - decision)
             else:
                 false_alarms += 1
+                false_alarm_decisions_by_run.setdefault(run.run_id, []).append(decision)
     positive = {run.run_id for run in runs if _first_crossing(run) is not None}
     leads = [max(alerts[run_id]) for run_id in positive if run_id in alerts]
     return {
@@ -93,6 +95,19 @@ def score(
         "lead_denominator": len(leads),
         "false_alarm_decisions": false_alarms,
         "false_alarm_denominator": below_threshold,
+        "false_alarm_runs": len(false_alarm_decisions_by_run),
+        "false_alarm_episodes_10s": sum(
+            1
+            + sum(
+                later - earlier > 10
+                for earlier, later in zip(decisions, decisions[1:], strict=False)
+            )
+            for decisions in false_alarm_decisions_by_run.values()
+        ),
+        "false_alarm_decisions_by_run": {
+            run_id: len(decisions)
+            for run_id, decisions in sorted(false_alarm_decisions_by_run.items())
+        },
     }
 
 
