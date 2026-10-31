@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import delete, event, select
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, col
 
@@ -27,10 +28,52 @@ pytestmark = pytest.mark.skipif(
 NOW = datetime(2026, 10, 31, 6, 0, tzinfo=UTC)
 
 
+def owned_test_target(url: URL) -> bool:
+    if url.host in {"db", "test-db"}:
+        return True
+    # Hosted CI runs pytest outside Compose and reaches its disposable DB
+    # through a published loopback port. Ordinary local runs do not qualify.
+    return (
+        os.getenv("GITHUB_ACTIONS") == "true"
+        and os.getenv("GITHUB_REPOSITORY") == "Cynthia060913/freshlink-zhikong-public"
+        and url.host in {"localhost", "127.0.0.1"}
+        and url.database == "app"
+        and url.username == "postgres"
+        and url.port == 5432
+    )
+
+
+@pytest.mark.parametrize(
+    "actions,url,allowed",
+    [
+        ("", "postgresql://postgres@localhost:5432/app", False),
+        ("false", "postgresql://postgres@localhost:5432/app", False),
+        ("true", "postgresql://postgres@localhost:5432/app", True),
+        ("true", "postgresql://postgres@127.0.0.1:5432/app", True),
+        ("true", "postgresql://postgres@production.invalid:5432/app", False),
+        ("true", "postgresql://postgres@localhost:5432/original", False),
+        ("true", "postgresql://owner@localhost:5432/app", False),
+        ("true", "postgresql://postgres@localhost:5433/app", False),
+    ],
+)
+def test_ci_loopback_exception_keeps_other_targets_blocked(
+    monkeypatch, actions, url, allowed
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", actions)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "Cynthia060913/freshlink-zhikong-public")
+    assert owned_test_target(make_url(url)) is allowed
+
+
+def test_other_repository_ci_cannot_enable_loopback_test_db(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/other")
+    assert not owned_test_target(make_url("postgresql://postgres@localhost:5432/app"))
+
+
 @pytest.fixture
 def pg_scope() -> Iterator[tuple[UUID, UUID, list[UUID]]]:
     assert engine.dialect.name == "postgresql"
-    assert engine.url.host in {"db", "test-db"}, "owned Docker test service required"
+    assert owned_test_target(engine.url), "owned Docker/Actions test DB required"
     room, device = uuid4(), uuid4()
     ids = [device]
     with Session(engine) as session:
