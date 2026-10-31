@@ -11,7 +11,7 @@
 
 ## 实跑结果（测试集，只评价一次）
 
-本机 Windows 的隔离 Python 3.13 标准库运行。项目正式应用要求 Python 3.14，本轮**未在本人电脑以3.14或真实PG/HTTP复测算法**。36训练运行得到880个可用窗口，9验证运行225个；15测试运行共有630个决策，397个可用（覆盖率63.02%），233个拒绝：采样缺口204、最新质量错误26、过期3。拒绝窗口没有预测值，也不判正常。
+首轮在本机 Windows 的隔离 Python 3.13 标准库运行，随后用**已有项目隔离 Python 3.14.3**重跑同8项专项及完整生成；六个制品 SHA256 与3.13运行逐字节一致。尚未在本人电脑以真实PG/HTTP或页面复测算法。36训练运行得到880个可用窗口，9验证运行225个；15测试运行共有630个决策，397个可用（覆盖率63.02%），233个拒绝：采样缺口204、最新质量错误26、过期3。拒绝窗口没有预测值，也不判正常。
 
 | 方法 | 测试MAE（℃；同397窗口） | 正确提前发现/实际新超限事件 | 正确事件提前量中位数 | 误报决策/可比较的阈值以下窗口 |
 |---|---:|---:|---:|---:|
@@ -34,4 +34,14 @@ python -m unittest tests.modules.test_forecast_candidate tests.modules.test_fore
 
 生成 `manifest.json`（60运行/种子/划分/观测文件哈希）、`parameters.json`、`evaluation.json`、`sample_observations.jsonl`、一组完整的 `example_prediction.json` 输入/输出和完整的 `synthetic_observations.jsonl`。后者由本目录 `.gitignore` 排除提交，可按 manifest SHA256 核对。C 本机在另一新目录重复运行，六个制品（参数、评估、清单、样本、示例、完整观测）字节 SHA256 全部一致。训练参数的规范化内容 SHA256 为 `631c342435be05626f4ddafc648984091d9a317a803ffe2ee652d324ab5a7ec8`（非文件字节哈希）。
 
-当前缺口：A PR103尚未正式合主线，C脚本尚未调用正式守卫；没有主程序只读预测接口、业务调用/前端、真实通知或真实冷库数据。B 的“提前关注”展示语义需与原阈值告警并列。11月3日晚若这些出口或独立价值仍不足，保留无算法版投稿，不把本实验当完整算法功能。
+## 与 A 输入守卫的独立纯计算对拍
+
+使用项目隔离 Python 3.14.3，对 A PR103 当前头 `56a3c56135314d4746029e638fa8e14559ad9338` 中未改动的 `forecast_window.py` 源码进行只读加载；与旧已审头的该文件 Git blob 相同。源码文件 SHA256 `a90157bad8232ccea34182b96f06442d3d51d3bd703a225fa9a02b54614648e8`。运行：
+
+```text
+python -m experiments.c_forecast.verify_guard_compat --guard-file <可信且已审的forecast_window.py路径> --output experiments/c_forecast/artifacts/v1/guard_compat.json
+```
+
+完整60运行、每运行42个决策共**2520窗口**，实验选择器与 A 实际守卫的状态及所有可用观测ID逐项相同：ready 1502、gapped_data 897、quality_blocked 109、stale_data 12。1502个 ready 窗口均能直接由 C 参数版 `predict_temperature` 产生数值；其余均返回 unavailable 和空预测。记录在 `guard_compat.json`，不含原始数据或本机绝对路径。这只证明合成输入下的纯窗口契约；不等于 A 的PG读取、HTTP、页面或业务预警通过。PR103当前头的远端 Test Backend 另有10项受控库地址判定错误，仍按正式审查单独修复。
+
+当前缺口：A PR103尚未正式合主线；没有主程序只读预测接口、业务调用/前端、真实通知或真实冷库数据。B 的“提前关注”展示语义需与原阈值告警并列。11月3日晚若这些出口或独立价值仍不足，保留无算法版投稿，不把本实验当完整算法功能。
