@@ -1,8 +1,11 @@
 """C pure forecast contract: as-of, unavailable, parameter and traceability gates."""
 
+import subprocess
+import sys
 import unittest
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID
 
 from app.modules.telemetry.forecast_candidate import (
@@ -68,6 +71,19 @@ def params() -> RidgeParameters:
 
 
 class PureForecastTests(unittest.TestCase):
+    def test_frozen_narrow_window_static_bridge(self) -> None:
+        backend = Path(__file__).resolve().parents[2]
+        bridge = backend / "tests/typing/forecast_frozen_bridge.py"
+        result = subprocess.run(
+            [sys.executable, "-m", "mypy", "--strict", str(bridge)],
+            cwd=backend,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_ready_contract_and_traceability(self) -> None:
         result = predict_temperature(sample(), params())
         self.assertEqual(result.status, "predicted")
