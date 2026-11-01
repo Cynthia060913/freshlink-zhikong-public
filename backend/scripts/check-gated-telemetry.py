@@ -138,6 +138,10 @@ def prove_control_to_stored_data(
     process_log = None
     result = {}
     started = datetime.now(UTC)
+    stage = "starting_workers"
+    baseline = None
+    ack_seen = None
+    normal_rule_start = None
 
     def execute(worker):
         try:
@@ -193,6 +197,7 @@ def prove_control_to_stored_data(
             thread = threading.Thread(target=execute, args=(worker,))
             threads.append(thread)
             thread.start()
+        stage = "online_baseline"
         wait_for(
             lambda: (
                 heartbeat.ready.is_set()
@@ -223,6 +228,7 @@ def prove_control_to_stored_data(
             value = detail.json()
             return value if value["status"] == "acknowledged" else None
 
+        stage = "control_ack"
         wait_for(acknowledged)
         detail = acknowledged()
         assert detail["transport_accepted_at"] is not None
@@ -232,6 +238,7 @@ def prove_control_to_stored_data(
         )
         ack_seen = datetime.now(UTC)
         normal_rule_start = datetime.now(UTC)
+        stage = "normal_rule"
         normal_rule = api.post(
             f"/api/v1/batches/{batch_id}/rule-snapshots",
             headers=headers,
@@ -262,11 +269,13 @@ def prove_control_to_stored_data(
                 and row["normalized"]["metrics"]["temperature"] < before - 0.02
             ]
 
+        stage = "stored_cooling"
         wait_for(cooled)
         after = cooled()[-1]
         assert (
             after["quality"] == ["ok"] and device.plant.state()["execution_count"] == 1
         )
+        stage = "replay"
         replay = api.post(prefix, headers=headers, json=body)
         assert replay.status_code == 201 and replay.json()["command_id"] == str(
             command_id
@@ -287,7 +296,40 @@ def prove_control_to_stored_data(
             "normal_rule_threshold_c": 20,
             "model": "software simulation, not physical cooling measurement",
         }
+        stage = "completed"
         return result
+    except BaseException as error:
+        # Read-only evidence capture before the existing owned cleanup. Never
+        # call stored() here: it may drive a delivery worker in another mode.
+        try:
+            from control_proof_diagnostics import checkpoint_view
+
+            observed = sorted(
+                rows(observations), key=lambda row: row["first_received_at_utc"]
+            )
+            snapshot = checkpoint_view(
+                stage=stage,
+                error=error,
+                started=started,
+                ack_seen=ack_seen,
+                rule_start=normal_rule_start,
+                baseline=baseline,
+                observations=observed,
+                counts={
+                    "inbox": len(rows(inbox)),
+                    "receipts": len(rows(receipts)),
+                    "observations": len(observed),
+                },
+                plant=device.plant.state(),
+            )
+            with Path("/results/control-stored-checkpoint-failure.json").open(
+                "x", encoding="utf-8"
+            ) as output:
+                json.dump(snapshot, output, indent=2)
+        except Exception:
+            # A missing diagnostic must never replace the original failure.
+            pass
+        raise
     finally:
         # Stop/join all owned threads even if child-process cleanup later fails.
         for worker in workers:
