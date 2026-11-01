@@ -28,6 +28,7 @@ services:
       SENTRY_DSN: ""
       COVERAGE_FILE: /results/.coverage
       PYTHONDONTWRITEBYTECODE: "1"
+      MYPY_CACHE_DIR: /tmp/freshlink-mypy
       PYTHONPATH: /app/backend
       FRESHLINK_C_TEST_POSTGRES: "1"
       FRESHLINK_INBOX_TEST_POSTGRES: "1"

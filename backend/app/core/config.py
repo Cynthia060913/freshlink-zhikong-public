@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str
     SENTRY_DSN: HttpUrl | None = None
     DATABASE_URL: PostgresDsn
+    # Local research preview only. Forecasts never dispatch alerts or controls.
+    FRESHLINK_FORECAST_PREVIEW_ENABLED: bool = False
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
