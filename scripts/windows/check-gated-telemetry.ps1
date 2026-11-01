@@ -22,9 +22,9 @@ try {
         & $docker image inspect $image --format '{{.Id}}'
         if($LASTEXITCODE){throw 'Required cached image missing; no automatic pulls'}
     }
-    # Reviewed release 1a2 includes the compatible batch-rule projection and
-    # explicit CSV v2 from PR99. Keep the full C subtree and C01 identity gate.
-    & git diff --quiet 1a2fa53be38a83a42df65395adf88332d5cdf3ed -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
+    # Reviewed C34 adds only the pure forecast module to the released C runtime
+    # tree (A review 5727246792). Keep the full C subtree and C01 identity gate.
+    & git diff --quiet 34cad612dde789c85d257963b3dc3c2754f1bfad -- backend/app/modules/telemetry backend/migration_candidates/c01_telemetry_storage.py
     if($LASTEXITCODE){throw 'C source changed; review this proof before repinning'}
     $revision=(& git rev-parse HEAD).Trim()
     if($LASTEXITCODE -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Source identity unavailable'}
