@@ -1,0 +1,9 @@
+{
+  "说明": "示例清单，全部为合成占位文件，不含真实身份或凭据。files 每项为显式相对路径（相对 --root）与可选来源标签。",
+  "files": [
+    { "path": "demo/01-source/README.md", "source": "合成示例：源码说明" },
+    { "path": "demo/02-application/app.tar", "source": "合成示例：应用归档（本示例缺失，用于演示 missing 与 hash）" },
+    { "path": "demo/03-design/架构 图（中文与空格）.png", "source": "合成示例：含中文、空格与全角括号的路径" },
+    { "path": "demo/04-presentation/展示.pptx", "source": "合成示例：展示材料" }
+  ]
+}

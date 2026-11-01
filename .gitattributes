@@ -7,3 +7,11 @@ docs/submission/design/*.json text eol=lf
 docs/submission/design/*.tex text eol=lf
 docs/submission/design/*.pdf binary
 docs/submission/design/*.png binary
+
+# Material index hashes use literal checkout bytes on Windows and Linux.
+docs/submission/claude-final-materials/*.md text eol=lf
+docs/submission/claude-final-materials/*.tex text eol=lf
+docs/submission/claude-final-materials/*.py text eol=lf
+docs/submission/claude-final-materials/*.mjs text eol=lf
+docs/submission/claude-final-materials/*.json text eol=lf
+docs/submission/claude-final-materials/*.html text eol=lf
