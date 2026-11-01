@@ -1,0 +1,6 @@
+{
+  "recipients": ["<A本人已同意接收的邮箱>"],
+  "max_events_per_cycle": 1,
+  "max_attempts_per_channel": 1,
+  "poll_seconds": 60
+}
