@@ -14,6 +14,7 @@ import useAuth from "@/hooks/useAuth"
 import { type DeviceKind, deviceError, devicesApi, deviceTime } from "./api"
 import { connectionLabel } from "./connection"
 import DeviceControlPanel from "./DeviceControlPanel"
+import DeviceForecastPanel from "./DeviceForecastPanel"
 
 const kindNames: Record<DeviceKind, string> = {
   temperature_sensor: "温度测点",
@@ -264,7 +265,7 @@ export default function DevicesPage() {
           if (!open) setSelectedId(null)
         }}
       >
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>设备详情</DialogTitle>
             <DialogDescription>
@@ -351,6 +352,9 @@ export default function DevicesPage() {
                 </ol>
               )}
             </section>
+          )}
+          {detail.isSuccess && detail.data && user && (
+            <DeviceForecastPanel key={detail.data.id} device={detail.data} />
           )}
           {detail.isSuccess && detail.data && user && (
             <DeviceControlPanel

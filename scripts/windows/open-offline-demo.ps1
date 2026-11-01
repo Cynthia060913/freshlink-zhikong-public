@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory=$true)][string]$Kit,
     [Parameter(Mandatory=$true)][string]$ExpectedManifestSha256,
     [ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSource='e7fffd61c199234918dcf1713cc1f3dd6ce78c51',
+    [switch]$ForecastPreview,
     [switch]$Start,
     [ValidateRange(1,10)][int]$Minutes=5
 )
@@ -59,6 +60,8 @@ $environment=@{
     SMTP_HOST='';SMTP_PASSWORD='';EMAILS_FROM_EMAIL='';SENTRY_DSN=''
     PYTHONDONTWRITEBYTECODE='1';PYTHONPATH='/app/backend'
 }
+# This affects only the newly generated isolated demo, never a saved config.
+$environment.FRESHLINK_FORECAST_PREVIEW_ENABLED=([bool]$ForecastPreview).ToString().ToLowerInvariant()
 $seedEnvironment=@{};foreach($key in $environment.Keys){$seedEnvironment[$key]=$environment[$key]}
 $seedEnvironment.FRESHLINK_GATED_FLEET_PROOF='1'
 $seedEnvironment.GATED_FLEET_SOURCE=$manifest.source
