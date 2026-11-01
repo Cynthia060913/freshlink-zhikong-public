@@ -908,6 +908,118 @@ export type DevicesPublic = {
 };
 
 /**
+ * ForecastPreview
+ *
+ * One decision snapshot; unavailable is never a normal-risk conclusion.
+ */
+export type ForecastPreview = {
+    /**
+     * Status
+     */
+    status?: 'predicted' | 'unavailable';
+    /**
+     * Reason
+     */
+    reason?: string | null;
+    /**
+     * Experimental
+     */
+    experimental?: true;
+    /**
+     * Business Warning Accepted
+     */
+    business_warning_accepted?: false;
+    /**
+     * Device Id
+     */
+    device_id: string;
+    /**
+     * Warehouse Id
+     */
+    warehouse_id?: string | null;
+    /**
+     * Decision At
+     */
+    decision_at: string;
+    /**
+     * Target At
+     */
+    target_at?: string | null;
+    /**
+     * Refresh Before
+     */
+    refresh_before?: string | null;
+    /**
+     * Device Connectivity
+     */
+    device_connectivity?: string | null;
+    /**
+     * Model Source
+     */
+    model_source?: string;
+    /**
+     * Model Version
+     */
+    model_version?: string | null;
+    /**
+     * Parameter Sha256
+     */
+    parameter_sha256?: string | null;
+    /**
+     * Policy Version
+     */
+    policy_version?: string;
+    /**
+     * Input Points
+     */
+    input_points?: Array<ForecastPreviewPoint>;
+    /**
+     * Predicted Temperature C
+     */
+    predicted_temperature_c?: number | null;
+    /**
+     * Last Value Temperature C
+     */
+    last_value_temperature_c?: number | null;
+    /**
+     * Linear Trend Temperature C
+     */
+    linear_trend_temperature_c?: number | null;
+};
+
+/**
+ * ForecastPreviewPoint
+ */
+export type ForecastPreviewPoint = {
+    /**
+     * Observation Id
+     */
+    observation_id: string;
+    /**
+     * Sampled At
+     */
+    sampled_at: string;
+    /**
+     * Received At
+     */
+    received_at: string;
+    /**
+     * Temperature C
+     */
+    temperature_c: number;
+};
+
+/**
+ * ForecastPreviewStatus
+ */
+export type ForecastPreviewStatus = {
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+};
+
+/**
  * HTTPValidationError
  */
 export type HTTPValidationError = {
@@ -2798,6 +2910,52 @@ export type deviceControlReadCommandResponses = {
 };
 
 export type deviceControlReadCommandResponse = deviceControlReadCommandResponses[keyof deviceControlReadCommandResponses];
+
+export type devicesPreviewStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/devices/forecast-preview/status';
+};
+
+export type devicesPreviewStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: ForecastPreviewStatus;
+};
+
+export type devicesPreviewStatusResponse = devicesPreviewStatusResponses[keyof devicesPreviewStatusResponses];
+
+export type devicesPreviewTemperatureData = {
+    body?: never;
+    path: {
+        /**
+         * Device Id
+         */
+        device_id: string;
+    };
+    query?: never;
+    url: '/api/v1/devices/{device_id}/temperature-forecast';
+};
+
+export type devicesPreviewTemperatureErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type devicesPreviewTemperatureError = devicesPreviewTemperatureErrors[keyof devicesPreviewTemperatureErrors];
+
+export type devicesPreviewTemperatureResponses = {
+    /**
+     * Successful Response
+     */
+    200: ForecastPreview;
+};
+
+export type devicesPreviewTemperatureResponse = devicesPreviewTemperatureResponses[keyof devicesPreviewTemperatureResponses];
 
 export type telemetryListObservationsData = {
     body?: never;
