@@ -57,7 +57,8 @@ function SummaryCard({
 
 export default function OverviewPage() {
   const [selectedId, setSelectedId] = useState("")
-  const [now, setNow] = useState(Date.now)
+  const [, tick] = useState(0)
+  const now = Date.now()
   const devices = useQuery({
     queryKey: ["overview-devices"],
     queryFn: () => devicesApi.list(0, DEVICE_LIMIT),
@@ -77,7 +78,7 @@ export default function OverviewPage() {
     retry: false,
   })
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
+    const timer = window.setInterval(() => tick((value) => value + 1), 1_000)
     return () => window.clearInterval(timer)
   }, [])
 

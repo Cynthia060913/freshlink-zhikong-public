@@ -115,6 +115,16 @@ test("Overview UI mock: captured prediction is immutable and compared only after
 test("Overview UI mock: server counts and selection remain explicitly scoped", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    const observation = { flashedStale: false }
+    Object.defineProperty(window, "overviewFreshnessProbe", {
+      value: observation,
+    })
+    new MutationObserver(() => {
+      if (document.body?.innerText.includes("观测已过期，等待新采样"))
+        observation.flashedStale = true
+    }).observe(document, { childList: true, subtree: true })
+  })
   const requested: URL[] = []
   await page.route(
     (url) => url.pathname === "/api/v1/devices/",
@@ -154,6 +164,16 @@ test("Overview UI mock: server counts and selection remain explicitly scoped", a
     page.getByRole("region", { name: "待处理告警", exact: true }),
   ).toContainText("7")
   await expect(page.getByTestId("overview-temperature")).toHaveText("4.50 °C")
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          window as Window & {
+            overviewFreshnessProbe: { flashedStale: boolean }
+          }
+        ).overviewFreshnessProbe.flashedStale,
+    ),
+  ).toBe(false)
   await page.getByLabel("温度测点", { exact: true }).selectOption(second)
   await expect(page.getByTestId("overview-temperature")).toHaveText("7.25 °C")
   expect(requested.at(-1)?.searchParams.get("device_id")).toBe(second)
