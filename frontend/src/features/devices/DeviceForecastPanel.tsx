@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { type Device, deviceTime } from "./api"
+import ForecastOutcomeComparison from "./ForecastOutcomeComparison"
 import { forecastApi, forecastPlot, forecastUnavailable } from "./forecast-api"
 
 const shortTime = (timestamp: number) =>
@@ -185,6 +186,10 @@ export default function DeviceForecastPanel({ device }: { device: Device }) {
           ) : (
             <p role="status">预测数据格式不可用，未显示估计。</p>
           )}
+          <ForecastOutcomeComparison
+            device={device}
+            snapshot={forecast.isSuccess && !expired && plot ? data! : null}
+          />
           <Button
             variant="outline"
             size="sm"
