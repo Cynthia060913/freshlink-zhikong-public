@@ -55,6 +55,7 @@ export default function DeviceForecastPanel({ device }: { device: Device }) {
           <p className="text-xs text-muted-foreground">
             模型基于仿真数据训练，尚未通过业务预警验收。估计仅供对照观察，
             不判定批次正常，不触发通知或调控；已有阈值告警继续运行。
+            该参考用于平稳或缓变温度巡检，不能预知尚未发生的突发升温。
           </p>
           {forecast.isPending ? (
             <p role="status">正在读取观测并计算…</p>
