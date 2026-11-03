@@ -90,9 +90,8 @@ def list_alert_groups(session: Session, *, skip: int, limit: int) -> AlertGroups
         .cte("group_page")
     )
     rows = (
-        session.connection().execute(
-            select(total.c.count, page).select_from(total.outerjoin(page, true()))
-        )
+        session.connection()
+        .execute(select(total.c.count, page).select_from(total.outerjoin(page, true())))
         .mappings()
         .all()
     )
