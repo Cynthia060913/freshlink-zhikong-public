@@ -179,6 +179,70 @@ export type AlertEventsPublic = {
 };
 
 /**
+ * AlertGroup
+ */
+export type AlertGroup = {
+    /**
+     * Warehouse Id
+     */
+    warehouse_id: string | null;
+    /**
+     * Warehouse Name
+     */
+    warehouse_name: string | null;
+    /**
+     * Batch Id
+     */
+    batch_id: string | null;
+    /**
+     * Batch Code
+     */
+    batch_code: string | null;
+    /**
+     * Product
+     */
+    product: string | null;
+    /**
+     * Open Count
+     */
+    open_count: number;
+    /**
+     * Acknowledged Count
+     */
+    acknowledged_count: number;
+    /**
+     * Resolved Count
+     */
+    resolved_count: number;
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * Latest Created At
+     */
+    latest_created_at: string;
+};
+
+/**
+ * AlertGroupsPublic
+ */
+export type AlertGroupsPublic = {
+    /**
+     * Data
+     */
+    data: Array<AlertGroup>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Queried At
+     */
+    queried_at: string;
+};
+
+/**
  * AlertLifecyclePublic
  *
  * Current status plus the full ordered transition history.
@@ -2726,6 +2790,22 @@ export type alertLifecycleListAlertsData = {
          * Severity
          */
         severity?: string | null;
+        /**
+         * Warehouse Id
+         */
+        warehouse_id?: string | null;
+        /**
+         * Batch Id
+         */
+        batch_id?: string | null;
+        /**
+         * Unassigned Warehouse
+         */
+        unassigned_warehouse?: boolean;
+        /**
+         * Unassigned Batch
+         */
+        unassigned_batch?: boolean;
     };
     url: '/api/v1/alerts/';
 };
@@ -2747,6 +2827,40 @@ export type alertLifecycleListAlertsResponses = {
 };
 
 export type alertLifecycleListAlertsResponse = alertLifecycleListAlertsResponses[keyof alertLifecycleListAlertsResponses];
+
+export type alertLifecycleReadAlertGroupsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/alerts/groups';
+};
+
+export type alertLifecycleReadAlertGroupsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type alertLifecycleReadAlertGroupsError = alertLifecycleReadAlertGroupsErrors[keyof alertLifecycleReadAlertGroupsErrors];
+
+export type alertLifecycleReadAlertGroupsResponses = {
+    /**
+     * Successful Response
+     */
+    200: AlertGroupsPublic;
+};
+
+export type alertLifecycleReadAlertGroupsResponse = alertLifecycleReadAlertGroupsResponses[keyof alertLifecycleReadAlertGroupsResponses];
 
 export type alertLifecycleReadAlertStatusData = {
     body?: never;

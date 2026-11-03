@@ -41,6 +41,7 @@ from app.modules.alerts.services.events import (
     list_status_transitions,
     statuses_for_events,
 )
+from app.modules.alerts.services.grouping import AlertGroupsPublic, list_alert_groups
 
 router = APIRouter(prefix="/alerts", tags=["alert-lifecycle"])
 
@@ -68,6 +69,10 @@ def list_alerts(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     state: AlertStatus | None = None,
     severity: str | None = None,
+    warehouse_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
+    unassigned_warehouse: bool = False,
+    unassigned_batch: bool = False,
 ) -> AlertEventsPublic:
     """Disposition list: anomalies newest first, optional state/severity.
 
@@ -75,8 +80,22 @@ def list_alerts(
     device lifecycle events are excluded (see ``list_alert_events``).
     """
 
+    if (warehouse_id is not None and unassigned_warehouse) or (
+        batch_id is not None and unassigned_batch
+    ):
+        raise HTTPException(
+            422, detail="ID and unassigned filter are mutually exclusive"
+        )
     rows, total = list_alert_events(
-        session, skip=skip, limit=limit, state=state, severity=severity
+        session,
+        skip=skip,
+        limit=limit,
+        state=state,
+        severity=severity,
+        warehouse_id=warehouse_id,
+        batch_id=batch_id,
+        unassigned_warehouse=unassigned_warehouse,
+        unassigned_batch=unassigned_batch,
     )
     statuses = statuses_for_events(session, [row.id for row in rows])
     return AlertEventsPublic(
@@ -101,6 +120,23 @@ def list_alerts(
         ],
         count=total,
     )
+
+
+@router.get("/groups", response_model=AlertGroupsPublic)
+def read_alert_groups(
+    session: SessionDep,
+    _current_user: CurrentUser,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 12,
+) -> AlertGroupsPublic:
+    """Read-only grouping, accessible to the same active users as the alert list."""
+    try:
+        return list_alert_groups(session, skip=skip, limit=limit)
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise HTTPException(
+            503, detail="storage_unavailable", headers={"Retry-After": "30"}
+        ) from exc
 
 
 @router.get(

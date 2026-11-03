@@ -1,0 +1,1202 @@
+[
+  {
+    "device_id": "0d34fe20-56fb-5f80-b02d-ebeab5f98fad",
+    "observation_id": "182d5349-c5c3-593f-94a7-2282e4011faa",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-stable_far-00",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.726536184961839,
+    "warehouse_id": "d7217719-0695-574f-81a4-e7fe2bf14b78"
+  },
+  {
+    "device_id": "0d34fe20-56fb-5f80-b02d-ebeab5f98fad",
+    "observation_id": "5661dc71-3c9e-560a-9984-f59b2a2fdee2",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-stable_far-00",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.818688904456529,
+    "warehouse_id": "d7217719-0695-574f-81a4-e7fe2bf14b78"
+  },
+  {
+    "device_id": "b626f973-faaf-5ddb-a80d-96143d803d1c",
+    "observation_id": "fc09eda4-0cea-53cf-a339-4f8bed6ed6c0",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-stable_far-01",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.915943943122764,
+    "warehouse_id": "36d04d3a-85ad-5fa0-a6d7-7d141360af83"
+  },
+  {
+    "device_id": "b626f973-faaf-5ddb-a80d-96143d803d1c",
+    "observation_id": "c750dd2d-a516-5f2c-91ae-be41a72899be",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-stable_far-01",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.808842120678951,
+    "warehouse_id": "36d04d3a-85ad-5fa0-a6d7-7d141360af83"
+  },
+  {
+    "device_id": "6fa98c9a-a9f9-5a27-bee3-20607822faee",
+    "observation_id": "a7855ba3-0d57-5092-b4c8-0514aa30246f",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-stable_far-02",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.607894808971946,
+    "warehouse_id": "339efbe5-11ca-5bc5-9981-074d043aaeb4"
+  },
+  {
+    "device_id": "6fa98c9a-a9f9-5a27-bee3-20607822faee",
+    "observation_id": "035a25db-f8ea-50a8-a3ac-0780f0fd9ddd",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-stable_far-02",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.928397625582976,
+    "warehouse_id": "339efbe5-11ca-5bc5-9981-074d043aaeb4"
+  },
+  {
+    "device_id": "6482106d-a436-5b58-af66-105e9baf39d1",
+    "observation_id": "152ea204-554e-5b37-aef6-343ea8475f3d",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-stable_far-03",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.718611957322943,
+    "warehouse_id": "e042b5e4-4d8d-5a14-ba4b-fff1f18101e9"
+  },
+  {
+    "device_id": "6482106d-a436-5b58-af66-105e9baf39d1",
+    "observation_id": "ecaffa5e-3a0f-5c13-ad3b-b644b7a3e225",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-stable_far-03",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.833934518721662,
+    "warehouse_id": "e042b5e4-4d8d-5a14-ba4b-fff1f18101e9"
+  },
+  {
+    "device_id": "2d84b083-00c8-5335-b7b2-289df092dc80",
+    "observation_id": "03675c56-b38c-5dc6-9c2a-66c51cf44d74",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-stable_far-04",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.907815678848628,
+    "warehouse_id": "985b59c0-59d9-5c7b-b517-be6eb6f1de13"
+  },
+  {
+    "device_id": "2d84b083-00c8-5335-b7b2-289df092dc80",
+    "observation_id": "22762d5b-33dc-52f8-b86b-3afc2967c444",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-stable_far-04",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.636052314030426,
+    "warehouse_id": "985b59c0-59d9-5c7b-b517-be6eb6f1de13"
+  },
+  {
+    "device_id": "1c367dcb-1bbd-5062-93e4-b73d004a04b1",
+    "observation_id": "5ea9b4ff-1744-5ae9-be02-eaa095f35043",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-stable_far-05",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.832687339420243,
+    "warehouse_id": "dc26d419-2bb5-5aed-b791-2cb7a9050667"
+  },
+  {
+    "device_id": "1c367dcb-1bbd-5062-93e4-b73d004a04b1",
+    "observation_id": "71006d36-5a74-52f8-92f2-541627ef54db",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-stable_far-05",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.942162809520312,
+    "warehouse_id": "dc26d419-2bb5-5aed-b791-2cb7a9050667"
+  },
+  {
+    "device_id": "9627bb2f-77a8-5077-abdf-dc9d0a0dbf6d",
+    "observation_id": "18162191-e8ef-5952-aace-ef8ae585b7cc",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-stable_far-06",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.59354413323791,
+    "warehouse_id": "aa378736-2466-51d8-b14b-e946f99056d0"
+  },
+  {
+    "device_id": "9627bb2f-77a8-5077-abdf-dc9d0a0dbf6d",
+    "observation_id": "fccc0633-4542-5ae4-8e5c-722640d2be25",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-stable_far-06",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.797970412326383,
+    "warehouse_id": "aa378736-2466-51d8-b14b-e946f99056d0"
+  },
+  {
+    "device_id": "9d708213-0045-548d-95a6-347450c07945",
+    "observation_id": "47551039-1320-527d-9c6b-67b2fe76644d",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-stable_far-07",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.809318601126938,
+    "warehouse_id": "4fad0ca8-ac50-50c8-bc50-0f40f1a956b3"
+  },
+  {
+    "device_id": "9d708213-0045-548d-95a6-347450c07945",
+    "observation_id": "a705c639-acce-5d22-ae5b-3fbdd422ab39",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:10+00:00",
+    "run_id": "a-stress-v1-stable_far-07",
+    "sampled_at": "2026-11-02T00:00:10+00:00",
+    "temperature_c": 6.957942619263607,
+    "warehouse_id": "4fad0ca8-ac50-50c8-bc50-0f40f1a956b3"
+  },
+  {
+    "device_id": "2d0805b4-ede6-5d5f-986f-e05123f8707c",
+    "observation_id": "afa71232-359d-515d-a45c-86952e2de985",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:01:10+00:00",
+    "run_id": "a-stress-v1-stable_far-08",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.903235817232011,
+    "warehouse_id": "e80ae8e3-4519-5ca7-87f5-f100b125414a"
+  },
+  {
+    "device_id": "2d0805b4-ede6-5d5f-986f-e05123f8707c",
+    "observation_id": "cb7257b3-06b4-53ba-8483-a6fb749845c8",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-stable_far-08",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.8171615729882715,
+    "warehouse_id": "e80ae8e3-4519-5ca7-87f5-f100b125414a"
+  },
+  {
+    "device_id": "26ea1fce-c340-5cbc-9ef3-d92b311a2062",
+    "observation_id": "db82141a-2c76-552c-868f-f2377b978bb2",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-stable_far-09",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.824925438547215,
+    "warehouse_id": "a5fec9d3-35b6-5532-a331-f0977b088681"
+  },
+  {
+    "device_id": "26ea1fce-c340-5cbc-9ef3-d92b311a2062",
+    "observation_id": "36ae824e-6df0-59af-afbf-5d2b67020f80",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-stable_far-09",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.902211155331788,
+    "warehouse_id": "a5fec9d3-35b6-5532-a331-f0977b088681"
+  },
+  {
+    "device_id": "fd5fcb3e-21ff-597b-89b7-16db99483dcd",
+    "observation_id": "022c5186-8b34-5d71-b59d-0c4cb017cfb1",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-stable_near-00",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.787020900567221,
+    "warehouse_id": "7ec28462-2da4-520c-8607-c9401abdcdcf"
+  },
+  {
+    "device_id": "fd5fcb3e-21ff-597b-89b7-16db99483dcd",
+    "observation_id": "6e41ac85-a7f0-5eef-ae84-20f0a2b31c8b",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-stable_near-00",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.854823371556092,
+    "warehouse_id": "7ec28462-2da4-520c-8607-c9401abdcdcf"
+  },
+  {
+    "device_id": "be1df8c0-ea0c-5a5e-bfc2-af4ffbb442e0",
+    "observation_id": "b9634c16-65c1-5a05-92fe-4682c81915b7",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-stable_near-01",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.931238270423768,
+    "warehouse_id": "129c9fd9-9876-5b6f-b7a3-963eb10a029c"
+  },
+  {
+    "device_id": "be1df8c0-ea0c-5a5e-bfc2-af4ffbb442e0",
+    "observation_id": "4ced6288-688a-569c-bb9a-027d7a49bc1e",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-stable_near-01",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.946282277238365,
+    "warehouse_id": "129c9fd9-9876-5b6f-b7a3-963eb10a029c"
+  },
+  {
+    "device_id": "6bef2ab0-2dc6-5771-b7bb-b927464407a0",
+    "observation_id": "1f2ff2fc-a1c5-5daf-a392-8fb39ae63e54",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-stable_near-02",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.779441164960984,
+    "warehouse_id": "2a4b938c-732b-582c-a1df-0f2b7c50ec02"
+  },
+  {
+    "device_id": "6bef2ab0-2dc6-5771-b7bb-b927464407a0",
+    "observation_id": "0d31b313-2ef5-58fa-bfb2-f7fb26169517",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:10+00:00",
+    "run_id": "a-stress-v1-stable_near-02",
+    "sampled_at": "2026-11-02T00:00:10+00:00",
+    "temperature_c": 7.731282903828254,
+    "warehouse_id": "2a4b938c-732b-582c-a1df-0f2b7c50ec02"
+  },
+  {
+    "device_id": "73f4361e-77d6-5ba3-9ece-cc97e0a00fa3",
+    "observation_id": "f96ec878-9543-50ef-a2f8-96bade2ed5e9",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-stable_near-03",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.803213781884928,
+    "warehouse_id": "fd422601-14f5-520c-9e69-f5a9cd54f2c1"
+  },
+  {
+    "device_id": "73f4361e-77d6-5ba3-9ece-cc97e0a00fa3",
+    "observation_id": "8d4364a0-ce05-533d-bfbd-3e52231669c0",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-stable_near-03",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.535622462413542,
+    "warehouse_id": "fd422601-14f5-520c-9e69-f5a9cd54f2c1"
+  },
+  {
+    "device_id": "92a6467a-694e-5d83-8068-63d4b5673bf7",
+    "observation_id": "b103ffd9-c613-55ff-abc2-13fd58236986",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-stable_near-04",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.585407202610165,
+    "warehouse_id": "1f32814a-861f-573f-b006-212d7fa43bd2"
+  },
+  {
+    "device_id": "92a6467a-694e-5d83-8068-63d4b5673bf7",
+    "observation_id": "5688447f-5fc8-5453-9d89-1c787c011d4e",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:10+00:00",
+    "run_id": "a-stress-v1-stable_near-04",
+    "sampled_at": "2026-11-02T00:00:10+00:00",
+    "temperature_c": 7.487082870319638,
+    "warehouse_id": "1f32814a-861f-573f-b006-212d7fa43bd2"
+  },
+  {
+    "device_id": "a4493173-44c2-579b-90c2-eeda3a434739",
+    "observation_id": "fed39d1e-9f8f-5392-b579-9a67f4788ac3",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-stable_near-05",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.741463799052805,
+    "warehouse_id": "0937128e-7f36-5a3a-8fa7-d19252da157d"
+  },
+  {
+    "device_id": "a4493173-44c2-579b-90c2-eeda3a434739",
+    "observation_id": "5c3902ca-9930-5594-92db-42da1ac31ff4",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-stable_near-05",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.57907739150446,
+    "warehouse_id": "0937128e-7f36-5a3a-8fa7-d19252da157d"
+  },
+  {
+    "device_id": "86ff3598-0a5d-5b5c-9fd6-563901ad7de2",
+    "observation_id": "d44c0507-074b-5d16-bc8a-8ce8c3c335b7",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-stable_near-06",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.0951878620523,
+    "warehouse_id": "641a4cdb-c030-586c-b55d-3e64b72400aa"
+  },
+  {
+    "device_id": "86ff3598-0a5d-5b5c-9fd6-563901ad7de2",
+    "observation_id": "360cca9a-4228-51c4-b476-aa5284c12bd4",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:11+00:00",
+    "run_id": "a-stress-v1-stable_near-06",
+    "sampled_at": "2026-11-02T00:00:10+00:00",
+    "temperature_c": 7.751122145161254,
+    "warehouse_id": "641a4cdb-c030-586c-b55d-3e64b72400aa"
+  },
+  {
+    "device_id": "5b7bf6ec-9a45-5d1b-b864-5d98503d429f",
+    "observation_id": "cbce162e-2d4e-55dd-bf23-d9bdcc876f4d",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-stable_near-07",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.774495947979785,
+    "warehouse_id": "a7b6a360-699c-5b6e-8d66-8b4ea6486252"
+  },
+  {
+    "device_id": "5b7bf6ec-9a45-5d1b-b864-5d98503d429f",
+    "observation_id": "f9958e84-c4f7-5696-b078-396d1ea6a33b",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:32+00:00",
+    "run_id": "a-stress-v1-stable_near-07",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.689155602176776,
+    "warehouse_id": "a7b6a360-699c-5b6e-8d66-8b4ea6486252"
+  },
+  {
+    "device_id": "478eecd2-b0af-53ba-90d8-862be12c5d59",
+    "observation_id": "b62cbfb7-2abe-51d5-a830-1b17c4278c7e",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-stable_near-08",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.640101574093398,
+    "warehouse_id": "666025c3-4044-595e-aae0-3ca637c44732"
+  },
+  {
+    "device_id": "478eecd2-b0af-53ba-90d8-862be12c5d59",
+    "observation_id": "d0f1f0fd-2029-55a9-8e58-d495e7a7d35f",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:17+00:00",
+    "run_id": "a-stress-v1-stable_near-08",
+    "sampled_at": "2026-11-02T00:00:15+00:00",
+    "temperature_c": 7.720274539622529,
+    "warehouse_id": "666025c3-4044-595e-aae0-3ca637c44732"
+  },
+  {
+    "device_id": "08e91b8e-16bc-545d-89f1-1a5ea9efdbae",
+    "observation_id": "10b164e6-cf37-5748-834f-afe96531e1fc",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-stable_near-09",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.710641625083816,
+    "warehouse_id": "42330b91-dc5e-5c3b-a66a-b19567adbff5"
+  },
+  {
+    "device_id": "08e91b8e-16bc-545d-89f1-1a5ea9efdbae",
+    "observation_id": "4470e896-a04e-5379-b7ef-9f1ad2c2e20f",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:01:12+00:00",
+    "run_id": "a-stress-v1-stable_near-09",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.720968862528615,
+    "warehouse_id": "42330b91-dc5e-5c3b-a66a-b19567adbff5"
+  },
+  {
+    "device_id": "299ea9bd-32f3-5ec4-a4e2-db912fcd91dd",
+    "observation_id": "f0c45437-f50b-5daf-ba54-48efd6b098ea",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-gradual_warming-00",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.7487449156063954,
+    "warehouse_id": "a8634a06-054e-5b52-a49a-89fe9e61e3e2"
+  },
+  {
+    "device_id": "299ea9bd-32f3-5ec4-a4e2-db912fcd91dd",
+    "observation_id": "0e9113c4-e972-5a57-994d-3f49f796b9b5",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-gradual_warming-00",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.692180742654906,
+    "warehouse_id": "a8634a06-054e-5b52-a49a-89fe9e61e3e2"
+  },
+  {
+    "device_id": "fd4be1bd-54cb-57ad-8486-3f09a14b29c8",
+    "observation_id": "628864b2-2ca5-5cad-b726-ee556efb51dd",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-gradual_warming-01",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.724805471307298,
+    "warehouse_id": "0e6b4134-3fa0-5910-a07b-229d5979b106"
+  },
+  {
+    "device_id": "fd4be1bd-54cb-57ad-8486-3f09a14b29c8",
+    "observation_id": "549ed3c2-ae0a-509b-8ce4-4fa964ae5b0b",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-gradual_warming-01",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.994288809659728,
+    "warehouse_id": "0e6b4134-3fa0-5910-a07b-229d5979b106"
+  },
+  {
+    "device_id": "2be1c2cf-07cd-5fe3-90cb-46226806ea94",
+    "observation_id": "9473ca60-9fee-5189-88ef-00a1861ac0b5",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-gradual_warming-02",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.5543444730314215,
+    "warehouse_id": "6e6cd832-463e-525e-8323-13b4110ef52b"
+  },
+  {
+    "device_id": "2be1c2cf-07cd-5fe3-90cb-46226806ea94",
+    "observation_id": "527b84c7-557a-532c-b42f-915a73961a91",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:44+00:00",
+    "run_id": "a-stress-v1-gradual_warming-02",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.492425190666904,
+    "warehouse_id": "6e6cd832-463e-525e-8323-13b4110ef52b"
+  },
+  {
+    "device_id": "a20d4d46-c30e-543c-837f-aa75e24a6b4b",
+    "observation_id": "0f9985b4-95b0-5c1a-9bf4-85d654878ae8",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-gradual_warming-03",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.7277411626566375,
+    "warehouse_id": "7c20ab3a-cead-57ad-a861-908d63a0142d"
+  },
+  {
+    "device_id": "a20d4d46-c30e-543c-837f-aa75e24a6b4b",
+    "observation_id": "7590a65e-5721-56da-ae56-724e74f9e524",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-gradual_warming-03",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.6910281937402925,
+    "warehouse_id": "7c20ab3a-cead-57ad-a861-908d63a0142d"
+  },
+  {
+    "device_id": "e1ff747e-50c1-5a3e-8663-508979d868aa",
+    "observation_id": "48810504-0517-5dad-ade3-2d2d6800f161",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-gradual_warming-04",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.729874821859312,
+    "warehouse_id": "0546feb9-a17c-5917-b750-f7555543d977"
+  },
+  {
+    "device_id": "e1ff747e-50c1-5a3e-8663-508979d868aa",
+    "observation_id": "7bd179d0-502b-5bc8-b895-c897e35abc2c",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:01:21+00:00",
+    "run_id": "a-stress-v1-gradual_warming-04",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.68970222822382,
+    "warehouse_id": "0546feb9-a17c-5917-b750-f7555543d977"
+  },
+  {
+    "device_id": "e9c37a48-525b-5430-956b-f202878b0f2d",
+    "observation_id": "e90839d3-0663-520e-a816-04a35fb1b40f",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-gradual_warming-05",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.812388364785453,
+    "warehouse_id": "a4feec93-213e-5168-8228-5e1c423cbc03"
+  },
+  {
+    "device_id": "e9c37a48-525b-5430-956b-f202878b0f2d",
+    "observation_id": "c2184468-4983-5d4c-b78f-8e6a16d964e7",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-gradual_warming-05",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.078423874320955,
+    "warehouse_id": "a4feec93-213e-5168-8228-5e1c423cbc03"
+  },
+  {
+    "device_id": "418a813b-f4db-58a1-b38a-d41da4ba3608",
+    "observation_id": "0a3a1fc1-4724-5beb-b9b1-b3e67c1cd49c",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-gradual_warming-06",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.671479996483532,
+    "warehouse_id": "ac5c7f06-a1f5-5da3-98ad-2d9a483cb168"
+  },
+  {
+    "device_id": "418a813b-f4db-58a1-b38a-d41da4ba3608",
+    "observation_id": "7929e157-e674-5166-be5e-7ca7ea303bc2",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:29+00:00",
+    "run_id": "a-stress-v1-gradual_warming-06",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.004980608427305,
+    "warehouse_id": "ac5c7f06-a1f5-5da3-98ad-2d9a483cb168"
+  },
+  {
+    "device_id": "fb74d0e6-4bfe-591d-a2f9-ed23938de5ae",
+    "observation_id": "fc9dfa4a-f0a9-5139-a754-49b6b16ccf35",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-gradual_warming-07",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.594200643914401,
+    "warehouse_id": "2ae656ca-6e31-5e6f-b646-06b1e98273e7"
+  },
+  {
+    "device_id": "fb74d0e6-4bfe-591d-a2f9-ed23938de5ae",
+    "observation_id": "24781b19-8593-5da3-87ca-db27b5d464b2",
+    "quality": [
+      "sensor_error"
+    ],
+    "received_at": "2026-11-02T00:00:59+00:00",
+    "run_id": "a-stress-v1-gradual_warming-07",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": null,
+    "warehouse_id": "2ae656ca-6e31-5e6f-b646-06b1e98273e7"
+  },
+  {
+    "device_id": "b9656010-024f-5f7c-a72a-a136adbc9cc6",
+    "observation_id": "fb79371d-1e8c-5950-bfa1-5ef6695ff060",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-gradual_warming-08",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.602694486240644,
+    "warehouse_id": "51095a38-72aa-5b5a-9760-bace098104ac"
+  },
+  {
+    "device_id": "b9656010-024f-5f7c-a72a-a136adbc9cc6",
+    "observation_id": "3de52e94-f5d4-51f2-98dd-d82a8819cba9",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-gradual_warming-08",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.968120936210719,
+    "warehouse_id": "51095a38-72aa-5b5a-9760-bace098104ac"
+  },
+  {
+    "device_id": "7e187ea6-2ffd-5e20-b450-981e2ae4033e",
+    "observation_id": "3e5021e7-7386-5b22-af8b-31c2a4a9f07c",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-gradual_warming-09",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.969472102176467,
+    "warehouse_id": "07567a57-4b31-5bda-8247-0cef2ede4e86"
+  },
+  {
+    "device_id": "7e187ea6-2ffd-5e20-b450-981e2ae4033e",
+    "observation_id": "7f7d1920-b21b-5962-90ff-e4558f46ecdb",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-gradual_warming-09",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.828629493992586,
+    "warehouse_id": "07567a57-4b31-5bda-8247-0cef2ede4e86"
+  },
+  {
+    "device_id": "9d0351fc-57bc-5bee-bb95-e05df5a950e2",
+    "observation_id": "b66245e2-541d-5463-a865-6aea04add2ee",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-step_warming-00",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.899729735145283,
+    "warehouse_id": "3dc8e7ef-6c11-5528-a442-7076ce035bae"
+  },
+  {
+    "device_id": "9d0351fc-57bc-5bee-bb95-e05df5a950e2",
+    "observation_id": "64de26e1-b14d-5a01-9882-fbe4da6b37ae",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-step_warming-00",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.05592047023513,
+    "warehouse_id": "3dc8e7ef-6c11-5528-a442-7076ce035bae"
+  },
+  {
+    "device_id": "17160a30-1dd5-5514-b539-b10326f25975",
+    "observation_id": "2ef4fc3d-3516-55b8-9e93-2ac8ac4a608d",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-step_warming-01",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.962649183416593,
+    "warehouse_id": "a8e67a86-0ee4-50df-812b-faba7a972dc0"
+  },
+  {
+    "device_id": "17160a30-1dd5-5514-b539-b10326f25975",
+    "observation_id": "856aae9b-304f-589f-b6d1-6bdd7841eeb3",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-step_warming-01",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.004505200818646,
+    "warehouse_id": "a8e67a86-0ee4-50df-812b-faba7a972dc0"
+  },
+  {
+    "device_id": "1c1877cf-5976-54b5-a48e-8d84c8cc2ef4",
+    "observation_id": "678261ff-a865-5db7-bfc8-3d4720679680",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-step_warming-02",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.009897736598735,
+    "warehouse_id": "de0c3661-1b85-537c-a57a-6b12cfa01988"
+  },
+  {
+    "device_id": "1c1877cf-5976-54b5-a48e-8d84c8cc2ef4",
+    "observation_id": "52064172-8d7f-5a87-b672-e5076409a54a",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-step_warming-02",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.106001372338869,
+    "warehouse_id": "de0c3661-1b85-537c-a57a-6b12cfa01988"
+  },
+  {
+    "device_id": "1da89143-13ae-5fe0-ae0c-68d330826076",
+    "observation_id": "e07d3d1b-d863-54a0-a04c-41e38b945e09",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:47+00:00",
+    "run_id": "a-stress-v1-step_warming-03",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.095014247176432,
+    "warehouse_id": "6bd5e83e-a43e-5230-9060-50072d77e343"
+  },
+  {
+    "device_id": "1da89143-13ae-5fe0-ae0c-68d330826076",
+    "observation_id": "f79340c1-fb37-53fe-91d0-0dc74fe05d4f",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:54+00:00",
+    "run_id": "a-stress-v1-step_warming-03",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.0754752265331895,
+    "warehouse_id": "6bd5e83e-a43e-5230-9060-50072d77e343"
+  },
+  {
+    "device_id": "9e6691ac-ea48-5e35-8346-02c29679dafc",
+    "observation_id": "48e77963-7f21-5661-ba5e-c3114e5081b2",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-step_warming-04",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.932152958378941,
+    "warehouse_id": "d6683342-9ac5-5adb-af03-585d1ed181e0"
+  },
+  {
+    "device_id": "9e6691ac-ea48-5e35-8346-02c29679dafc",
+    "observation_id": "8238dcf0-0b7b-5b74-871b-89df17ee69e2",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-step_warming-04",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.77819806126862,
+    "warehouse_id": "d6683342-9ac5-5adb-af03-585d1ed181e0"
+  },
+  {
+    "device_id": "bd9c7a37-e447-59c3-aef1-f1ca2ab147fa",
+    "observation_id": "adfd1203-7d37-54e0-9c83-8d0610cdda89",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:01:06+00:00",
+    "run_id": "a-stress-v1-step_warming-05",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.820839072299098,
+    "warehouse_id": "3eb5142b-3030-563c-9ac6-a89529621d68"
+  },
+  {
+    "device_id": "bd9c7a37-e447-59c3-aef1-f1ca2ab147fa",
+    "observation_id": "702c97a9-7710-56d0-8323-bc75ccad51ef",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-step_warming-05",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.02227106517128,
+    "warehouse_id": "3eb5142b-3030-563c-9ac6-a89529621d68"
+  },
+  {
+    "device_id": "02cfda7f-55ad-5077-a822-31c949cac15a",
+    "observation_id": "3ebc19b1-943c-5bf0-8c9a-bf5d7d09c76b",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:01:05+00:00",
+    "run_id": "a-stress-v1-step_warming-06",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.279854251003594,
+    "warehouse_id": "197de522-5750-505f-9fee-fdc8cac6b6f6"
+  },
+  {
+    "device_id": "02cfda7f-55ad-5077-a822-31c949cac15a",
+    "observation_id": "6ae56546-c592-5b3b-afcf-fca31ae2d0c9",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-step_warming-06",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.195152461039886,
+    "warehouse_id": "197de522-5750-505f-9fee-fdc8cac6b6f6"
+  },
+  {
+    "device_id": "1a3c885f-790c-5019-ad97-637a103e88c4",
+    "observation_id": "2f0a7a33-ee7c-5c46-86d6-d9bef68f58f2",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-step_warming-07",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 6.854618936958353,
+    "warehouse_id": "5f17465d-5ae2-5243-986b-4bbe3e7c840a"
+  },
+  {
+    "device_id": "1a3c885f-790c-5019-ad97-637a103e88c4",
+    "observation_id": "2ee336f6-fded-5260-9e7d-180b6d162392",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-step_warming-07",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.921868428906334,
+    "warehouse_id": "5f17465d-5ae2-5243-986b-4bbe3e7c840a"
+  },
+  {
+    "device_id": "73ae9743-fbce-5b3c-baab-95a07888eb7e",
+    "observation_id": "4efc95f9-fb6d-526a-b4fd-a5aaad3cca37",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-step_warming-08",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.089729188020344,
+    "warehouse_id": "36aca065-aae8-55a2-a8d6-5fe201865482"
+  },
+  {
+    "device_id": "73ae9743-fbce-5b3c-baab-95a07888eb7e",
+    "observation_id": "6f3bf515-07db-5641-840b-85da51aa1e51",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-step_warming-08",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 6.950094035407084,
+    "warehouse_id": "36aca065-aae8-55a2-a8d6-5fe201865482"
+  },
+  {
+    "device_id": "72b9bac3-ae8f-543c-b12f-cfac0c8c66ac",
+    "observation_id": "0cfc6d9e-c437-5860-a809-81ab12c6c65b",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-step_warming-09",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 7.1962738602342915,
+    "warehouse_id": "fc7b053c-4b3b-59d6-9fed-071972f888ab"
+  },
+  {
+    "device_id": "72b9bac3-ae8f-543c-b12f-cfac0c8c66ac",
+    "observation_id": "7b867380-6775-5f7e-994d-944430c2e90c",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-step_warming-09",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 7.083734301579755,
+    "warehouse_id": "fc7b053c-4b3b-59d6-9fed-071972f888ab"
+  },
+  {
+    "device_id": "e9882bef-5904-561e-aec8-31848c7328ac",
+    "observation_id": "bc7a6e93-f8a7-5fd6-bf61-8a549717f4a2",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-cooling-00",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 8.411359075786654,
+    "warehouse_id": "4eef8fe2-89d6-5ce4-a16a-de7fc4398f65"
+  },
+  {
+    "device_id": "e9882bef-5904-561e-aec8-31848c7328ac",
+    "observation_id": "06fb86b8-b75b-57ac-862b-4af39504dd68",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-cooling-00",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.240525615483396,
+    "warehouse_id": "4eef8fe2-89d6-5ce4-a16a-de7fc4398f65"
+  },
+  {
+    "device_id": "4d5d2641-d78d-5afc-8aca-8f320401461c",
+    "observation_id": "4fef71e1-118e-5259-8515-90f4c7620dba",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:01:00+00:00",
+    "run_id": "a-stress-v1-cooling-01",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 8.407293981010856,
+    "warehouse_id": "e829ea10-8d9e-51d1-82f7-64c44ddc797b"
+  },
+  {
+    "device_id": "4d5d2641-d78d-5afc-8aca-8f320401461c",
+    "observation_id": "28c2aa23-c3fa-5cbd-8431-10d53d264181",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-cooling-01",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.584022499365728,
+    "warehouse_id": "e829ea10-8d9e-51d1-82f7-64c44ddc797b"
+  },
+  {
+    "device_id": "cc2ffa06-fb5c-5301-80ea-6a91fc76c570",
+    "observation_id": "66f3aedd-2a59-58aa-8a53-eaee29a27451",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-cooling-02",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 8.603594313280887,
+    "warehouse_id": "625e969b-f343-5dad-9ac1-fb7c6ec3ab24"
+  },
+  {
+    "device_id": "cc2ffa06-fb5c-5301-80ea-6a91fc76c570",
+    "observation_id": "2fe73f35-fdbb-5ac8-8da4-b7504e708034",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-cooling-02",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.56557773888464,
+    "warehouse_id": "625e969b-f343-5dad-9ac1-fb7c6ec3ab24"
+  },
+  {
+    "device_id": "c505c5d5-40bf-5c99-a31b-889c3837639a",
+    "observation_id": "b7266f12-0e8a-55d1-ab76-af31f95b8f20",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:42+00:00",
+    "run_id": "a-stress-v1-cooling-03",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 8.639849908946632,
+    "warehouse_id": "fdec53d9-5130-5239-8c7b-a75859e6c87d"
+  },
+  {
+    "device_id": "c505c5d5-40bf-5c99-a31b-889c3837639a",
+    "observation_id": "d7a2c25a-ddb6-5112-95c0-fc72a5be2c0d",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-cooling-03",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.394903742470015,
+    "warehouse_id": "fdec53d9-5130-5239-8c7b-a75859e6c87d"
+  },
+  {
+    "device_id": "4a561146-b530-5805-99a7-b57689c3fff3",
+    "observation_id": "2cd2eb14-3bd8-51c0-b367-fa2b4497d5e0",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-cooling-04",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 8.628274458832438,
+    "warehouse_id": "92d0d6cb-bc66-52a1-865a-0400f993a71d"
+  },
+  {
+    "device_id": "4a561146-b530-5805-99a7-b57689c3fff3",
+    "observation_id": "90b26730-016c-5099-a41d-7d2cd546493f",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:05+00:00",
+    "run_id": "a-stress-v1-cooling-04",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.540451466468063,
+    "warehouse_id": "92d0d6cb-bc66-52a1-865a-0400f993a71d"
+  },
+  {
+    "device_id": "71327c87-f191-5e3d-b251-046a2bee9dd7",
+    "observation_id": "96a43c45-260e-504d-add1-a081f6a3f522",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:02+00:00",
+    "run_id": "a-stress-v1-cooling-05",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 8.421430662821837,
+    "warehouse_id": "556b4666-7400-5be9-af01-784ef0ca718d"
+  },
+  {
+    "device_id": "71327c87-f191-5e3d-b251-046a2bee9dd7",
+    "observation_id": "41ddaa7b-0b99-5901-8cad-11ad2e590d54",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:07+00:00",
+    "run_id": "a-stress-v1-cooling-05",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.404943760957112,
+    "warehouse_id": "556b4666-7400-5be9-af01-784ef0ca718d"
+  },
+  {
+    "device_id": "359def72-e184-5414-a255-e372ae0d30be",
+    "observation_id": "84450df0-f905-55dd-9ac9-92344352894d",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:00+00:00",
+    "run_id": "a-stress-v1-cooling-06",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 8.179333324292124,
+    "warehouse_id": "d843fcc8-9e93-54d9-8625-88b6a8f2d48c"
+  },
+  {
+    "device_id": "359def72-e184-5414-a255-e372ae0d30be",
+    "observation_id": "34222d93-5fee-5c71-a20c-1c1553b71bb3",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-cooling-06",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.167320366094973,
+    "warehouse_id": "d843fcc8-9e93-54d9-8625-88b6a8f2d48c"
+  },
+  {
+    "device_id": "dda74566-3d04-5886-aac6-07afb8005022",
+    "observation_id": "bbba1d08-f107-518f-b3ca-b67d74cf1cf7",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:01:11+00:00",
+    "run_id": "a-stress-v1-cooling-07",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 8.558458316217171,
+    "warehouse_id": "e6dff911-678d-51e8-8f00-e1fdb389bd60"
+  },
+  {
+    "device_id": "dda74566-3d04-5886-aac6-07afb8005022",
+    "observation_id": "4cb7d16a-de96-5156-a148-5f18fbcc18cd",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-cooling-07",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.57321598220939,
+    "warehouse_id": "e6dff911-678d-51e8-8f00-e1fdb389bd60"
+  },
+  {
+    "device_id": "25d4c732-1395-5561-a74f-00136d7bb3fe",
+    "observation_id": "93b95194-a808-5092-8915-90863268446d",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:01+00:00",
+    "run_id": "a-stress-v1-cooling-08",
+    "sampled_at": "2026-11-02T00:00:00+00:00",
+    "temperature_c": 8.353809347662374,
+    "warehouse_id": "d49b2d93-ccb1-512f-9c8f-69bc6c302302"
+  },
+  {
+    "device_id": "25d4c732-1395-5561-a74f-00136d7bb3fe",
+    "observation_id": "f4ed3a69-fc4f-5230-a853-1607f2c6f6a6",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-cooling-08",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": 8.281702152974761,
+    "warehouse_id": "d49b2d93-ccb1-512f-9c8f-69bc6c302302"
+  },
+  {
+    "device_id": "1c6ea9dc-b1cc-52f1-a3c2-d46650c1e30e",
+    "observation_id": "1c139ff2-e652-529e-9e21-082f6cde38cf",
+    "quality": [
+      "sensor_error"
+    ],
+    "received_at": "2026-11-02T00:00:06+00:00",
+    "run_id": "a-stress-v1-cooling-09",
+    "sampled_at": "2026-11-02T00:00:05+00:00",
+    "temperature_c": null,
+    "warehouse_id": "29bd8399-3d9f-54a5-b184-83f2a9da0970"
+  },
+  {
+    "device_id": "1c6ea9dc-b1cc-52f1-a3c2-d46650c1e30e",
+    "observation_id": "2bb08743-b68d-556a-8516-6bad0baee341",
+    "quality": [
+      "ok"
+    ],
+    "received_at": "2026-11-02T00:00:42+00:00",
+    "run_id": "a-stress-v1-cooling-09",
+    "sampled_at": "2026-11-02T00:00:10+00:00",
+    "temperature_c": 8.291719969872062,
+    "warehouse_id": "29bd8399-3d9f-54a5-b184-83f2a9da0970"
+  }
+]
