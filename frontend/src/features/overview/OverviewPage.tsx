@@ -11,6 +11,7 @@ import DeviceForecastPanel from "@/features/devices/DeviceForecastPanel"
 import { forecastApi } from "@/features/devices/forecast-api"
 import { telemetryApi } from "@/features/telemetry/api"
 import { isLatestObservationStale } from "@/features/telemetry/freshness"
+import AlertGroupsPanel from "./AlertGroupsPanel"
 
 const DEVICE_LIMIT = 100
 const SNAPSHOT_AGE_MS = 30_000
@@ -394,6 +395,8 @@ export default function OverviewPage() {
           </CardContent>
         </Card>
       </div>
+
+      <AlertGroupsPanel />
 
       <nav aria-label="项目功能" className="grid gap-3 md:grid-cols-3">
         {[

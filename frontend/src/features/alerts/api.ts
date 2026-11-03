@@ -45,6 +45,28 @@ export interface AlertLifecycle {
 export interface AlertQuery {
   state?: AlertState
   severity?: string
+  warehouse_id?: string
+  batch_id?: string
+  unassigned_warehouse?: boolean
+  unassigned_batch?: boolean
+}
+
+export interface AlertGroup {
+  warehouse_id: string | null
+  warehouse_name: string | null
+  batch_id: string | null
+  batch_code: string | null
+  product: string | null
+  open_count: number
+  acknowledged_count: number
+  resolved_count: number
+  total_count: number
+  latest_created_at: string
+}
+export interface AlertGroupsPage {
+  data: AlertGroup[]
+  count: number
+  queried_at: string
 }
 
 // Reuse the template's configured bearer client. Pages never handle tokens or HTTP.
@@ -63,9 +85,22 @@ export const alertsApi = {
       query: {
         skip,
         limit,
-        ...(query.state ? { state: query.state } : {}),
-        ...(query.severity ? { severity: query.severity } : {}),
+        ...query,
       },
+      responseType: "json",
+      security: [{ scheme: "bearer", type: "http" }],
+      throwOnError: true,
+    })
+    return response.data
+  },
+  async groups(skip: number, limit: number): Promise<AlertGroupsPage> {
+    const response = await client.get<
+      { 200: AlertGroupsPage },
+      { 503: unknown },
+      true
+    >({
+      url: "/api/v1/alerts/groups",
+      query: { skip, limit },
       responseType: "json",
       security: [{ scheme: "bearer", type: "http" }],
       throwOnError: true,

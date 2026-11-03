@@ -332,6 +332,10 @@ def list_alert_events(
     limit: int = 50,
     state: AlertStatus | None = None,
     severity: str | None = None,
+    warehouse_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
+    unassigned_warehouse: bool = False,
+    unassigned_batch: bool = False,
 ) -> tuple[list[AlertEvent], int]:
     """Paginated anomalies for the disposition console, newest first.
 
@@ -346,6 +350,14 @@ def list_alert_events(
         condition = condition & _state_condition(state)
     if severity is not None:
         condition = condition & (col(AlertEvent.severity) == severity)
+    if warehouse_id is not None:
+        condition = condition & (col(AlertEvent.warehouse_id) == warehouse_id)
+    if batch_id is not None:
+        condition = condition & (col(AlertEvent.batch_id) == batch_id)
+    if unassigned_warehouse:
+        condition = condition & col(AlertEvent.warehouse_id).is_(None)
+    if unassigned_batch:
+        condition = condition & col(AlertEvent.batch_id).is_(None)
 
     total = session.exec(
         select(func.count()).select_from(AlertEvent).where(condition)
