@@ -217,6 +217,13 @@ class GroupingCase(unittest.TestCase):
             self.assertEqual(page["count"], 3)
             ids.append(page["data"][0]["batch_id"])
         self.assertEqual(len(set(ids)), 3)
+        ordered = sorted(
+            (self.b1, self.b2, self.b3),
+            key=lambda batch: (str(batch.warehouse_id), str(batch.id)),
+        )
+        expected = [str(batch.id) for batch in ordered]
+        self.assertEqual(ids, expected)
+        self.assertEqual([row["batch_id"] for row in self.groups()["data"]], expected)
         self.assertEqual(self.groups(skip=100)["count"], 3)
         self.assertEqual(self.groups(skip=100)["data"], [])
 

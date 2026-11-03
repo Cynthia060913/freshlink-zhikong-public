@@ -91,7 +91,16 @@ def list_alert_groups(session: Session, *, skip: int, limit: int) -> AlertGroups
     )
     rows = (
         session.connection()
-        .execute(select(total.c.count, page).select_from(total.outerjoin(page, true())))
+        .execute(
+            select(total.c.count, page)
+            .select_from(total.outerjoin(page, true()))
+            .order_by(
+                (page.c.open_count + page.c.acknowledged_count).desc(),
+                page.c.latest_created_at.desc(),
+                page.c.warehouse_id,
+                page.c.batch_id,
+            )
+        )
         .mappings()
         .all()
     )
